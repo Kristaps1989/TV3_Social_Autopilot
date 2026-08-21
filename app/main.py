@@ -8,16 +8,15 @@ from datetime import timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import base64
 import os
-import secrets as pysecrets
+import time
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import config, credentials
+from app import auth, config, credentials
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -45,27 +44,97 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="TV3 Social Autopilot", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+# Pages reachable without a session: healthcheck + the auth pages themselves.
+PUBLIC_PATHS = {"/health", "/login", "/setup"}
 
 
 @app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    """The admin UI holds the kill switch and platform tokens — on a public
-    deployment it must not be open. Set ADMIN_PASSWORD (user: admin)."""
-    if ADMIN_PASSWORD and request.url.path != "/health":
-        header = request.headers.get("authorization", "")
-        ok = False
-        if header.startswith("Basic "):
-            try:
-                user, _, pwd = base64.b64decode(header[6:]).decode().partition(":")
-                ok = (user == "admin"
-                      and pysecrets.compare_digest(pwd, ADMIN_PASSWORD))
-            except Exception:  # noqa: BLE001
-                ok = False
-        if not ok:
-            return Response(status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="TV3 Autopilot"'})
-    return await call_next(request)
+async def require_login(request: Request, call_next):
+    """The admin UI holds the kill switch and platform tokens — everything
+    except /health requires a logged-in session. With no password configured
+    yet, every page redirects to the one-time /setup screen."""
+    if request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    session = get_session()
+    try:
+        if not auth.password_configured(session):
+            return RedirectResponse("/setup", status_code=303)
+        if auth.valid_token(session, request.cookies.get(auth.SESSION_COOKIE, "")):
+            return await call_next(request)
+    finally:
+        session.close()
+    return RedirectResponse("/login", status_code=303)
+
+
+def _login_response(request: Request, session) -> RedirectResponse:
+    resp = RedirectResponse("/", status_code=303)
+    secure = (request.headers.get("x-forwarded-proto", request.url.scheme) == "https")
+    resp.set_cookie(auth.SESSION_COOKIE, auth.issue_token(session),
+                    max_age=auth.SESSION_DAYS * 86400,
+                    httponly=True, samesite="lax", secure=secure)
+    return resp
+
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request, error: str = ""):
+    session = get_session()
+    try:
+        if auth.password_configured(session):
+            return RedirectResponse("/login", status_code=303)
+    finally:
+        session.close()
+    return templates.TemplateResponse(request, "auth.html",
+                                      {"mode": "setup", "error": error})
+
+
+@app.post("/setup")
+def setup_submit(request: Request, password: str = Form(...),
+                 password2: str = Form(...)):
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if auth.password_configured(session):
+            return RedirectResponse("/login", status_code=303)
+        if password != password2:
+            return RedirectResponse("/setup?error=Paroles+nesakrīt", status_code=303)
+        err = auth.set_password(session, password)
+        if err:
+            return RedirectResponse(f"/setup?error={quote(err)}", status_code=303)
+        return _login_response(request, session)
+    finally:
+        session.close()
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, error: str = ""):
+    session = get_session()
+    try:
+        if not auth.password_configured(session):
+            return RedirectResponse("/setup", status_code=303)
+    finally:
+        session.close()
+    return templates.TemplateResponse(request, "auth.html",
+                                      {"mode": "login", "error": error})
+
+
+@app.post("/login")
+def login_submit(request: Request, password: str = Form(...)):
+    session = get_session()
+    try:
+        if auth.check_password(session, password):
+            return _login_response(request, session)
+    finally:
+        session.close()
+    time.sleep(1)  # slow down password guessing
+    return RedirectResponse("/login?error=Nepareiza+parole", status_code=303)
+
+
+@app.post("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(auth.SESSION_COOKIE)
+    return resp
 
 
 def public_base(request: Request) -> str:
@@ -130,8 +199,7 @@ def dashboard(request: Request):
             "channels": channel_data,
             "kill_switch": get_setting(session, "kill_switch") == "on",
             "dry_run": config.DRY_RUN,
-            "ai_active": bool(config.ANTHROPIC_API_KEY),
-            "no_admin_password": not ADMIN_PASSWORD,
+            "ai_active": bool(credentials.get("anthropic_api_key", session)),
         })
     finally:
         session.close()
@@ -257,14 +325,71 @@ def connect(request: Request, error: str = "", connected: str = ""):
         status = credentials.connection_status(session)
         fb_app_id, _ = credentials.fb_app()
         th_app_id, _ = credentials.threads_app()
+        ai_key = credentials.get("anthropic_api_key", session)
         return templates.TemplateResponse(request, "connect.html", {
             "status": status,
+            "ai_key_masked": f"sk-ant-…{ai_key[-4:]}" if ai_key else "",
             "meta_app_ready": bool(fb_app_id),
             "threads_app_ready": bool(th_app_id),
             "redirect_fb": f"{public_base(request)}/connect/facebook/callback",
             "redirect_th": f"{public_base(request)}/connect/threads/callback",
             "error": error, "connected": connected,
         })
+    finally:
+        session.close()
+
+
+@app.post("/connect/anthropic")
+def connect_anthropic(api_key: str = Form("")):
+    """Save (or clear) the Anthropic API key. A saved key is verified with a
+    minimal live call so a typo is caught immediately."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        api_key = api_key.strip()
+        if not api_key:
+            credentials.put(session, "anthropic_api_key", "")
+            return RedirectResponse("/connect?connected=AI+atslēga+noņemta", status_code=303)
+        if not api_key.startswith("sk-ant-"):
+            return RedirectResponse(
+                "/connect?error=Atslēgai+jāsākas+ar+sk-ant-+—+pārbaudi+kopēto+vērtību",
+                status_code=303)
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=api_key)
+            client.messages.create(model=config.AI_MODEL_FAST, max_tokens=1,
+                                   messages=[{"role": "user", "content": "ok"}])
+        except anthropic.AuthenticationError:
+            return RedirectResponse("/connect?error=Atslēga+netika+pieņemta+(authentication+error)",
+                                    status_code=303)
+        except Exception as e:  # noqa: BLE001 — network etc.: save anyway, but say so
+            credentials.put(session, "anthropic_api_key", api_key)
+            return RedirectResponse(
+                f"/connect?error={quote('Atslēga saglabāta, bet pārbaude neizdevās: ' + str(e)[:120])}",
+                status_code=303)
+        credentials.put(session, "anthropic_api_key", api_key)
+        return RedirectResponse("/connect?connected=AI+(Claude)", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/password")
+def change_password(current: str = Form(...), password: str = Form(...),
+                    password2: str = Form(...)):
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if not auth.check_password(session, current):
+            return RedirectResponse("/connect?error=Pašreizējā+parole+nepareiza", status_code=303)
+        if password != password2:
+            return RedirectResponse("/connect?error=Jaunās+paroles+nesakrīt", status_code=303)
+        err = auth.set_password(session, password)
+        if err:
+            return RedirectResponse(f"/connect?error={quote(err)}", status_code=303)
+        return RedirectResponse("/connect?connected=parole+nomainīta", status_code=303)
     finally:
         session.close()
 

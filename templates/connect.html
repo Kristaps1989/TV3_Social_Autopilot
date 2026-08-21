@@ -9,6 +9,37 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
 
 <div class="cards">
   <div class="card">
+    <h2>AI — Claude (Anthropic)
+      {% if ai_key_masked %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav atslēgas</span>{% endif %}
+    </h2>
+    <div class="meta">
+      {% if ai_key_masked %}
+        Atslēga: <code>{{ ai_key_masked }}</code> — AI raksta sociālajiem tīkliem
+        pielāgotus tekstus un izvēlas formātu.
+      {% else %}
+        Bez atslēgas darbojas rezerves režīms: teksti = virsraksts + ievads,
+        “can” raksti netiek publicēti.
+      {% endif %}
+    </div>
+    <form method="post" action="/connect/anthropic">
+      <input type="password" name="api_key" placeholder="sk-ant-..." autocomplete="off" required>
+      <div style="margin-top:.5rem">
+        <button class="primary">{{ 'Nomainīt atslēgu' if ai_key_masked else 'Saglabāt atslēgu' }}</button>
+      </div>
+    </form>
+    {% if ai_key_masked %}
+    <form method="post" action="/connect/anthropic" style="margin-top:.4rem">
+      <input type="hidden" name="api_key" value="">
+      <button class="danger">Noņemt atslēgu</button>
+    </form>
+    {% endif %}
+    <p class="muted">Atslēgu izveido <b>console.anthropic.com</b> → API Keys →
+    Create Key. Saglabājot tā tiek pārbaudīta ar īstu izsaukumu, tāpēc kļūdaina
+    atslēga tiek noraidīta uzreiz.</p>
+  </div>
+
+  <div class="card">
     <h2>Facebook lapa
       {% if status.facebook.connected %}<span class="badge live">savienots</span>
       {% else %}<span class="badge paused">nav savienots</span>{% endif %}
@@ -82,7 +113,17 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
   <ul class="muted">
     <li>Atslēgas glabājas tikai šī servera datubāzē (vai vides mainīgajos) — nekad git repozitorijā.</li>
     <li>Facebook lapas atslēga no ilgtermiņa pieteikšanās nebeidzas; Threads atslēga (60 dienas) tiek atjaunota automātiski, un par tuvu termiņu sistēma brīdina.</li>
-    <li>Admin saskarne jāaizsargā ar <code>ADMIN_PASSWORD</code> vides mainīgo (lietotājs: <code>admin</code>).</li>
+    <li>Visa admin saskarne ir aiz pieteikšanās; sesija beidzas pēc 30 dienām.</li>
   </ul>
+  <h3>Nomainīt administratora paroli</h3>
+  <form method="post" action="/connect/password" style="max-width:360px">
+    <label class="muted" style="display:block;margin-top:.5rem">Pašreizējā parole</label>
+    <input type="password" name="current" required>
+    <label class="muted" style="display:block;margin-top:.5rem">Jaunā parole (vismaz 8 rakstzīmes)</label>
+    <input type="password" name="password" minlength="8" required>
+    <label class="muted" style="display:block;margin-top:.5rem">Jaunā parole vēlreiz</label>
+    <input type="password" name="password2" minlength="8" required>
+    <div style="margin-top:.7rem"><button class="primary">Nomainīt paroli</button></div>
+  </form>
 </div>
 {% endblock %}

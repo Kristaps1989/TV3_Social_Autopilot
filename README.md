@@ -62,12 +62,14 @@ take effect immediately — no deploy, no restart.
 
 ## Connecting accounts
 
-`/connect` in the admin UI guides account setup: Facebook Page and Threads
-connect with an OAuth button (needs `META_APP_ID`/`META_APP_SECRET` — see
-`docs/connect-accounts.md`), X via env vars. Tokens are stored in the DB,
-Threads tokens auto-refresh, and expiry warnings go to the log/Slack.
-Set `ADMIN_PASSWORD` before connecting anything on a public deployment —
-it puts the whole admin UI behind HTTP Basic auth (user `admin`).
+The admin UI is behind a login: the first visit after deploy shows a
+one-time setup screen that creates the administrator password (change it
+later on the Konti page; a temporary `ADMIN_PASSWORD` env var works as a
+recovery login). `/connect` (Konti) then guides everything else: paste the
+Anthropic API key (verified live, stored in the DB), connect Facebook Page
+and Threads with an OAuth button (needs `META_APP_ID`/`META_APP_SECRET` —
+see `docs/connect-accounts.md`), X via env vars. Threads tokens
+auto-refresh; expiry warnings go to the log/Slack.
 
 ## Status / roadmap
 

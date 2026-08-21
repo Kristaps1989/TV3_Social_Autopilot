@@ -65,6 +65,9 @@ h1 { font-size:1.25rem; }
     <a href="/connect">Konti</a>
   </nav>
   {% block headerbadge %}{% endblock %}
+  <form method="post" action="/logout" style="margin-left:auto">
+    <button style="background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff">Iziet</button>
+  </form>
 </header>
 <main>
 {% block content %}{% endblock %}

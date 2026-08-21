@@ -4,19 +4,30 @@ The admin UI has a guided flow at **`/connect`** — no passwords ever touch
 this system; each platform's official login grants a token, and only the
 token is stored (in the service database; env vars work as a fallback).
 
-## Before anything: protect the admin UI
+## Accessing the admin UI (login)
 
-The deployment is on the public internet. Set these Railway variables first:
+The whole admin UI sits behind a login page. On the **first visit after
+deploy** the app shows a one-time setup screen (`/setup`) where you create
+the administrator password — open your Railway URL immediately after
+deploying and claim it. After that every visit asks for the password at
+`/login`; sessions last 30 days, and "Iziet" in the header logs out.
 
-```
-ADMIN_PASSWORD=<strong password>     # login: user "admin"
-PUBLIC_BASE_URL=https://<your-app>.up.railway.app
-ANTHROPIC_API_KEY=<key>              # enables AI copy + format decisions
-```
+- Change the password: Konti page → "Nomainīt administratora paroli".
+- Forgot it: set a temporary `ADMIN_PASSWORD` env var in Railway (it is
+  always accepted as a valid password), log in, set a new password, then
+  remove the env var.
 
-Also make sure the Railway service uses **Postgres** (`DATABASE_URL`); with
-the default SQLite the queue and any connected tokens are wiped on every
-deploy, because Railway's filesystem is ephemeral.
+## AI (Claude) key — no env vars needed
+
+Konti page → "AI — Claude (Anthropic)" card: paste an API key from
+console.anthropic.com → API Keys. The key is verified with a real API call
+when you save it, stored in the database, and shown masked afterwards.
+(`ANTHROPIC_API_KEY` as an env var still works as a fallback.)
+
+Set `PUBLIC_BASE_URL=https://<your-app>.up.railway.app` in Railway (needed
+for the OAuth redirects below), and make sure the service uses **Postgres**
+(`DATABASE_URL`); with the default SQLite the queue, tokens, and the admin
+password are wiped on every deploy, because Railway's filesystem is ephemeral.
 
 ## Facebook Page (one-time, ~30 min, needs the Business Manager admin)
 

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="lv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV3 Social Autopilot — {{ 'Izveidot paroli' if mode == 'setup' else 'Pieteikties' }}</title>
+<style>
+* { box-sizing:border-box; }
+body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+       font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+       background:linear-gradient(160deg,#7a1fa2,#4a1364); color:#1a1d21; }
+.card { background:#fff; border-radius:14px; padding:2rem 2.2rem; width:min(400px,92vw);
+        box-shadow:0 20px 60px rgba(0,0,0,.35); }
+h1 { font-size:1.15rem; margin:0 0 .3rem; }
+.sub { color:#6b7280; font-size:.88rem; margin-bottom:1.2rem; }
+label { display:block; font-size:.82rem; font-weight:600; margin:.8rem 0 .25rem; }
+input { width:100%; border:1px solid #d1d5db; border-radius:8px; padding:.6rem .7rem;
+        font:inherit; }
+input:focus { outline:2px solid #7a1fa2; border-color:transparent; }
+button { width:100%; margin-top:1.2rem; background:#7a1fa2; color:#fff; border:none;
+         border-radius:8px; padding:.65rem; font:inherit; font-weight:600; cursor:pointer; }
+button:hover { background:#671a89; }
+.err { background:#fee2e2; color:#991b1b; border-radius:8px; padding:.55rem .8rem;
+       font-size:.85rem; margin-bottom:.6rem; }
+.brand { color:#7a1fa2; font-weight:700; margin-bottom:1rem; }
+.hint { color:#6b7280; font-size:.78rem; margin-top:1rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">TV3 Social Autopilot</div>
+  {% if mode == 'setup' %}
+    <h1>Izveido administratora paroli</h1>
+    <div class="sub">Šī ir pirmā palaišana — sistēma vēl nav aizsargāta. Izveido paroli,
+    ar kuru turpmāk pieteiksies vadības panelī.</div>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <form method="post" action="/setup">
+      <label>Parole (vismaz 8 rakstzīmes)</label>
+      <input type="password" name="password" minlength="8" required autofocus>
+      <label>Parole vēlreiz</label>
+      <input type="password" name="password2" minlength="8" required>
+      <button>Izveidot un ieiet</button>
+    </form>
+    <div class="hint">Paroli vēlāk var nomainīt sadaļā “Konti”. Ja tā pazūd,
+    iestati pagaidu <code>ADMIN_PASSWORD</code> vides mainīgo un piesakies ar to.</div>
+  {% else %}
+    <h1>Pieteikties</h1>
+    <div class="sub">Vadības panelis ir aizsargāts — ievadi administratora paroli.</div>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <label>Parole</label>
+      <input type="password" name="password" required autofocus>
+      <button>Ieiet</button>
+    </form>
+    <div class="hint">Aizmirsta parole: iestati <code>ADMIN_PASSWORD</code> vides mainīgo
+    serverī un piesakies ar to, tad nomaini paroli sadaļā “Konti”.</div>
+  {% endif %}
+</div>
+</body>
+</html>

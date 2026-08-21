@@ -102,7 +102,10 @@ Pieņem lēmumu ar record_decision. Ja raksts nav pietiekami interesants
 
 
 def call_claude(article: Article, verdicts: dict[str, Verdict], session) -> dict | None:
-    if not config.ANTHROPIC_API_KEY:
+    from app import credentials
+
+    api_key = credentials.get("anthropic_api_key", session)
+    if not api_key:
         return None
     import anthropic
 
@@ -116,7 +119,7 @@ def call_claude(article: Article, verdicts: dict[str, Verdict], session) -> dict
         system += "\n\n" + config.system_prompt_for(p)
     user = build_user_prompt(article, verdicts, channels_cfg, session)
 
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=api_key)
     for attempt in range(2):
         try:
             resp = client.messages.create(

@@ -23,6 +23,7 @@ THREADS_GRAPH = "https://graph.threads.net"
 
 # credential key -> env var fallback
 ENV_FALLBACK = {
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
     "fb_page_id": "FB_PAGE_ID",
     "fb_page_token": "FB_PAGE_ACCESS_TOKEN",
     "threads_user_id": "THREADS_USER_ID",
