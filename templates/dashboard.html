@@ -5,6 +5,19 @@
 {% endblock %}
 {% block content %}
 
+{% if no_admin_password %}
+<div class="notice err"><strong>⚠️ Admin saskarne nav aizsargāta.</strong>
+Šī lapa ir publiski pieejama internetā — iestati <code>ADMIN_PASSWORD</code> vides mainīgo
+(pieteikšanās: lietotājs <code>admin</code>), pirms savieno kontus.</div>
+{% endif %}
+{% if not ai_active %}
+<div class="notice err" style="background:#fef3c7;color:#92400e">
+<strong>AI izslēgts — darbojas rezerves režīms.</strong> Teksti ir tikai
+virsraksts + ievads, un “can” raksti netiek publicēti. Pievieno
+<code>ANTHROPIC_API_KEY</code> vides mainīgo, lai AI rakstītu sociālajiem tīkliem
+pielāgotus tekstus un izvēlētos labāko formātu katram ierakstam.</div>
+{% endif %}
+
 <div class="killbar {{ 'on' if kill_switch }}">
   <strong>{% if kill_switch %}⛔ Viss apturēts{% else %}✅ Sistēma darbojas{% endif %}</strong>
   <form class="inline" method="post" action="/toggle/kill">

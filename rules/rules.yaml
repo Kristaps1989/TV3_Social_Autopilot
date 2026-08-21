@@ -8,6 +8,11 @@
 #   dont -> never publish; cancels anything already scheduled
 must_max_delay_hours: 6
 now_max_delay_minutes: 5
+# 'now' items older than this (e.g. a backlog on first ingest) are NOT
+# force-published — they go through the normal rules instead.
+now_max_age_hours: 6
+# Several simultaneous 'now' items get spaced this far apart per channel.
+now_burst_gap_minutes: 5
 
 # Freshness: news loses click value fast. Older items are not eligible
 # unless the editor marked them evergreen.

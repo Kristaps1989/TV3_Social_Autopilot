@@ -39,6 +39,15 @@ def test_now_forces_immediate():
     assert v.latest == NOW + timedelta(minutes=5)
 
 
+def test_stale_now_is_not_forced():
+    """A backlog of old 'now' items (first ingest of a /now/ feed) must not
+    flood the channels — stale ones go through the normal rules."""
+    rules = dict(RULES, now_max_age_hours=6)
+    old = art(editor_status="now", published_at=NOW - timedelta(hours=8))
+    v = evaluate(old, "ch1", CHANNEL, rules, NOW)
+    assert v.outcome != "forced_now"
+
+
 def test_must_gets_deadline():
     v = evaluate(art(editor_status="must"), "ch1", CHANNEL, RULES, NOW)
     assert v.outcome == "eligible"

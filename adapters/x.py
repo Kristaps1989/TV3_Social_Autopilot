@@ -2,8 +2,6 @@
 on 429 (queue retries with backoff, nothing is lost)."""
 from __future__ import annotations
 
-import os
-
 import httpx
 
 from adapters.base import Adapter, PublishError
@@ -13,10 +11,12 @@ class XAdapter(Adapter):
     platform = "x"
 
     def __init__(self):
-        self.api_key = os.environ.get("X_API_KEY", "")
-        self.api_secret = os.environ.get("X_API_SECRET", "")
-        self.access_token = os.environ.get("X_ACCESS_TOKEN", "")
-        self.access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET", "")
+        from app import credentials
+
+        self.api_key = credentials.get("x_api_key")
+        self.api_secret = credentials.get("x_api_secret")
+        self.access_token = credentials.get("x_access_token")
+        self.access_secret = credentials.get("x_access_secret")
 
     def configured(self) -> bool:
         return all([self.api_key, self.api_secret, self.access_token, self.access_secret])

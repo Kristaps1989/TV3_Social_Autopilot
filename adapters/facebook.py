@@ -6,11 +6,10 @@ pages_read_engagement.
 """
 from __future__ import annotations
 
-import os
-
 import httpx
 
 from adapters.base import Adapter, PublishError
+from app import credentials
 
 GRAPH = "https://graph.facebook.com/v21.0"
 
@@ -19,8 +18,8 @@ class FacebookPageAdapter(Adapter):
     platform = "facebook_page"
 
     def __init__(self):
-        self.page_id = os.environ.get("FB_PAGE_ID", "")
-        self.token = os.environ.get("FB_PAGE_ACCESS_TOKEN", "")
+        self.page_id = credentials.get("fb_page_id")
+        self.token = credentials.get("fb_page_token")
 
     def configured(self) -> bool:
         return bool(self.page_id and self.token)

@@ -84,11 +84,15 @@ def evaluate(article: Article, channel_name: str, channel_cfg: dict,
     if allowlist and not any(str(t) in {str(a) for a in allowlist} for t in article.term_ids):
         return Verdict("blocked", "term id not on channel allowlist")
 
-    # 3. 'now' skips everything below
+    # 3. 'now' skips everything below — but only while genuinely fresh.
+    # A backlog of old 'now' items (e.g. the first ingest of a /now/ feed)
+    # must not flood the channels; stale ones fall through to normal rules.
     if status == "now":
-        minutes = int(rules.get("now_max_delay_minutes", 5))
-        return Verdict("forced_now", "editor status: publish now",
-                       earliest=now, latest=now + timedelta(minutes=minutes))
+        max_now_age = float(rules.get("now_max_age_hours", 6))
+        if article_age_hours(article, now) <= max_now_age:
+            minutes = int(rules.get("now_max_delay_minutes", 5))
+            return Verdict("forced_now", "editor status: publish now",
+                           earliest=now, latest=now + timedelta(minutes=minutes))
 
     # 4. Freshness
     max_age = (rules.get("max_age_hours") or {}).get(article.section)

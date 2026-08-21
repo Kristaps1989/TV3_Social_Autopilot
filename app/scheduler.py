@@ -50,6 +50,22 @@ def metrics_job():
     _job(collect_metrics)
 
 
+def tokens_job():
+    """Refresh the Threads token before it expires; alert on tokens
+    that expire within 7 days."""
+    from app import credentials
+    from app.pipeline import alert
+
+    session = get_session()
+    try:
+        for warning in credentials.maintain_tokens(session):
+            alert(warning)
+    except Exception:  # noqa: BLE001
+        log.exception("token maintenance failed")
+    finally:
+        session.close()
+
+
 def start_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="UTC")
     scheduler.add_job(ingest_job, "interval", minutes=config.INGEST_INTERVAL_MINUTES,
@@ -60,5 +76,7 @@ def start_scheduler() -> BackgroundScheduler:
                       id="publish", max_instances=1, coalesce=True)
     scheduler.add_job(metrics_job, "interval", hours=1,
                       id="metrics", max_instances=1, coalesce=True)
+    scheduler.add_job(tokens_job, "interval", hours=24,
+                      id="tokens", max_instances=1, coalesce=True)
     scheduler.start()
     return scheduler

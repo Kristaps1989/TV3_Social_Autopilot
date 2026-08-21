@@ -14,6 +14,7 @@ from adapters.base import PublishError
 from app import config
 from app.best_practices import add_utm, assemble_post_text, sanitize_copy
 from app.decide import decide
+from app.formats import choose_format
 from app.models import Article, Evaluation, Post, get_setting, utcnow
 from app.rules_engine import evaluate_all
 from app.slots import find_slot
@@ -81,9 +82,7 @@ def run_decisions(session, limit: int = 20) -> int:
             if dup:
                 continue
 
-            fmt = ch_dec.get("format") or "link"
-            if fmt not in (cfg.get("formats") or [fmt]):
-                fmt = (cfg.get("formats") or ["link"])[0]
+            fmt = choose_format(session, channel, cfg, article, ch_dec.get("format"))
 
             platform = cfg.get("platform", "")
             copy, hashtags, fixes = sanitize_copy(

@@ -8,12 +8,16 @@ from datetime import timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import base64
+import os
+import secrets as pysecrets
+
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import config
+from app import config, credentials
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -40,6 +44,36 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TV3 Social Autopilot", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
+
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
+
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+    """The admin UI holds the kill switch and platform tokens — on a public
+    deployment it must not be open. Set ADMIN_PASSWORD (user: admin)."""
+    if ADMIN_PASSWORD and request.url.path != "/health":
+        header = request.headers.get("authorization", "")
+        ok = False
+        if header.startswith("Basic "):
+            try:
+                user, _, pwd = base64.b64decode(header[6:]).decode().partition(":")
+                ok = (user == "admin"
+                      and pysecrets.compare_digest(pwd, ADMIN_PASSWORD))
+            except Exception:  # noqa: BLE001
+                ok = False
+        if not ok:
+            return Response(status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="TV3 Autopilot"'})
+    return await call_next(request)
+
+
+def public_base(request: Request) -> str:
+    env = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    if env:
+        return env
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    return f"{proto}://{request.url.netloc}"
 
 
 def to_local(dt):
@@ -96,6 +130,8 @@ def dashboard(request: Request):
             "channels": channel_data,
             "kill_switch": get_setting(session, "kill_switch") == "on",
             "dry_run": config.DRY_RUN,
+            "ai_active": bool(config.ANTHROPIC_API_KEY),
+            "no_admin_password": not ADMIN_PASSWORD,
         })
     finally:
         session.close()
@@ -208,6 +244,139 @@ def articles(request: Request):
             select(Article).order_by(desc(Article.first_seen_at)).limit(60)
         ).scalars().all()
         return templates.TemplateResponse(request, "articles.html", {"articles": rows})
+    finally:
+        session.close()
+
+
+# --- Account connections --------------------------------------------------
+
+@app.get("/connect", response_class=HTMLResponse)
+def connect(request: Request, error: str = "", connected: str = ""):
+    session = get_session()
+    try:
+        status = credentials.connection_status(session)
+        fb_app_id, _ = credentials.fb_app()
+        th_app_id, _ = credentials.threads_app()
+        return templates.TemplateResponse(request, "connect.html", {
+            "status": status,
+            "meta_app_ready": bool(fb_app_id),
+            "threads_app_ready": bool(th_app_id),
+            "redirect_fb": f"{public_base(request)}/connect/facebook/callback",
+            "redirect_th": f"{public_base(request)}/connect/threads/callback",
+            "error": error, "connected": connected,
+        })
+    finally:
+        session.close()
+
+
+@app.get("/connect/facebook")
+def connect_facebook(request: Request):
+    session = get_session()
+    try:
+        state = credentials.new_state(session)
+    finally:
+        session.close()
+    url = credentials.fb_auth_url(f"{public_base(request)}/connect/facebook/callback", state)
+    return RedirectResponse(url, status_code=302)
+
+
+@app.get("/connect/facebook/callback", response_class=HTMLResponse)
+def connect_facebook_callback(request: Request, code: str = "", state: str = "",
+                              error_description: str = ""):
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if error_description or not code:
+            return RedirectResponse(
+                f"/connect?error={quote(error_description or 'Meta atgrieza kļūdu')}",
+                status_code=303)
+        if not credentials.check_state(session, state):
+            return RedirectResponse("/connect?error=OAuth+state+nesakrīt+—+mēģini+vēlreiz",
+                                    status_code=303)
+        try:
+            user_token = credentials.fb_exchange_code(
+                code, f"{public_base(request)}/connect/facebook/callback")
+            pages = credentials.fb_list_pages(user_token)
+        except Exception as e:  # noqa: BLE001
+            return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
+        if not pages:
+            return RedirectResponse(
+                "/connect?error=Šim+lietotājam+nav+pārvaldāmu+lapu", status_code=303)
+        if len(pages) == 1:
+            p = pages[0]
+            credentials.put(session, "fb_page_id", p["id"], label=p.get("name", ""))
+            credentials.put(session, "fb_page_token", p["access_token"],
+                            label=p.get("name", ""))
+            return RedirectResponse("/connect?connected=facebook", status_code=303)
+        # several pages: keep the user token briefly and let the admin pick
+        credentials.put(session, "fb_user_token", user_token,
+                        expires_at=utcnow() + timedelta(minutes=15))
+        return templates.TemplateResponse(request, "connect_pick_page.html",
+                                          {"pages": pages})
+    finally:
+        session.close()
+
+
+@app.post("/connect/facebook/select")
+def connect_facebook_select(page_id: str = Form(...)):
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        row = credentials.info(session, "fb_user_token")
+        if not (row and row.value and row.expires_at and row.expires_at > utcnow()):
+            return RedirectResponse("/connect?error=Sesija+beigusies+—+savieno+vēlreiz",
+                                    status_code=303)
+        pages = credentials.fb_list_pages(row.value)
+        match = next((p for p in pages if p["id"] == page_id), None)
+        if match is None:
+            return RedirectResponse("/connect?error=Lapa+nav+atrasta", status_code=303)
+        credentials.put(session, "fb_page_id", match["id"], label=match.get("name", ""))
+        credentials.put(session, "fb_page_token", match["access_token"],
+                        label=match.get("name", ""))
+        credentials.put(session, "fb_user_token", "")  # done with it
+        return RedirectResponse("/connect?connected=facebook", status_code=303)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
+    finally:
+        session.close()
+
+
+@app.get("/connect/threads")
+def connect_threads(request: Request):
+    session = get_session()
+    try:
+        state = credentials.new_state(session)
+    finally:
+        session.close()
+    url = credentials.threads_auth_url(
+        f"{public_base(request)}/connect/threads/callback", state)
+    return RedirectResponse(url, status_code=302)
+
+
+@app.get("/connect/threads/callback")
+def connect_threads_callback(request: Request, code: str = "", state: str = "",
+                             error_description: str = ""):
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if error_description or not code:
+            return RedirectResponse(
+                f"/connect?error={quote(error_description or 'Threads atgrieza kļūdu')}",
+                status_code=303)
+        if not credentials.check_state(session, state):
+            return RedirectResponse("/connect?error=OAuth+state+nesakrīt+—+mēģini+vēlreiz",
+                                    status_code=303)
+        try:
+            user_id, token, expires = credentials.threads_exchange_code(
+                code, f"{public_base(request)}/connect/threads/callback")
+        except Exception as e:  # noqa: BLE001
+            return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
+        credentials.put(session, "threads_user_id", user_id)
+        credentials.put(session, "threads_token", token, expires_at=expires)
+        return RedirectResponse("/connect?connected=threads", status_code=303)
     finally:
         session.close()
 

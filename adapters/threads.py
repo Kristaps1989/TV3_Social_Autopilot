@@ -1,12 +1,12 @@
 """Threads via the official Threads API (two-step: create container, publish)."""
 from __future__ import annotations
 
-import os
 import time
 
 import httpx
 
 from adapters.base import Adapter, PublishError
+from app import credentials
 
 API = "https://graph.threads.net/v1.0"
 
@@ -15,8 +15,8 @@ class ThreadsAdapter(Adapter):
     platform = "threads"
 
     def __init__(self):
-        self.user_id = os.environ.get("THREADS_USER_ID", "")
-        self.token = os.environ.get("THREADS_ACCESS_TOKEN", "")
+        self.user_id = credentials.get("threads_user_id")
+        self.token = credentials.get("threads_token")
 
     def configured(self) -> bool:
         return bool(self.user_id and self.token)

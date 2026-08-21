@@ -118,6 +118,20 @@ class Setting(Base):
     value: Mapped[str] = mapped_column(String(256), default="")
 
 
+class Credential(Base):
+    """Platform tokens connected via the admin UI. Env vars still work and
+    act as the fallback; DB wins so accounts can be (re)connected without
+    a redeploy."""
+
+    __tablename__ = "credentials"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    label: Mapped[str] = mapped_column(String(256), default="")   # e.g. connected Page name
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 def get_setting(session, key: str, default: str = "") -> str:
     row = session.get(Setting, key)
     return row.value if row else default

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Izvēlies Facebook lapu</h1>
+<p class="muted">Šis konts pārvalda vairākas lapas — izvēlies to, kurā publicēs Autopilot.</p>
+<div class="card">
+  <form method="post" action="/connect/facebook/select">
+    {% for p in pages %}
+    <label style="display:block;padding:.4rem 0">
+      <input type="radio" name="page_id" value="{{ p.id }}" {{ 'checked' if loop.first }}>
+      <strong>{{ p.name }}</strong> <span class="muted">({{ p.id }})</span>
+    </label>
+    {% endfor %}
+    <button class="primary">Savienot izvēlēto lapu</button>
+  </form>
+</div>
+{% endblock %}

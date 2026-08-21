@@ -79,12 +79,20 @@ def test_must_deadline_respected(session):
     assert slot <= deadline
 
 
-def test_forced_now_ignores_queue(session):
+def test_forced_now_immediate_on_empty_queue(session):
+    v = Verdict("forced_now", earliest=NOW, latest=NOW + timedelta(minutes=5))
+    slot = find_slot(session, "x_test", CHANNEL, v, "news", "link", "Ārkārtas ziņa", NOW)
+    assert slot == NOW
+
+
+def test_forced_now_burst_is_spaced(session):
+    # a 'now' item at the same moment as an existing post gets spaced out
+    # by the burst gap instead of flooding the channel
     a = make_article(session)
     sched(session, a, 0)
     v = Verdict("forced_now", earliest=NOW, latest=NOW + timedelta(minutes=5))
     slot = find_slot(session, "x_test", CHANNEL, v, "news", "link", "Ārkārtas ziņa", NOW)
-    assert slot == NOW
+    assert slot == NOW + timedelta(minutes=5)
 
 
 def test_diversity_needs_mixed_sections():

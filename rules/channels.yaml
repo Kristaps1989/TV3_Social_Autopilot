@@ -14,6 +14,10 @@ fb_tv3lv:
   formats: [link, photo, photo_album]
   # Starting weight for the pageview KPI, replaced by measured data after ~2 weeks
   click_weight: 1.0
+  # Relative preference per format for THIS channel. TV3's own data shows
+  # photo posts out-engage links on FB, so photo starts slightly ahead;
+  # the diversity engine still mixes both. Tune freely.
+  format_weights: {link: 1.0, photo: 1.1, photo_album: 0.9, text_only: 0.4}
 
 x_tv3zinas:
   platform: x

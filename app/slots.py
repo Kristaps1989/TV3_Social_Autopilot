@@ -132,8 +132,14 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         return True
 
     if verdict.outcome == "forced_now":
+        # 'now' skips cadence/caps/quiet hours, but several simultaneous
+        # 'now' items still get spaced out so the channel isn't flooded.
+        burst_gap = timedelta(minutes=int(rules.get("now_burst_gap_minutes", 5)))
         candidate = max(now, verdict.earliest or now)
-        return candidate  # 'now' skips the queue constraints by design
+        taken = sorted(p.scheduled_at for p in queue if p.scheduled_at)
+        while any(abs(t - candidate) < burst_gap for t in taken):
+            candidate += burst_gap
+        return candidate
 
     best: datetime | None = None
     best_weight = -1.0

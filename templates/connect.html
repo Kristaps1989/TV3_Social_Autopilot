@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Kontu savienojumi</h1>
+<p class="muted">Droši savieno TV3 kontus, neizmantojot paroles — katrs savienojums notiek
+caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuves atslēga (token).</p>
+
+{% if connected %}<div class="notice ok">Savienots: {{ connected }} ✓</div>{% endif %}
+{% if error %}<div class="notice err">{{ error }}</div>{% endif %}
+
+<div class="cards">
+  <div class="card">
+    <h2>Facebook lapa
+      {% if status.facebook.connected %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="meta">
+      {% if status.facebook.connected %}
+        {{ status.facebook.label or 'Lapa' }} · avots: {{ 'admin UI' if status.facebook.source == 'admin' else 'vides mainīgie' }}
+        · atslēga nebeidzas (System User / lapas token)
+      {% else %}
+        Nepieciešama TV3 Business Manager piekļuve.
+      {% endif %}
+    </div>
+    {% if meta_app_ready %}
+      <a class="btn" href="/connect/facebook"><button class="primary" type="button">
+        {{ 'Pārslēgt / atjaunot savienojumu' if status.facebook.connected else 'Savienot ar Facebook' }}
+      </button></a>
+      <p class="muted">Pieteikties jāļauj cilvēkam, kurš pārvalda tv3.lv lapu.
+      Redirect URI, kas jāpievieno Meta lietotnē: <code>{{ redirect_fb }}</code></p>
+    {% else %}
+      <p class="muted">Lai ieslēgtu pogu, vajadzīga Meta lietotne:
+      <b>developers.facebook.com</b> → Create App (tips “Business”, īpašnieks — TV3 Business
+      Manager) → iestati <code>META_APP_ID</code> un <code>META_APP_SECRET</code> vides
+      mainīgajos un pievieno šo Redirect URI: <code>{{ redirect_fb }}</code>.
+      Alternatīva bez OAuth: System User token Business Manager iestatījumos →
+      <code>FB_PAGE_ID</code> / <code>FB_PAGE_ACCESS_TOKEN</code>.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Threads
+      {% if status.threads.connected %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="meta">
+      {% if status.threads.connected %}
+        avots: {{ 'admin UI' if status.threads.source == 'admin' else 'vides mainīgie' }}
+        {% if status.threads.expires_at %} · atslēga derīga līdz {{ status.threads.expires_at | local }}
+        (atjaunojas automātiski){% endif %}
+      {% else %}
+        Jāpiesakās ar TV3 sporta Threads kontu.
+      {% endif %}
+    </div>
+    {% if threads_app_ready %}
+      <a class="btn" href="/connect/threads"><button class="primary" type="button">
+        {{ 'Pārslēgt / atjaunot savienojumu' if status.threads.connected else 'Savienot ar Threads' }}
+      </button></a>
+      <p class="muted">Redirect URI Meta lietotnē (Threads use case): <code>{{ redirect_th }}</code></p>
+    {% else %}
+      <p class="muted">Tajā pašā Meta lietotnē pievieno “Threads API” use case ar
+      <code>threads_basic</code> + <code>threads_content_publish</code>, iestati
+      <code>THREADS_APP_ID</code> / <code>THREADS_APP_SECRET</code> un Redirect URI:
+      <code>{{ redirect_th }}</code>.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>X (Twitter)
+      {% if status.x.connected %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="meta">X nepiedāvā vienkāršu OAuth pogu bez maksas līmeņa — atslēgas jāievada kā vides mainīgie.</div>
+    <p class="muted">developer.x.com (pieteikties <b>kā @TV3Zinas</b>) → maksas līmenis →
+    App permissions “Read and Write” → izveido visas 4 atslēgas →
+    <code>X_API_KEY</code>, <code>X_API_SECRET</code>, <code>X_ACCESS_TOKEN</code>,
+    <code>X_ACCESS_TOKEN_SECRET</code>.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Drošība</h2>
+  <ul class="muted">
+    <li>Atslēgas glabājas tikai šī servera datubāzē (vai vides mainīgajos) — nekad git repozitorijā.</li>
+    <li>Facebook lapas atslēga no ilgtermiņa pieteikšanās nebeidzas; Threads atslēga (60 dienas) tiek atjaunota automātiski, un par tuvu termiņu sistēma brīdina.</li>
+    <li>Admin saskarne jāaizsargā ar <code>ADMIN_PASSWORD</code> vides mainīgo (lietotājs: <code>admin</code>).</li>
+  </ul>
+</div>
+{% endblock %}
