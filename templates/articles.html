@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Pēdējie raksti</h1>
+<div class="card">
+<table>
+  <tr><th>Ienācis</th><th>Virsraksts</th><th>Sadaļa</th><th>Statuss</th><th>AI</th><th>Ieraksti</th></tr>
+  {% for a in articles %}
+  <tr>
+    <td>{{ a.first_seen_at | local }}</td>
+    <td><a href="/why?url={{ a.canonical_url | urlencode }}">{{ a.title[:90] }}</a></td>
+    <td>{{ a.section }}</td>
+    <td>{{ a.editor_status }}</td>
+    <td>{% if a.ai_score is not none %}{{ '%.2f' % a.ai_score }}{% else %}—{% endif %}</td>
+    <td>{{ a.posts | length }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">Vēl nav rakstu — gaida pirmo plūsmas ielasi.</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

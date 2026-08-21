@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>TV3 Sports</title>
+    <item>
+      <title>Hokeja izlase gatavojas turnīram</title>
+      <link>https://www.tv3.lv/sports/hokeja-izlase-gatavojas</link>
+      <guid>https://www.tv3.lv/sports/hokeja-izlase-gatavojas</guid>
+      <description>Izlase aizvadījusi pirmo treniņu.</description>
+      <pubDate>Thu, 20 Aug 2026 09:00:00 +0300</pubDate>
+      <media:content url="https://www.tv3.lv/img/hokejs.jpg" type="image/jpeg"/>
+    </item>
+    <item>
+      <title>Futbola virslīgā jauns līderis</title>
+      <link>https://www.tv3.lv/sports/futbola-virsliga-liders</link>
+      <guid>https://www.tv3.lv/sports/futbola-virsliga-liders</guid>
+      <description>Pēc kārtējās kārtas mainījies turnīra tabulas līderis.</description>
+      <pubDate>Thu, 20 Aug 2026 08:00:00 +0300</pubDate>
+    </item>
+  </channel>
+</rss>

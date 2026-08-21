@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block headerbadge %}
+  {% if dry_run %}<span class="badge dry">DRY RUN — nekas netiek publicēts</span>
+  {% else %}<span class="badge live">LIVE</span>{% endif %}
+{% endblock %}
+{% block content %}
+
+<div class="killbar {{ 'on' if kill_switch }}">
+  <strong>{% if kill_switch %}⛔ Viss apturēts{% else %}✅ Sistēma darbojas{% endif %}</strong>
+  <form class="inline" method="post" action="/toggle/kill">
+    <button class="{{ 'primary' if kill_switch else 'danger' }}">
+      {{ 'Atsākt darbību' if kill_switch else 'Apturēt visu (kill switch)' }}
+    </button>
+  </form>
+  <span class="muted">Apturēšana aptur jaunu ierakstu plānošanu un publicēšanu; rinda saglabājas.</span>
+</div>
+
+<div class="cards">
+{% for ch in channels %}
+  <div class="card">
+    <h2>{{ ch.display_name }}
+      {% if ch.paused %}<span class="badge paused">pauzēts</span>{% endif %}
+    </h2>
+    <div class="meta">
+      Šodien publicēti: {{ ch.today_count }} / {{ ch.daily_cap }}
+      · <form class="inline" method="post" action="/toggle/pause/{{ ch.name }}">
+          <button>{{ 'Atsākt kanālu' if ch.paused else 'Pauzēt kanālu' }}</button>
+        </form>
+    </div>
+
+    <table>
+      <tr><th>Laiks</th><th>Ieraksts</th><th></th></tr>
+      {% for p in ch.upcoming %}
+      <tr>
+        <td>{{ p.scheduled_at | local }}</td>
+        <td class="copytext">
+          <strong>{{ p.format }}</strong> — {{ p.copy[:110] }}{% if p.copy|length > 110 %}…{% endif %}
+          <details><summary>labot / detaļas</summary>
+            <form method="post" action="/post/{{ p.id }}/copy">
+              <textarea name="copy" rows="3">{{ p.copy }}</textarea>
+              <button class="primary">Saglabāt tekstu</button>
+            </form>
+            <div class="muted">{{ p.article.title if p.article }}</div>
+          </details>
+        </td>
+        <td>
+          <form class="inline" method="post" action="/post/{{ p.id }}/publish-now">
+            <button title="Publicēt tagad">▶</button></form>
+          <form class="inline" method="post" action="/post/{{ p.id }}/cancel">
+            <button class="danger" title="Atcelt">✕</button></form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">Nav ieplānotu ierakstu</td></tr>
+      {% endfor %}
+    </table>
+
+    {% if ch.recent %}
+    <details style="margin-top:.6rem">
+      <summary>Pēdējie ({{ ch.recent|length }})</summary>
+      <table>
+        {% for p in ch.recent %}
+        <tr>
+          <td>{{ (p.published_at or p.created_at) | local }}</td>
+          <td class="copytext">{{ p.copy[:90] }}</td>
+          <td><span class="state {{ p.state }}">{{ p.state }}</span>
+              {% if p.error %}<div class="muted">{{ p.error[:120] }}</div>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </details>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

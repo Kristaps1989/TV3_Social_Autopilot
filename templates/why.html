@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Kāpēc šis raksts nav publicēts?</h1>
+<form method="get" action="/why" style="display:flex;gap:.5rem;margin-bottom:1rem">
+  <input type="text" name="url" value="{{ query }}"
+         placeholder="Ielīmē raksta saiti vai virsraksta daļu…">
+  <button class="primary">Meklēt</button>
+</form>
+
+{% if searched and not article %}
+  <div class="notice err">Raksts nav atrasts. Vai tas vispār ir kādā no plūsmām?
+  Pārbaudi statusu WordPress (varbūt tas ir "Don't publish" un plūsmā neparādās).</div>
+{% endif %}
+
+{% if article %}
+<div class="card">
+  <h2>{{ article.title }}</h2>
+  <div class="meta">
+    {{ article.section }} · statuss: <strong>{{ article.editor_status }}</strong>
+    · ienācis: {{ article.first_seen_at | local }}
+    {% if article.ai_score is not none %} · AI vērtējums: {{ '%.2f' % article.ai_score }}{% endif %}
+  </div>
+  {% if article.ai_reason %}<p><em>AI: {{ article.ai_reason }}</em></p>{% endif %}
+
+  <h3>Lēmumu vēsture pa kanāliem</h3>
+  <table>
+    <tr><th>Laiks</th><th>Kanāls</th><th>Iznākums</th><th>Iemesls</th></tr>
+    {% for e in evaluations %}
+    <tr>
+      <td>{{ e.created_at | local }}</td>
+      <td>{{ e.channel }}</td>
+      <td><span class="state {{ 'published' if e.outcome == 'posted' else 'cancelled' if e.outcome == 'blocked' else 'scheduled' }}">{{ e.outcome }}</span></td>
+      <td>{{ e.reason }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {% if posts %}
+  <h3>Ieraksti</h3>
+  <table>
+    <tr><th>Kanāls</th><th>Laiks</th><th>Statuss</th><th>Teksts</th></tr>
+    {% for p in posts %}
+    <tr>
+      <td>{{ p.channel }}</td>
+      <td>{{ (p.published_at or p.scheduled_at) | local }}</td>
+      <td><span class="state {{ p.state }}">{{ p.state }}</span></td>
+      <td class="copytext">{{ p.copy[:140] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,49 @@
+# Editorial rules. The rule engine runs BEFORE the AI and always wins.
+# All times are Europe/Riga local time.
+
+# Editor status handling (set in WordPress):
+#   now  -> publish within 5 minutes to all eligible channels, skip the queue
+#   must -> must be scheduled within must_max_delay_hours
+#   can  -> AI decides whether/when/where
+#   dont -> never publish; cancels anything already scheduled
+must_max_delay_hours: 6
+now_max_delay_minutes: 5
+
+# Freshness: news loses click value fast. Older items are not eligible
+# unless the editor marked them evergreen.
+max_age_hours:
+  news: 12
+  sport: 8
+  entertainment: 48
+
+# Don't post near-duplicates back to back on the same channel.
+similarity_guard:
+  window: 3          # compare against the last N posts on the channel
+  threshold: 0.70    # 0..1 title/lead similarity
+
+# Feed diversity: within any rolling window of N posts per channel,
+# require a mix of sections and formats.
+section_mix:
+  window: 6
+  min_distinct_sections: 2
+  min_distinct_formats: 2
+
+# Sensitive content only at night, unless the editor said "now".
+time_windows:
+  - match: {sensitivity: [nudity, party, alcohol]}
+    allow: ["22:00-06:00"]
+    unless_status: [now]
+
+# Tone guards applied to generated copy (enforced in code, listed here
+# so editors can see them):
+#   - no emoji or exclamation marks on tragedy/crime content
+#   - no clickbait phrases, no ALL-CAPS words, max one "?" hook
+copy_tone:
+  no_emoji_sensitivity: [tragedy, crime]
+
+# Term-ID blocklist per channel (article never goes to that channel)
+term_blocklist: {}
+#  fb_tv3lv: [12345]
+
+# Term-ID allowlist per channel (if set, ONLY these terms go there)
+term_allowlist: {}

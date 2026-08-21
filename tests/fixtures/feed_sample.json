@@ -1,0 +1,36 @@
+[
+  {
+    "id": 1001,
+    "title": "Valdība apstiprina jauno budžetu",
+    "lead": "Saeima ceturtdien galīgajā lasījumā apstiprināja nākamā gada valsts budžetu.",
+    "url": "https://www.tv3.lv/zinas/valdiba-apstiprina-jauno-budzetu",
+    "image": "https://www.tv3.lv/img/budzets.jpg",
+    "term_ids": [26336],
+    "status": "must",
+    "timeframe": "today",
+    "published_at": "2026-08-20T08:30:00+03:00"
+  },
+  {
+    "id": 1002,
+    "title": "Foto: saulriets Jūrmalā pārsteidz ar krāsām",
+    "lead": "Lasītāji dalās ar iespaidīgiem saulrieta foto.",
+    "url": "https://www.tv3.lv/dzive/saulriets-jurmala",
+    "images": ["https://www.tv3.lv/img/s1.jpg", "https://www.tv3.lv/img/s2.jpg",
+               "https://www.tv3.lv/img/s3.jpg", "https://www.tv3.lv/img/s4.jpg"],
+    "term_ids": [3],
+    "status": "can",
+    "timeframe": "evergreen",
+    "published_at": "2026-08-19T21:00:00+03:00"
+  },
+  {
+    "id": 1003,
+    "title": "Latvijas izlase uzvar pārbaudes spēlē",
+    "lead": "Basketbola izlase pārbaudes spēlē pārspēja Lietuvu.",
+    "url": "https://www.tv3.lv/sports/izlase-uzvar",
+    "image": "https://www.tv3.lv/img/basket.jpg",
+    "term_ids": [3383],
+    "status": "now",
+    "timeframe": "asap",
+    "published_at": "2026-08-20T09:55:00+03:00"
+  }
+]

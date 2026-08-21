@@ -1,0 +1,89 @@
+"""Configuration: environment variables + hot-reloaded YAML/markdown files.
+
+YAML in rules/ and markdown in prompts/ are the editorial surface — they are
+re-read on every access (cheap, small files) so Ģirts can edit them without
+a deploy or restart.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+RULES_DIR = Path(os.environ.get("RULES_DIR", BASE_DIR / "rules"))
+PROMPTS_DIR = Path(os.environ.get("PROMPTS_DIR", BASE_DIR / "prompts"))
+
+DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///data/autopilot.db")
+TIMEZONE = os.environ.get("TZ", "Europe/Riga")
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+AI_MODEL_FAST = os.environ.get("AI_MODEL_FAST", "claude-haiku-4-5-20251001")
+AI_MODEL_STRONG = os.environ.get("AI_MODEL_STRONG", "claude-sonnet-5")
+
+INGEST_INTERVAL_MINUTES = int(os.environ.get("INGEST_INTERVAL_MINUTES", "3"))
+
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+
+
+class ConfigError(Exception):
+    pass
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ConfigError(f"Missing config file: {path}")
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path.name} must be a YAML mapping")
+    return data
+
+
+def load_rules() -> dict[str, Any]:
+    return _load_yaml(RULES_DIR / "rules.yaml")
+
+
+def load_channels() -> dict[str, Any]:
+    return _load_yaml(RULES_DIR / "channels.yaml")
+
+
+def load_feeds() -> dict[str, Any]:
+    return _load_yaml(RULES_DIR / "feeds.yaml")
+
+
+def load_prompt(name: str) -> str:
+    path = PROMPTS_DIR / f"{name}.md"
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def system_prompt_for(platform: str) -> str:
+    """Base style guide + the platform-specific one."""
+    per_platform = {
+        "facebook_page": "system_facebook",
+        "x": "system_x",
+        "threads": "system_threads",
+        "instagram": "system_instagram",
+    }.get(platform, "")
+    parts = [load_prompt("system_base")]
+    if per_platform:
+        parts.append(load_prompt(per_platform))
+    return "\n\n".join(p for p in parts if p)
+
+
+def validate_editable(kind: str, text: str) -> str | None:
+    """Validate an edited config before saving. Returns error message or None."""
+    if kind in ("rules", "channels", "feeds"):
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as e:
+            return f"Invalid YAML: {e}"
+        if not isinstance(data, dict):
+            return "File must be a YAML mapping (key: value)"
+    return None

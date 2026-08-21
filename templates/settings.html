@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Noteikumi un stila vadlīnijas</h1>
+<p class="muted">Izmaiņas stājas spēkā uzreiz — bez restarta. YAML tiek pārbaudīts pirms saglabāšanas.</p>
+
+{% if saved %}<div class="notice ok">Saglabāts: {{ saved }}</div>{% endif %}
+{% if error %}<div class="notice err">{{ error }}</div>{% endif %}
+
+{% set labels = {
+  'rules': 'Redakcionālie noteikumi (rules.yaml)',
+  'channels': 'Kanāli un kadence (channels.yaml)',
+  'feeds': 'Plūsmas (feeds.yaml)',
+  'prompt_base': 'AI stila pamatinstrukcija',
+  'prompt_facebook': 'AI stils — Facebook',
+  'prompt_x': 'AI stils — X',
+  'prompt_threads': 'AI stils — Threads'
+} %}
+
+{% for kind, content in files.items() %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>{{ labels.get(kind, kind) }}</h2>
+  <form method="post" action="/settings/{{ kind }}">
+    <textarea name="content" class="code">{{ content }}</textarea>
+    <div style="margin-top:.5rem"><button class="primary">Saglabāt</button></div>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

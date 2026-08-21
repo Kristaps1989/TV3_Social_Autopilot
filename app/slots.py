@@ -1,0 +1,165 @@
+"""Slot allocator: picks WHEN a post goes out on a channel.
+
+Enforces (per channel): minimum gap, daily cap, quiet hours, sensitivity
+time windows, similarity guard, and section/format diversity. Prefers
+hours where the audience is historically active (DEFAULT_HOUR_WEIGHTS,
+replaced by measured priors in Phase 3).
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, time
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import select
+
+from app import config
+from app.best_practices import DEFAULT_HOUR_WEIGHTS
+from app.models import Post
+from app.rules_engine import Verdict, in_window, parse_window, title_similarity
+
+STEP_MINUTES = 5
+SEARCH_HORIZON_HOURS = 48
+
+
+def _local(dt_utc: datetime) -> datetime:
+    return dt_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(config.TIMEZONE))
+
+
+def _channel_queue(session, channel: str, around: datetime) -> list[Post]:
+    """Scheduled/published posts near the search window, oldest first."""
+    lo = around - timedelta(hours=26)
+    hi = around + timedelta(hours=SEARCH_HORIZON_HOURS + 1)
+    rows = session.execute(
+        select(Post)
+        .where(Post.channel == channel,
+               Post.state.in_(("scheduled", "publishing", "published")),
+               Post.scheduled_at.is_not(None),
+               Post.scheduled_at >= lo, Post.scheduled_at <= hi)
+        .order_by(Post.scheduled_at)
+    ).scalars().all()
+    return list(rows)
+
+
+def _quiet(local_dt: datetime, quiet_hours: list[str]) -> bool:
+    t = local_dt.time()
+    return any(in_window(t, *parse_window(w)) for w in quiet_hours)
+
+
+def _window_ok(local_dt: datetime, windows: list[tuple[time, time]]) -> bool:
+    if not windows:
+        return True
+    return any(in_window(local_dt.time(), a, b) for a, b in windows)
+
+
+def _daily_count(queue: list[Post], local_day, tz) -> int:
+    return sum(1 for p in queue
+               if p.scheduled_at and _local(p.scheduled_at).date() == local_day)
+
+
+def violates_similarity(session, channel: str, title: str, rules: dict,
+                        queue: list[Post] | None = None) -> bool:
+    guard = rules.get("similarity_guard") or {}
+    window = int(guard.get("window", 3))
+    threshold = float(guard.get("threshold", 0.70))
+    if queue is None:
+        queue = []
+    recent = sorted((p for p in queue if p.scheduled_at), key=lambda p: p.scheduled_at)[-window:]
+    for p in recent:
+        other = p.article.title if p.article else p.copy
+        if title_similarity(title, other) >= threshold:
+            return True
+    return False
+
+
+def violates_diversity(queue: list[Post], candidate_section: str, candidate_format: str,
+                       slot: datetime, rules: dict) -> bool:
+    """Within the rolling window ending at this slot, require a section+format mix."""
+    mix = rules.get("section_mix") or {}
+    window = int(mix.get("window", 6))
+    min_sections = int(mix.get("min_distinct_sections", 2))
+    min_formats = int(mix.get("min_distinct_formats", 2))
+    prior = sorted((p for p in queue if p.scheduled_at and p.scheduled_at <= slot),
+                   key=lambda p: p.scheduled_at)[-(window - 1):]
+    if len(prior) < window - 1:
+        return False  # not enough history to constrain
+    sections = {p.article.section if p.article else "" for p in prior} | {candidate_section}
+    formats = {p.format for p in prior} | {candidate_format}
+    return len(sections) < min_sections or len(formats) < min_formats
+
+
+def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
+              section: str, fmt: str, title: str,
+              now: datetime, preferred: datetime | None = None) -> datetime | None:
+    """Earliest valid slot honouring all constraints; None if nothing fits.
+
+    Among the first valid candidates we bias toward high-engagement hours:
+    we scan forward and accept a slot immediately if its hour weight is
+    within 85% of the best weight seen in the next 3 hours — so posts go
+    out promptly but drift toward strong hours when the queue allows.
+    """
+    rules = config.load_rules()
+    tz = ZoneInfo(config.TIMEZONE)
+    queue = _channel_queue(session, channel, now)
+
+    if violates_similarity(session, channel, title, rules, queue):
+        return None
+
+    min_gap = timedelta(minutes=int(channel_cfg.get("min_gap_minutes", 30)))
+    daily_cap = int(channel_cfg.get("daily_cap", 24))
+    quiet_hours = channel_cfg.get("quiet_hours") or []
+
+    start = max(now, verdict.earliest or now, preferred or now)
+    # round up to the next 5-minute mark
+    start = start.replace(second=0, microsecond=0)
+    if start.minute % STEP_MINUTES:
+        start += timedelta(minutes=STEP_MINUTES - start.minute % STEP_MINUTES)
+
+    def valid(candidate: datetime) -> bool:
+        if verdict.latest and candidate > verdict.latest:
+            return False
+        local_dt = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+        if _quiet(local_dt, quiet_hours):
+            return False
+        if not _window_ok(local_dt, verdict.allowed_windows):
+            return False
+        for p in queue:
+            if p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap:
+                return False
+        if _daily_count(queue, local_dt.date(), tz) >= daily_cap:
+            return False
+        if violates_diversity(queue, section, fmt, candidate, rules):
+            return False
+        return True
+
+    if verdict.outcome == "forced_now":
+        candidate = max(now, verdict.earliest or now)
+        return candidate  # 'now' skips the queue constraints by design
+
+    best: datetime | None = None
+    best_weight = -1.0
+    candidate = start
+    end = start + timedelta(hours=SEARCH_HORIZON_HOURS)
+    while candidate <= end:
+        if verdict.latest and candidate > verdict.latest:
+            break
+        if valid(candidate):
+            hour = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).hour
+            weight = DEFAULT_HOUR_WEIGHTS.get(hour, 0.5)
+            if best is None:
+                best, best_weight = candidate, weight
+            # look ahead up to 3h for a clearly better hour
+            elif candidate - best <= timedelta(hours=3) and weight > best_weight / 0.85:
+                best, best_weight = candidate, weight
+            elif candidate - best > timedelta(hours=3):
+                break
+        candidate += timedelta(minutes=STEP_MINUTES)
+
+    if best is None and verdict.latest:
+        # 'must' deadline at risk: take literally any slot that only respects the gap
+        candidate = start
+        while candidate <= verdict.latest:
+            if all(not (p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap)
+                   for p in queue):
+                return candidate
+            candidate += timedelta(minutes=STEP_MINUTES)
+    return best
