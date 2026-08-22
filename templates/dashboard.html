@@ -49,6 +49,15 @@ sociālajiem tīkliem pielāgotus tekstus un izvēlētos labāko formātu katram
               <button class="primary">Saglabāt tekstu</button>
             </form>
             <div class="muted">{{ p.article.title if p.article }}</div>
+            {% if p.format == 'card_carousel' and p.media %}
+            <div style="display:flex;gap:4px;margin-top:.4rem;flex-wrap:wrap">
+              {% for m in p.media %}
+              <a href="/media/{{ m | basename }}" target="_blank">
+                <img src="/media/{{ m | basename }}" width="72" height="72"
+                     style="border-radius:6px;border:1px solid var(--line)"></a>
+              {% endfor %}
+            </div>
+            {% endif %}
           </details>
         </td>
         <td>

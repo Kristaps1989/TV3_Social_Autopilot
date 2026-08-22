@@ -44,8 +44,20 @@ DECISION_TOOL = {
                         "channel": {"type": "string"},
                         "format": {"type": "string",
                                    "enum": ["link", "photo", "photo_album", "text_only",
-                                            "carousel", "video"]},
+                                            "carousel", "card_carousel", "video"]},
                         "copy": {"type": "string"},
+                        "card_points": {
+                            "type": "array", "items": {"type": "string"},
+                            "maxItems": 5,
+                            "description": "Only for format card_carousel: 3-5 īsi, "
+                                           "intriģējoši punkti no raksta. Ieinteresē, "
+                                           "bet NEATKLĀJ atrisinājumu.",
+                        },
+                        "card_end_question": {
+                            "type": "string",
+                            "description": "Only for card_carousel: jautājums pēdējai "
+                                           "kartītei, kas liek atvērt rakstu.",
+                        },
                         "hashtags": {"type": "array", "items": {"type": "string"}},
                         "image_index": {"type": "integer"},
                         "preferred_hour": {"type": "integer", "minimum": 0, "maximum": 23},
@@ -96,6 +108,11 @@ Pieejamie kanāli:
 
 Nesenie ieraksti (neatkārto leņķus):
 {recent_posts_context(session, list(eligible))}
+
+Formāts card_carousel (ja kanāls to atbalsta): kartīšu galerija — izmanto
+skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. Tad aizpildi
+card_points (3-5 īsi punkti, kas ieintriģē, bet neatklāj atrisinājumu) un
+card_end_question. Ātrām īsziņām labāks parasts saites ieraksts.
 
 Pieņem lēmumu ar record_decision. Ja raksts nav pietiekami interesants
 ('can' statuss ļauj izlaist), atzīmē publish=false ar īsu iemeslu latviski."""

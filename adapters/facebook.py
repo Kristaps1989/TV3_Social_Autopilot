@@ -24,25 +24,31 @@ class FacebookPageAdapter(Adapter):
     def configured(self) -> bool:
         return bool(self.page_id and self.token)
 
-    def _post(self, path: str, data: dict) -> dict:
+    def _post(self, path: str, data: dict, files: dict | None = None) -> dict:
         resp = httpx.post(f"{GRAPH}/{path}", data={**data, "access_token": self.token},
-                          timeout=30)
+                          files=files, timeout=60)
         if resp.status_code == 429 or resp.status_code >= 500:
             raise PublishError(f"FB {resp.status_code}: {resp.text[:200]}", retryable=True)
         if resp.status_code >= 400:
             raise PublishError(f"FB {resp.status_code}: {resp.text[:200]}", retryable=False)
         return resp.json()
 
+    def _upload_photo(self, image: str, extra: dict) -> dict:
+        """Upload one photo: remote URL via `url`, local file via multipart."""
+        if image.startswith("http"):
+            return self._post(f"{self.page_id}/photos", {**extra, "url": image})
+        with open(image, "rb") as f:
+            return self._post(f"{self.page_id}/photos", extra,
+                              files={"source": (image.rsplit("/", 1)[-1], f, "image/png")})
+
     def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
         if fmt == "photo" and images:
-            out = self._post(f"{self.page_id}/photos",
-                             {"url": images[0], "caption": text})
+            out = self._upload_photo(images[0], {"caption": text})
             return out.get("post_id") or out.get("id", "")
-        if fmt == "photo_album" and len(images) > 1:
+        if fmt in ("photo_album", "card_carousel") and len(images) > 1:
             media_ids = []
             for img in images[:10]:
-                out = self._post(f"{self.page_id}/photos",
-                                 {"url": img, "published": "false"})
+                out = self._upload_photo(img, {"published": "false"})
                 media_ids.append(out["id"])
             data = {"message": text}
             for i, mid in enumerate(media_ids):

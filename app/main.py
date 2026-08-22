@@ -12,7 +12,7 @@ import os
 import time
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
@@ -44,7 +44,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="TV3 Social Autopilot", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
-# Pages reachable without a session: healthcheck + the auth pages themselves.
+# Pages reachable without a session: healthcheck, the auth pages, and
+# rendered card images (unguessable names; platforms must be able to fetch them).
 PUBLIC_PATHS = {"/health", "/login", "/setup"}
 
 
@@ -53,7 +54,7 @@ async def require_login(request: Request, call_next):
     """The admin UI holds the kill switch and platform tokens — everything
     except /health requires a logged-in session. With no password configured
     yet, every page redirects to the one-time /setup screen."""
-    if request.url.path in PUBLIC_PATHS:
+    if request.url.path in PUBLIC_PATHS or request.url.path.startswith("/media/"):
         return await call_next(request)
     session = get_session()
     try:
@@ -153,6 +154,7 @@ def to_local(dt):
 
 
 templates.env.filters["local"] = to_local
+templates.env.filters["basename"] = lambda p: Path(str(p)).name
 
 
 @app.get("/health")
@@ -272,6 +274,20 @@ def edit_copy(post_id: int, copy: str = Form(...)):
     finally:
         session.close()
     return RedirectResponse("/", status_code=303)
+
+
+@app.get("/media/{name}")
+def media(name: str):
+    """Rendered carousel cards (unguessable filenames)."""
+    from fastapi.responses import FileResponse
+
+    from app.cards import CARDS_DIR
+
+    safe = Path(name).name
+    path = CARDS_DIR / safe
+    if not safe.endswith(".png") or not path.exists():
+        return Response(status_code=404)
+    return FileResponse(path, media_type="image/png")
 
 
 @app.get("/why", response_class=HTMLResponse)

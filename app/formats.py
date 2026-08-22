@@ -31,6 +31,10 @@ def suitable_formats(article: Article, allowed: list[str]) -> list[str]:
     images = article.images or []
     out = []
     for fmt in allowed:
+        if fmt == "card_carousel":
+            # only the AI proposes carousels (needs card_points); the
+            # diversity engine never forces one — handled in the pipeline
+            continue
         if fmt == "photo" and not images:
             continue
         if fmt == "photo_album" and len(images) < 4:

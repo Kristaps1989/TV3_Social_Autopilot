@@ -82,7 +82,7 @@ def run_decisions(session, limit: int = 20) -> int:
             if dup:
                 continue
 
-            fmt = choose_format(session, channel, cfg, article, ch_dec.get("format"))
+            fmt, card_media = resolve_format(session, channel, cfg, article, ch_dec)
 
             platform = cfg.get("platform", "")
             copy, hashtags, fixes = sanitize_copy(
@@ -114,7 +114,8 @@ def run_decisions(session, limit: int = 20) -> int:
 
             idx = ch_dec.get("image_index") or 0
             images = article.images or []
-            media = ([images[idx]] if fmt == "photo" and idx < len(images)
+            media = (card_media if fmt == "card_carousel"
+                     else [images[idx]] if fmt == "photo" and idx < len(images)
                      else images[:10] if fmt == "photo_album" else [])
             post = Post(
                 article_id=article.id, channel=channel, format=fmt,
@@ -131,6 +132,32 @@ def run_decisions(session, limit: int = 20) -> int:
             created += 1
         session.commit()
     return created
+
+
+def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
+    """Format for this post. A carousel happens only when the AI proposed it
+    AND provided usable card points AND the renderer works; otherwise the
+    diversity-aware chooser decides and media is derived from the article."""
+    from app import cards
+
+    ai_fmt = ch_dec.get("format")
+    if ai_fmt == "card_carousel" and "card_carousel" in (cfg.get("formats") or []):
+        points = [p.strip() for p in (ch_dec.get("card_points") or [])
+                  if isinstance(p, str) and p.strip()][:5]
+        if len(points) >= 3 and cards.renderer_available():
+            tag = "#" + (article.labels[0].upper().replace(" ", "")
+                         if article.labels else article.section.upper())
+            image = (article.images or [""])[0]
+            question = (ch_dec.get("card_end_question")
+                        or "Uzzini visu stāstu tv3.lv").strip()
+            try:
+                media = cards.render_cards(article.title, article.section, tag,
+                                           points, image, question)
+                return "card_carousel", media
+            except Exception as e:  # noqa: BLE001 — never lose the post over a render
+                log.warning("card render failed for article %s: %s", article.id, e)
+        ai_fmt = None  # fall back to a normal format
+    return choose_format(session, channel, cfg, article, ai_fmt), []
 
 
 def publish_due(session) -> int:

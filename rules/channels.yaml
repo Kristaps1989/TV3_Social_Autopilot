@@ -11,7 +11,9 @@ fb_tv3lv:
   quiet_hours: ["01:00-06:00"]
   # Sections this channel accepts (empty = all)
   sections: []
-  formats: [link, photo, photo_album]
+  # card_carousel = branded card gallery (cover + highlights + CTA card),
+  # used by the AI for explainers/list stories; needs the AI key active.
+  formats: [link, photo, photo_album, card_carousel]
   # Starting weight for the pageview KPI, replaced by measured data after ~2 weeks
   click_weight: 1.0
   # Relative preference per format for THIS channel. TV3's own data shows

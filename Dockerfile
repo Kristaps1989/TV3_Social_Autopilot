@@ -5,6 +5,8 @@ ENV PYTHONUNBUFFERED=1
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt psycopg2-binary
+# Chromium for the carousel card renderer (app/cards.py)
+RUN playwright install --with-deps chromium
 
 COPY . .
 
