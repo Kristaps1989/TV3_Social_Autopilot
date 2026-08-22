@@ -85,6 +85,13 @@ def recent_posts_context(session, channels: list[str], limit: int = 10) -> str:
     return "\n".join(lines) if lines else "(nav nesenu ierakstu)"
 
 
+def performance_context(session, channels: list[str]) -> str:
+    from app import priors
+
+    text = priors.prompt_context(session, channels)
+    return text or "(vēl nav pietiekami daudz datu)"
+
+
 def build_user_prompt(article: Article, verdicts: dict[str, Verdict],
                       channels_cfg: dict, session) -> str:
     eligible = {n: v for n, v in verdicts.items() if v.outcome in ("eligible", "forced_now")}
@@ -108,6 +115,9 @@ Pieejamie kanāli:
 
 Nesenie ieraksti (neatkārto leņķus):
 {recent_posts_context(session, list(eligible))}
+
+Izmērītā veiktspēja (izmanto formāta un laika izvēlē):
+{performance_context(session, list(eligible))}
 
 Formāts card_carousel (ja kanāls to atbalsta): kartīšu galerija — izmanto
 skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. Tad aizpildi

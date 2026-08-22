@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Statistika un mācīšanās</h1>
+<p class="muted">Sistēma vāc platformu rādītājus un GA4 sesijas (pēc <code>utm_content</code>)
+un automātiski izmanto tos: izmērītā stundu līkne aizstāj noklusēto publicēšanas laiku
+izvēli, formātu svari pielāgojas izmērītajām sesijām-uz-ierakstu, un AI redz veiktspējas
+kopsavilkumu katrā lēmumā. Sliekšņi maināmi <a href="/settings">noteikumos</a> (priors).</p>
+
+{% if dry_run %}
+<div class="notice err" style="background:#fef3c7;color:#92400e">
+DRY RUN režīmā nekas netiek publicēts, tāpēc statistika vēl nekrājas — dati sāks
+plūst, kad pirmais kanāls būs pārslēgts uz LIVE.</div>
+{% endif %}
+{% if not ga4_on %}
+<div class="notice err" style="background:#eef2ff;color:#3730a3">
+GA4 vēl nav pieslēgts (nav <code>GA4_PROPERTY_ID</code> / servisa konta) — pagaidām
+tiek izmantoti platformu klikšķi. GA4 sesijas ir precīzākais mērs klikšķiem uz tv3.lv.</div>
+{% endif %}
+
+<div class="cards">
+{% for s in summaries %}
+  <div class="card">
+    <h2>{{ s.channel }}</h2>
+    <div class="meta">Pēdējās 30 dienās: {{ s.posts }} ieraksti ·
+      {{ s.sessions }} GA sesijas · {{ s.clicks }} klikšķi
+      {% if s.measured_curve %} · <span class="badge live">stundu līkne izmērīta</span>
+      {% else %} · <span class="badge dry">stundu līkne: noklusētā</span>{% endif %}
+    </div>
+    <table>
+      <tr><th>Formāts</th><th>Ieraksti</th><th>Vid. sesijas/klikšķi</th></tr>
+      {% for f in s.formats %}
+      <tr><td>{{ f.format }}</td><td>{{ f.n }}</td><td>{{ '%.1f' % f.avg }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">Vēl nav publicētu ierakstu</td></tr>
+      {% endfor %}
+    </table>
+    {% if s.best_hours %}
+    <div class="meta" style="margin-top:.5rem">Stiprākās stundas:
+      {% for h in s.best_hours %}{{ h }}:00{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Top ieraksti (30 dienas)</h2>
+  <table>
+    <tr><th>Rezultāts</th><th>Kanāls</th><th>Formāts</th><th>Virsraksts</th><th></th></tr>
+    {% for r in top %}
+    <tr>
+      <td><strong>{{ '%.0f' % r.score }}</strong></td>
+      <td>{{ r.channel }}</td>
+      <td>{{ r.format }}</td>
+      <td class="copytext">{{ r.post.article.title[:90] if r.post.article }}</td>
+      <td><a href="/post/{{ r.post.id }}/preview">skatīt</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">Vēl nav datu — parādīsies pēc pirmajiem publicētajiem ierakstiem.</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">Rezultāts = GA4 sesijas (ja pieejamas), citādi platformas klikšķi.
+  Katru pirmdienas rītu kopsavilkums tiek nosūtīts arī uz Slack (ja konfigurēts).</p>
+</div>
+{% endblock %}

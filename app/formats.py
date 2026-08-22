@@ -70,6 +70,11 @@ def choose_format(session, channel: str, channel_cfg: dict, article: Article,
     weights = {**DEFAULT_FORMAT_WEIGHTS, **(channel_cfg.get("format_weights") or {})}
     shares = recent_format_shares(session, channel)
 
+    # measured sessions-per-post adjusts the configured weights (priors.py)
+    from app import priors
+
+    measured = priors.format_multipliers(session, channel)
+
     # Visual stories lean photo; hard news leans link (best CTR to the site).
     section_bias = {}
     if article.section == "entertainment" and (article.images or []):
@@ -81,6 +86,7 @@ def choose_format(session, channel: str, channel_cfg: dict, article: Article,
     best, best_score = candidates[0], -1.0
     for fmt in candidates:
         score = float(weights.get(fmt, 0.5))
+        score *= measured.get(fmt, 1.0)
         score *= section_bias.get(fmt, 1.0)
         score *= 1.3 - shares.get(fmt, 0.0)  # unused 1.3x .. saturated 0.3x
         if fmt == ai_choice:

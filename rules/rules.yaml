@@ -46,6 +46,12 @@ time_windows:
 copy_tone:
   no_emoji_sensitivity: [tragedy, crime]
 
+# Learning thresholds: how many measured posts are needed before the
+# system replaces default assumptions with measured behaviour.
+priors:
+  min_posts_hours: 30    # posts before the measured hour curve takes over
+  min_posts_format: 8    # posts per format before its weight is adjusted
+
 # Term-ID blocklist per channel (article never goes to that channel)
 term_blocklist: {}
 #  fb_tv3lv: [12345]

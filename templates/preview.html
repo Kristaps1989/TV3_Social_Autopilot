@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Ieraksta priekšskatījums</h1>
+<p class="muted">Tā ieraksts izskatīsies plūsmā ({{ channel_name }}).
+Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
+{% if post.scheduled_at %} · plānots {{ post.scheduled_at | local }}{% endif %}</p>
+
+<style>
+.mock { max-width:520px; background:#fff; border:1px solid var(--line);
+        border-radius:12px; overflow:hidden; margin-bottom:1rem;
+        box-shadow:0 2px 12px rgba(0,0,0,.06); }
+.mock-head { display:flex; gap:.6rem; align-items:center; padding:.8rem .9rem .4rem; }
+.avatar { width:42px; height:42px; border-radius:50%; background:#fff;
+          border:1px solid var(--line); display:flex; align-items:center;
+          justify-content:center; font-weight:800; font-size:.7rem; }
+.avatar span { color:#e3000f; }
+.mock-name { font-weight:600; font-size:.92rem; }
+.mock-meta { color:var(--muted); font-size:.76rem; }
+.mock-copy { padding:.35rem .9rem .7rem; white-space:pre-wrap; font-size:.93rem; }
+.mock-copy a { color:#1b74e4; word-break:break-all; }
+.linkcard { border-top:1px solid var(--line); }
+.linkcard .img, .photo-img { width:100%; aspect-ratio:1.91/1; object-fit:cover;
+        display:block; background:linear-gradient(135deg,#3d1458,#7a1fa2); }
+.photo-img { aspect-ratio:auto; max-height:520px; }
+.linkcard .txt { background:#f0f2f5; padding:.55rem .9rem; }
+.linkcard .dom { color:var(--muted); font-size:.72rem; text-transform:uppercase; }
+.linkcard .ttl { font-weight:600; font-size:.95rem; }
+.carousel { display:flex; gap:.5rem; overflow-x:auto; padding:.2rem .9rem .8rem; }
+.carousel img { width:300px; height:300px; border-radius:10px; flex:none;
+                border:1px solid var(--line); }
+.mock-foot { border-top:1px solid var(--line); display:flex; color:var(--muted);
+             font-size:.83rem; }
+.mock-foot div { flex:1; text-align:center; padding:.55rem 0; }
+</style>
+
+<div class="mock">
+  <div class="mock-head">
+    <div class="avatar">tv<span>3</span>.lv</div>
+    <div>
+      <div class="mock-name">{{ channel_name }}</div>
+      <div class="mock-meta">{{ (post.scheduled_at or post.created_at) | local }} · 🌐</div>
+    </div>
+  </div>
+
+  <div class="mock-copy">{{ post.copy }}{% if post.hashtags %}
+{{ post.hashtags | join(' ') }}{% endif %}{% if platform != 'facebook_page' and link %}
+<a href="{{ link }}">{{ link[:60] }}…</a>{% endif %}</div>
+
+  {% if post.format == 'card_carousel' and post.media %}
+  <div class="carousel">
+    {% for m in post.media %}<img src="/media/{{ m | basename }}">{% endfor %}
+  </div>
+  {% elif post.format in ('photo', 'photo_album') and post.media %}
+  <img class="photo-img" src="{{ post.media[0] }}" onerror="this.style.display='none'">
+  {% elif post.format == 'link' %}
+  <div class="linkcard">
+    {% if og_image %}<img class="img" src="{{ og_image }}"
+        onerror="this.removeAttribute('src')">{% else %}<div class="img"></div>{% endif %}
+    <div class="txt">
+      <div class="dom">tv3.lv</div>
+      <div class="ttl">{{ article.title if article }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="mock-foot"><div>👍 Patīk</div><div>💬 Komentēt</div><div>↗ Dalīties</div></div>
+</div>
+
+<div class="muted" style="max-width:520px">
+  <strong>Pilnais teksts, kas tiks publicēts:</strong>
+  <pre style="white-space:pre-wrap;background:var(--card);border:1px solid var(--line);
+       border-radius:8px;padding:.7rem;font:inherit">{{ full_text }}</pre>
+  {% if article %}<a href="/why?url={{ article.canonical_url | urlencode }}">→ Lēmumu vēsture</a>{% endif %}
+</div>
+{% endblock %}

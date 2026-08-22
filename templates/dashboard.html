@@ -42,8 +42,10 @@ sociālajiem tīkliem pielāgotus tekstus un izvēlētos labāko formātu katram
       <tr>
         <td>{{ p.scheduled_at | local }}</td>
         <td class="copytext">
-          <strong>{{ p.format }}</strong> — {{ p.copy[:110] }}{% if p.copy|length > 110 %}…{% endif %}
-          <details><summary>labot / detaļas</summary>
+          <strong>{{ p.format }}</strong> —
+          <a href="/post/{{ p.id }}/preview" style="color:inherit"
+             title="Priekšskatījums">{{ p.copy[:110] }}{% if p.copy|length > 110 %}…{% endif %}</a>
+          <details><summary><a href="/post/{{ p.id }}/preview">priekšskatījums</a> · labot</summary>
             <form method="post" action="/post/{{ p.id }}/copy">
               <textarea name="copy" rows="3">{{ p.copy }}</textarea>
               <button class="primary">Saglabāt tekstu</button>

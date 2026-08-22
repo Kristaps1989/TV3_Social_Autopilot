@@ -101,6 +101,11 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
     tz = ZoneInfo(config.TIMEZONE)
     queue = _channel_queue(session, channel, now)
 
+    # measured audience curve replaces the default once enough data exists
+    from app import priors
+
+    hour_weights = priors.channel_hour_weights(session, channel) or DEFAULT_HOUR_WEIGHTS
+
     if violates_similarity(session, channel, title, rules, queue):
         return None
 
@@ -150,7 +155,7 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
             break
         if valid(candidate):
             hour = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).hour
-            weight = DEFAULT_HOUR_WEIGHTS.get(hour, 0.5)
+            weight = hour_weights.get(hour, 0.5)
             if best is None:
                 best, best_weight = candidate, weight
             # look ahead up to 3h for a clearly better hour

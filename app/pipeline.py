@@ -242,4 +242,34 @@ def collect_metrics(session) -> int:
             session.add(PostMetrics(post_id=post.id, **data))
             collected += 1
     session.commit()
+
+    from app import ga4
+
+    collected += ga4.collect(session)
     return collected
+
+
+def weekly_report(session) -> str:
+    """Human summary of the last 30 days, sent to Slack/log weekly."""
+    from app import priors
+
+    lines = ["TV3 Autopilot — nedēļas kopsavilkums (pēdējās 30 dienas):"]
+    for channel in config.load_channels():
+        s = priors.channel_summary(session, channel)
+        if not s["posts"]:
+            continue
+        fmt = ", ".join(f"{f['format']}: {f['avg']:.0f} (n={f['n']})"
+                        for f in s["formats"][:4])
+        hours = (", stiprākās stundas " + ", ".join(f"{h}:00" for h in s["best_hours"])
+                 if s["best_hours"] else "")
+        lines.append(f"• {channel}: {s['posts']} ieraksti, {s['sessions']} GA sesijas, "
+                     f"{s['clicks']} klikšķi. Formāti: {fmt}{hours}")
+    top = priors.top_posts(session, 5)
+    if top:
+        lines.append("Top ieraksti:")
+        for r in top:
+            title = r["post"].article.title[:70] if r["post"].article else ""
+            lines.append(f"  {r['score']:.0f} — [{r['channel']}/{r['format']}] {title}")
+    report = "\n".join(lines)
+    alert(report) if len(lines) > 1 else None
+    return report

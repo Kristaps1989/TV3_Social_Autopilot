@@ -65,6 +65,28 @@ def test_health_stays_public(client):
     assert client.get("/health").status_code == 200
 
 
+def test_stats_and_preview_pages(client, session):
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+    assert client.get("/stats").status_code == 200
+
+    from app.models import Article, Post
+
+    a = Article(guid="ui-1", url="https://tv3.lv/u", canonical_url="https://tv3.lv/u",
+                title="Priekšskatījuma tests", section="news",
+                images=["https://tv3.lv/img.jpg"])
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="link",
+             copy="Teksts", link_url="https://tv3.lv/u", state="scheduled")
+    session.add(p)
+    session.commit()
+    r = client.get(f"/post/{p.id}/preview")
+    assert r.status_code == 200
+    assert "Priekšskatījuma tests" in r.text
+    assert "utm_content" in r.text  # full outgoing text shown with tracking
+
+
 def test_tampered_cookie_rejected(client, session):
     credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
     client.cookies.set(auth.SESSION_COOKIE, "admin.9999999999.deadbeef")

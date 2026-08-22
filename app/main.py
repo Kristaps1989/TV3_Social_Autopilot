@@ -276,6 +276,49 @@ def edit_copy(post_id: int, copy: str = Form(...)):
     return RedirectResponse("/", status_code=303)
 
 
+@app.get("/post/{post_id}/preview", response_class=HTMLResponse)
+def post_preview(request: Request, post_id: int):
+    session = get_session()
+    try:
+        post = session.get(Post, post_id)
+        if post is None:
+            return RedirectResponse("/", status_code=303)
+        channels = config.load_channels()
+        cfg = channels.get(post.channel) or {}
+        platform = cfg.get("platform", "")
+        from app.best_practices import add_utm, assemble_post_text
+
+        link = add_utm(post.link_url, platform, post.id) if post.link_url else ""
+        full_text = assemble_post_text(post.copy, post.hashtags or [], link, platform)
+        article = post.article
+        return templates.TemplateResponse(request, "preview.html", {
+            "post": post, "article": article, "platform": platform,
+            "channel_name": cfg.get("display_name", post.channel),
+            "full_text": full_text, "link": link,
+            "og_image": (article.images or [""])[0] if article else "",
+        })
+    finally:
+        session.close()
+
+
+@app.get("/stats", response_class=HTMLResponse)
+def stats(request: Request):
+    from app import ga4, priors
+
+    session = get_session()
+    try:
+        channels = config.load_channels()
+        summaries = [priors.channel_summary(session, ch) for ch in channels]
+        return templates.TemplateResponse(request, "stats.html", {
+            "summaries": summaries,
+            "top": priors.top_posts(session, 10),
+            "ga4_on": ga4.configured(),
+            "dry_run": config.DRY_RUN,
+        })
+    finally:
+        session.close()
+
+
 @app.get("/media/{name}")
 def media(name: str):
     """Rendered carousel cards (unguessable filenames)."""

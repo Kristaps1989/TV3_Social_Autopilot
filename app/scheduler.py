@@ -78,5 +78,10 @@ def start_scheduler() -> BackgroundScheduler:
                       id="metrics", max_instances=1, coalesce=True)
     scheduler.add_job(tokens_job, "interval", hours=24,
                       id="tokens", max_instances=1, coalesce=True)
+    from app.pipeline import weekly_report
+
+    scheduler.add_job(lambda: _job(weekly_report), "cron",
+                      day_of_week="mon", hour=5, minute=0,  # 07:00/08:00 Riga
+                      id="weekly_report", max_instances=1, coalesce=True)
     scheduler.start()
     return scheduler
