@@ -54,17 +54,29 @@ def renderer_available() -> bool:
     return True
 
 
+# The white corner swoosh is the sponsor area ("SADARBĪBĀ AR ...").
+# tv3.lv has no article sponsors right now, so it is off by default;
+# flip this on (or make it per-post) when sponsorships come back.
+SHOW_SPONSOR = os.environ.get("CARD_SPONSOR", "").lower() == "true"
+
+
 def build_cards_html(title: str, section: str, tag: str, points: list[str],
-                     image_url: str, end_question: str) -> str:
+                     image_url: str, end_question: str,
+                     show_sponsor: bool | None = None) -> str:
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     dark = _shade(color, -0.18)
     total = len(points) + 2
     esc = html.escape
 
-    swoosh = ('<svg class="sw" viewBox="0 0 1080 810" preserveAspectRatio="none">'
-              '<path d="M 800,0 C 716,6 688,34 699,82 C 728,188 908,290 1080,332 '
-              'L 1080,0 Z" fill="#fff"/></svg>')
+    if show_sponsor is None:
+        show_sponsor = SHOW_SPONSOR
+    swoosh = ""
+    if show_sponsor:
+        swoosh = ('<svg class="sw" viewBox="0 0 1080 810" preserveAspectRatio="none">'
+                  '<path d="M 800,0 C 716,6 688,34 699,82 C 728,188 908,290 1080,332 '
+                  'L 1080,0 Z" fill="#fff"/></svg>'
+                  '<div class="sad">SADARBĪBĀ AR</div>')
 
     def bar(page: int) -> str:
         return f"""<div class="bar">{_logo(88)}
@@ -80,7 +92,6 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
     <div class="card">
       <div class="art" style="{cover_bg}">
         {shade}{swoosh}
-        <div class="sad">SADARBĪBĀ AR</div>
         <div class="page">1/{total} →</div>
         <div class="cover-txt">
           <div class="kicker" style="background:{dark}">{esc(style['kicker'])}</div>
@@ -93,7 +104,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         cards.append(f"""
     <div class="card">
       <div class="art" style="background:{color}">
-        {swoosh}<div class="sad">SADARBĪBĀ AR</div>
+        {swoosh}
         <div class="page">{n + 1}/{total} →</div>
         <div class="point">
           <div class="num" style="color:{dark}">{n}</div>

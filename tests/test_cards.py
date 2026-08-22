@@ -16,10 +16,18 @@ def test_build_html_contains_points_and_brand():
         ["Pirmais punkts", "Otrais punkts", "Trešais punkts"],
         "", "Noslēguma jautājums?")
     assert html_doc.count('class="card"') == 5  # cover + 3 + end card
-    for text in ("Pirmais punkts", "SADARBĪBĀ AR", "#EKONOMIKA", "ZIŅAS",
+    for text in ("Pirmais punkts", "#EKONOMIKA", "ZIŅAS",
                  "Lasi pilno rakstu", "Noslēguma jautājums?"):
         assert text in html_doc
     assert "svg" in html_doc  # logo present
+    # no sponsor right now -> no sponsor area by default
+    assert "SADARBĪBĀ AR" not in html_doc
+
+
+def test_sponsor_area_optional():
+    html_doc = cards.build_cards_html("V", "news", "#T", ["a", "b", "c"], "", "q",
+                                      show_sponsor=True)
+    assert "SADARBĪBĀ AR" in html_doc
 
 
 def test_html_escapes_content():
