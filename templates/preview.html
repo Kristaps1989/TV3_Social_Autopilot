@@ -51,7 +51,9 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
     {% for m in post.media %}<img src="/media/{{ m | basename }}">{% endfor %}
   </div>
   {% elif post.format in ('photo', 'photo_album') and post.media %}
-  <img class="photo-img" src="{{ post.media[0] }}" onerror="this.style.display='none'">
+  <img class="photo-img"
+       src="{{ post.media[0] if post.media[0].startswith('http') else '/media/' + (post.media[0] | basename) }}"
+       onerror="this.style.display='none'">
   {% elif post.format == 'link' %}
   <div class="linkcard">
     {% if og_image %}<img class="img" src="{{ og_image }}"

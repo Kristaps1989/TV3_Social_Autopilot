@@ -114,9 +114,14 @@ def run_decisions(session, limit: int = 20) -> int:
 
             idx = ch_dec.get("image_index") or 0
             images = article.images or []
-            media = (card_media if fmt == "card_carousel"
-                     else [images[idx]] if fmt == "photo" and idx < len(images)
-                     else images[:10] if fmt == "photo_album" else [])
+            if fmt == "card_carousel":
+                media = card_media
+            elif fmt == "photo" and images:
+                media = [branded_photo(article, images[min(idx, len(images) - 1)])]
+            elif fmt == "photo_album":
+                media = images[:10]
+            else:
+                media = []
             post = Post(
                 article_id=article.id, channel=channel, format=fmt,
                 copy=copy, hashtags=hashtags, media=media,
@@ -132,6 +137,22 @@ def run_decisions(session, limit: int = 20) -> int:
             created += 1
         session.commit()
     return created
+
+
+def branded_photo(article, image_url: str) -> str:
+    """Photo posts carry the article image with the tv3.lv title plate
+    burned in (rules.yaml photo_title_overlay). Falls back to the raw
+    image when the renderer is unavailable or fails."""
+    from app import cards
+
+    rules = config.load_rules()
+    if not rules.get("photo_title_overlay", True) or not cards.renderer_available():
+        return image_url
+    try:
+        return cards.render_share_image(article.title, article.section, image_url)
+    except Exception as e:  # noqa: BLE001
+        log.warning("share image render failed for article %s: %s", article.id, e)
+        return image_url
 
 
 def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):

@@ -30,6 +30,55 @@ def test_sponsor_area_optional():
     assert "SADARBĪBĀ AR" in html_doc
 
 
+def test_share_image_html():
+    html_doc = cards.build_share_html("Virsraksts ar garumzīmēm āēī", "news",
+                                      "https://tv3.lv/img.jpg", kicker="SKAIDROJUMS")
+    assert "Virsraksts ar garumzīmēm āēī" in html_doc
+    assert "SKAIDROJUMS" in html_doc
+    assert "data:image/png;base64," in html_doc  # logo chip
+    assert "#e3000f" in html_doc  # red accent
+
+
+def test_branded_photo_falls_back_without_renderer(session, monkeypatch):
+    from app import pipeline
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: False)
+    a = Article(guid="bp-1", url="https://tv3.lv/bp", canonical_url="https://tv3.lv/bp",
+                title="T", section="news")
+    assert pipeline.branded_photo(a, "https://tv3.lv/img.jpg") == "https://tv3.lv/img.jpg"
+
+
+def test_branded_photo_falls_back_on_error(session, monkeypatch):
+    from app import pipeline
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+
+    def boom(*a, **k):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(cards, "render_share_image", boom)
+    a = Article(guid="bp-2", url="https://tv3.lv/bp2", canonical_url="https://tv3.lv/bp2",
+                title="T", section="news")
+    assert pipeline.branded_photo(a, "https://tv3.lv/img.jpg") == "https://tv3.lv/img.jpg"
+
+
+def test_fallback_copy_skips_duplicated_lead():
+    from app.decide import fallback_decision
+    from app.rules_engine import Verdict
+
+    a = Article(guid="fc-1", url="https://tv3.lv/fc", canonical_url="https://tv3.lv/fc",
+                title="Trešdaļa uzņēmumu par kiberuzbrukumiem nesatraucas",
+                lead="Trešdaļa uzņēmumu par kiberuzbrukumiem nesatraucas, liecina aptauja.",
+                section="news", editor_status="must")
+    d = fallback_decision(a, {"fb_tv3lv": Verdict("eligible")})
+    copy = d["channels"][0]["copy"]
+    assert copy == a.title  # lead repeats the title -> not appended
+
+    a.lead = "Pavisam cits ievads ar jaunu informāciju par notikumu."
+    d = fallback_decision(a, {"fb_tv3lv": Verdict("eligible")})
+    assert "Pavisam cits ievads" in d["channels"][0]["copy"]
+
+
 def test_html_escapes_content():
     html_doc = cards.build_cards_html("<script>x</script>", "news", "#T",
                                       ["a", "b", "c"], "", "q")

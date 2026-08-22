@@ -189,8 +189,16 @@ def fallback_decision(article: Article, verdicts: dict[str, Verdict]) -> dict:
     eligible = [n for n, v in verdicts.items() if v.outcome in ("eligible", "forced_now")]
     publish = article.editor_status in ("now", "must") and bool(eligible)
     copy = article.title
-    if article.lead:
-        copy = f"{article.title} — {article.lead[:150]}"
+    lead = (article.lead or "").strip()
+    # only append the lead when it actually adds something — many feeds
+    # repeat the headline as the first sentence of the lead
+    if lead:
+        from app.rules_engine import title_similarity
+
+        head = lead[: len(article.title) + 30]
+        if not lead.lower().startswith(article.title.lower()[:40]) \
+                and title_similarity(article.title, head) < 0.6:
+            copy = f"{article.title} — {lead[:150]}"
     return {
         "publish": publish,
         "score": {"now": 0.95, "must": 0.8}.get(article.editor_status, 0.4),
