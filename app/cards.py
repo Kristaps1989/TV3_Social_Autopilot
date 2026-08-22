@@ -177,10 +177,12 @@ h2 {{ font-size:56px; line-height:1.28; margin-bottom:64px; max-width:860px; }}
 
 
 def build_share_html(title: str, section: str, image_url: str,
-                     kicker: str = "") -> str:
-    """Single branded share image (1080x1080): article photo full-bleed with
-    the tv3.lv title plate — white box, bold headline, red accent bar —
-    matching the tv3.lv site's own share-image style."""
+                     kicker: str = "", width: int = 1080,
+                     height: int = 1080) -> str:
+    """Single branded share image: article photo full-bleed with the tv3.lv
+    title plate — white box, bold headline, red accent bar — matching the
+    tv3.lv site's own share-image style. Size per platform: FB feed 4:5
+    (1080x1350, max feed real estate), X/Threads 1:1 (1080x1080, no crop)."""
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     esc = html.escape
@@ -189,7 +191,7 @@ def build_share_html(title: str, section: str, image_url: str,
     kicker_html = (f'<div class="kick">{esc(kicker)}</div>' if kicker else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
-.share {{ width:1080px; height:1080px; position:relative; overflow:hidden; {bg} }}
+.share {{ width:{width}px; height:{height}px; position:relative; overflow:hidden; {bg} }}
 .plate {{ position:absolute; left:0; bottom:96px; max-width:900px;
           background:#fff; padding:44px 56px 44px 48px;
           border-right:18px solid #e3000f;
@@ -209,21 +211,23 @@ def build_share_html(title: str, section: str, image_url: str,
 
 
 def render_share_image(title: str, section: str, image_url: str,
-                       kicker: str = "", out_dir: Path | None = None) -> str:
+                       kicker: str = "", out_dir: Path | None = None,
+                       width: int = 1080, height: int = 1080) -> str:
     from playwright.sync_api import sync_playwright
 
     out_dir = out_dir or CARDS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_s{token}.html"
-    tmp.write_text(build_share_html(title, section, image_url, kicker),
+    tmp.write_text(build_share_html(title, section, image_url, kicker,
+                                    width, height),
                    encoding="utf-8")
     chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
     try:
         with sync_playwright() as p:
             browser = (p.chromium.launch(executable_path=chromium) if chromium
                        else p.chromium.launch())
-            page = browser.new_page(viewport={"width": 1080, "height": 1080})
+            page = browser.new_page(viewport={"width": width, "height": height})
             page.goto(tmp.as_uri(), timeout=30000)
             page.wait_for_timeout(800)  # let the article photo load
             out = out_dir / f"share_{token}.png"

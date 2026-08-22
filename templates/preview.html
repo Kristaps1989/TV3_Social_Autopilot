@@ -21,7 +21,7 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
 .linkcard { border-top:1px solid var(--line); }
 .linkcard .img, .photo-img { width:100%; height:auto; display:block;
         background:linear-gradient(135deg,#3d1458,#7a1fa2); }
-.linkcard .img { min-height:120px; }
+.linkcard .img { aspect-ratio:1.91/1; object-fit:cover; min-height:120px; }
 .photo-img { max-height:640px; object-fit:contain; }
 .story-img { width:280px; border-radius:14px; display:block;
              margin:.2rem auto .8rem; border:1px solid var(--line); }
@@ -94,6 +94,13 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
 <p class="muted" style="max-width:520px">Stāsts (24 h). Meta API neatbalsta saites
 uzlīmi stāstos, tāpēc attēlā ir redzams tv3.lv aicinājums — šis formāts strādā
 zīmolam un sasniedzamībai, ne tiešiem klikšķiem.</p>
+{% endif %}
+{% if post.format == 'link' and img_portrait %}
+<div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">
+⚠️ Raksta og attēls ir <strong>vertikāls</strong> — Facebook saites kartīte to apgriež
+uz 1.91:1 (kā redzams augstāk), un iestrādātā titula plāksne tiek nogriezta.
+Jauniem šādiem rakstiem sistēma automātiski izvēlas photo formātu ar savu
+brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
 {% endif %}
 
 <div class="muted" style="max-width:520px">

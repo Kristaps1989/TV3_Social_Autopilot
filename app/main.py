@@ -291,11 +291,21 @@ def post_preview(request: Request, post_id: int):
         link = add_utm(post.link_url, platform, post.id) if post.link_url else ""
         full_text = assemble_post_text(post.copy, post.hashtags or [], link, platform)
         article = post.article
+        img_portrait = False
+        if article and post.format == "link":
+            from app import imageinfo
+
+            try:
+                img_portrait = imageinfo.orientation(article) == "portrait"
+                session.commit()  # keep the probed size cached
+            except Exception:  # noqa: BLE001
+                img_portrait = False
         return templates.TemplateResponse(request, "preview.html", {
             "post": post, "article": article, "platform": platform,
             "channel_name": cfg.get("display_name", post.channel),
             "full_text": full_text, "link": link,
             "og_image": (article.images or [""])[0] if article else "",
+            "img_portrait": img_portrait,
         })
     finally:
         session.close()

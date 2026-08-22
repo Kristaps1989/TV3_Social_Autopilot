@@ -117,7 +117,8 @@ def run_decisions(session, limit: int = 20) -> int:
             if fmt == "card_carousel":
                 media = card_media
             elif fmt == "photo" and images:
-                media = [branded_photo(article, images[min(idx, len(images) - 1)])]
+                media = [branded_photo(article, images[min(idx, len(images) - 1)],
+                                       cfg.get("platform", ""))]
             elif fmt == "story":
                 media = story_media(article, images[idx] if idx < len(images)
                                     else (images[0] if images else ""))
@@ -147,7 +148,12 @@ def run_decisions(session, limit: int = 20) -> int:
     return created
 
 
-def branded_photo(article, image_url: str) -> str:
+# Best-practice photo sizes: FB feed shows 4:5 uncropped and it takes the
+# most screen space; X/Threads are safest at 1:1.
+PHOTO_SIZES = {"facebook_page": (1080, 1350)}
+
+
+def branded_photo(article, image_url: str, platform: str = "") -> str:
     """Photo posts carry the article image with the tv3.lv title plate
     burned in (rules.yaml photo_title_overlay). Falls back to the raw
     image when the renderer is unavailable or fails."""
@@ -156,8 +162,10 @@ def branded_photo(article, image_url: str) -> str:
     rules = config.load_rules()
     if not rules.get("photo_title_overlay", True) or not cards.renderer_available():
         return image_url
+    width, height = PHOTO_SIZES.get(platform, (1080, 1080))
     try:
-        return cards.render_share_image(article.title, article.section, image_url)
+        return cards.render_share_image(article.title, article.section, image_url,
+                                        width=width, height=height)
     except Exception as e:  # noqa: BLE001
         log.warning("share image render failed for article %s: %s", article.id, e)
         return image_url
@@ -199,7 +207,17 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("card render failed for article %s: %s", article.id, e)
         ai_fmt = None  # fall back to a normal format
-    return choose_format(session, channel, cfg, article, ai_fmt), []
+    fmt = choose_format(session, channel, cfg, article, ai_fmt)
+    # A portrait og-image gets butchered by Facebook's 1.91:1 link-card
+    # crop (baked-in title plate cut off). Switch to photo: we render our
+    # own correctly sized branded image there.
+    if (fmt == "link" and (article.images or [])
+            and "photo" in (cfg.get("formats") or [])):
+        from app import imageinfo
+
+        if imageinfo.orientation(article) == "portrait":
+            fmt = "photo"
+    return fmt, []
 
 
 def publish_due(session) -> int:
