@@ -25,12 +25,19 @@ SECTION_STYLE = {
     "entertainment": {"label": "IZKLAIDE", "color": "#8e4f8e", "kicker": "IZKLAIDE"},
 }
 
-_LOGO_PATH = Path(__file__).resolve().parent.parent / "branding/assets/tv3lv_logo.svg"
+# Official tv3.lv logo (uploaded by TV3, margins trimmed for layout use).
+_LOGO_PATH = Path(__file__).resolve().parent.parent / "branding/assets/tv3lv_logo_card.png"
+_logo_data_uri: str | None = None
 
 
 def _logo(height: int) -> str:
-    svg = _LOGO_PATH.read_text(encoding="utf-8")
-    return svg.replace("<svg ", f'<svg style="height:{height}px" ', 1)
+    global _logo_data_uri
+    if _logo_data_uri is None:
+        import base64
+
+        _logo_data_uri = ("data:image/png;base64,"
+                          + base64.b64encode(_LOGO_PATH.read_bytes()).decode())
+    return f'<img src="{_logo_data_uri}" style="height:{height}px" alt="tv3.lv">'
 
 
 def _shade(color: str, delta: float) -> str:

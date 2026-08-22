@@ -19,7 +19,7 @@ def test_build_html_contains_points_and_brand():
     for text in ("Pirmais punkts", "#EKONOMIKA", "ZIŅAS",
                  "Lasi pilno rakstu", "Noslēguma jautājums?"):
         assert text in html_doc
-    assert "svg" in html_doc  # logo present
+    assert "data:image/png;base64," in html_doc  # official logo embedded
     # no sponsor right now -> no sponsor area by default
     assert "SADARBĪBĀ AR" not in html_doc
 
