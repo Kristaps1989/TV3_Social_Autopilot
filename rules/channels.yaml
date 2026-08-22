@@ -40,7 +40,10 @@ x_tv3zinas:
   daily_cap: 40
   quiet_hours: ["01:00-06:00"]
   sections: []
-  formats: [link, text_only]
+  # X link cards no longer show the headline -> photo (branded title
+  # image) + link in text is the strongest format for visual stories
+  formats: [link, photo, text_only]
+  format_weights: {link: 1.0, photo: 1.0, text_only: 0.5}
   click_weight: 0.7
 
 threads_sport:
@@ -52,4 +55,6 @@ threads_sport:
   quiet_hours: ["00:00-07:00"]
   sections: [sport]
   formats: [link, photo, text_only]
+  # photo posts carry the branded title image (same as FB/X)
+  format_weights: {link: 1.0, photo: 0.9, text_only: 0.7}
   click_weight: 0.6
