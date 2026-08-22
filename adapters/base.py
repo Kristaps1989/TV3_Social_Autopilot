@@ -28,6 +28,11 @@ class Adapter(ABC):
         """Return {impressions, clicks, reactions} or None if unavailable."""
         return None
 
+    def comment(self, post_id: str, message: str) -> str:
+        """Post a comment under a published post (first-comment link).
+        Adapters without comment support inherit this no-op."""
+        return ""
+
 
 class DryRunAdapter(Adapter):
     """Records what WOULD have been posted. Used in Phase 1 and whenever
@@ -41,3 +46,7 @@ class DryRunAdapter(Adapter):
         log.info("[DRY RUN %s] %s | %s | link=%s images=%d",
                  self.platform, fmt, text[:120], link, len(images))
         return f"dry-run{'-' + self.note if self.note else ''}"
+
+    def comment(self, post_id: str, message: str) -> str:
+        log.info("[DRY RUN %s] first comment: %s", self.platform, message[:120])
+        return "dry-run-comment"

@@ -50,6 +50,11 @@ copy_tone:
 # (white box + red accent, same style as the site's share images).
 photo_title_overlay: true
 
+# SocialFlow-style tactic: on Facebook image posts (photo/album/carousel)
+# the article link is posted automatically as the FIRST COMMENT, keeping
+# the caption clean — better reach, link still one tap away.
+link_in_first_comment: true
+
 # Learning thresholds: how many measured posts are needed before the
 # system replaces default assumptions with measured behaviour.
 priors:

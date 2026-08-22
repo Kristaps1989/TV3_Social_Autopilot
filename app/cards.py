@@ -234,6 +234,71 @@ def render_share_image(title: str, section: str, image_url: str,
     return str(out)
 
 
+def build_story_html(title: str, section: str, image_url: str,
+                     kicker: str = "") -> str:
+    """Vertical story (1080x1920) in the tv3.lv style: full-bleed image,
+    title plate, CTA. Top/bottom safe zones respected (platform UI)."""
+    style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
+    color = style["color"]
+    esc = html.escape
+    bg = (f'background:url({html.escape(image_url, quote=True)}) center/cover, {color};'
+          if image_url else f"background:{color};")
+    kicker_html = (f'<div class="kick">{esc(kicker or style["kicker"])}</div>')
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+* {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
+.story {{ width:1080px; height:1920px; position:relative; overflow:hidden; {bg} }}
+.shade {{ position:absolute; inset:0;
+  background:linear-gradient(to top, rgba(8,4,12,.88) 22%, rgba(8,4,12,0) 55%); }}
+.brand {{ position:absolute; top:200px; right:48px; background:#fff;
+          border-radius:14px; padding:14px 22px; }}
+.plate {{ position:absolute; left:0; bottom:520px; max-width:920px;
+          background:#fff; padding:52px 60px 52px 56px;
+          border-right:20px solid #e3000f;
+          box-shadow:0 10px 40px rgba(0,0,0,.3); }}
+.kick {{ position:absolute; top:-52px; left:0; background:#e3000f; color:#fff;
+         font-weight:bold; font-size:30px; letter-spacing:.1em; padding:10px 22px; }}
+.plate h1 {{ font-size:64px; line-height:1.16; font-weight:bold; color:#111; }}
+.cta {{ position:absolute; bottom:340px; left:56px; background:#e3000f; color:#fff;
+        font-size:40px; font-weight:bold; padding:26px 54px; border-radius:99px; }}
+.url {{ position:absolute; bottom:270px; left:60px; color:#fff; font-size:32px;
+        font-weight:bold; opacity:.9; }}
+</style></head><body>
+<div class="story">
+  <div class="shade"></div>
+  <div class="brand">{_logo(52)}</div>
+  <div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>
+  <div class="cta">Lasi visu rakstā →</div>
+  <div class="url">tv3.lv</div>
+</div>
+</body></html>"""
+
+
+def render_story(title: str, section: str, image_url: str,
+                 kicker: str = "", out_dir: Path | None = None) -> str:
+    from playwright.sync_api import sync_playwright
+
+    out_dir = out_dir or CARDS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_hex(6)
+    tmp = out_dir / f"_t{token}.html"
+    tmp.write_text(build_story_html(title, section, image_url, kicker),
+                   encoding="utf-8")
+    chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
+    try:
+        with sync_playwright() as p:
+            browser = (p.chromium.launch(executable_path=chromium) if chromium
+                       else p.chromium.launch())
+            page = browser.new_page(viewport={"width": 1080, "height": 1920})
+            page.goto(tmp.as_uri(), timeout=30000)
+            page.wait_for_timeout(800)
+            out = out_dir / f"story_{token}.png"
+            page.locator(".story").screenshot(path=str(out), timeout=15000)
+            browser.close()
+    finally:
+        tmp.unlink(missing_ok=True)
+    return str(out)
+
+
 def render_cards(title: str, section: str, tag: str, points: list[str],
                  image_url: str, end_question: str,
                  out_dir: Path | None = None) -> list[str]:

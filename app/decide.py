@@ -44,7 +44,8 @@ DECISION_TOOL = {
                         "channel": {"type": "string"},
                         "format": {"type": "string",
                                    "enum": ["link", "photo", "photo_album", "text_only",
-                                            "carousel", "card_carousel", "video"]},
+                                            "carousel", "card_carousel", "story",
+                                            "video"]},
                         "copy": {"type": "string"},
                         "card_points": {
                             "type": "array", "items": {"type": "string"},

@@ -72,12 +72,22 @@ def violates_similarity(session, channel: str, title: str, rules: dict,
 
 
 def violates_diversity(queue: list[Post], candidate_section: str, candidate_format: str,
-                       slot: datetime, rules: dict) -> bool:
-    """Within the rolling window ending at this slot, require a section+format mix."""
+                       slot: datetime, rules: dict,
+                       channel_cfg: dict | None = None) -> bool:
+    """Within the rolling window ending at this slot, require a section+format mix.
+    Requirements are capped by what the channel can actually produce — a
+    single-format channel (e.g. stories) can't be asked for two formats."""
     mix = rules.get("section_mix") or {}
     window = int(mix.get("window", 6))
     min_sections = int(mix.get("min_distinct_sections", 2))
     min_formats = int(mix.get("min_distinct_formats", 2))
+    if channel_cfg:
+        fmts = channel_cfg.get("formats") or []
+        if fmts:
+            min_formats = min(min_formats, len(fmts))
+        secs = channel_cfg.get("sections") or []
+        if secs:
+            min_sections = min(min_sections, len(secs))
     prior = sorted((p for p in queue if p.scheduled_at and p.scheduled_at <= slot),
                    key=lambda p: p.scheduled_at)[-(window - 1):]
     if len(prior) < window - 1:
@@ -132,7 +142,7 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
                 return False
         if _daily_count(queue, local_dt.date(), tz) >= daily_cap:
             return False
-        if violates_diversity(queue, section, fmt, candidate, rules):
+        if violates_diversity(queue, section, fmt, candidate, rules, channel_cfg):
             return False
         return True
 

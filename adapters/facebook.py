@@ -41,7 +41,16 @@ class FacebookPageAdapter(Adapter):
             return self._post(f"{self.page_id}/photos", extra,
                               files={"source": (image.rsplit("/", 1)[-1], f, "image/png")})
 
+    def comment(self, post_id: str, message: str) -> str:
+        """First-comment link strategy: photo posts keep the caption clean,
+        the article link lands as the first comment."""
+        return self._post(f"{post_id}/comments", {"message": message}).get("id", "")
+
     def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
+        if fmt == "story" and images:
+            up = self._upload_photo(images[0], {"published": "false"})
+            out = self._post(f"{self.page_id}/photo_stories", {"photo_id": up["id"]})
+            return out.get("post_id") or out.get("id", "")
         if fmt == "photo" and images:
             out = self._upload_photo(images[0], {"caption": text})
             return out.get("post_id") or out.get("id", "")

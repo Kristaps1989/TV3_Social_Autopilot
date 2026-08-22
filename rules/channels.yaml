@@ -21,6 +21,17 @@ fb_tv3lv:
   # the diversity engine still mixes both. Tune freely.
   format_weights: {link: 1.0, photo: 1.1, photo_album: 0.9, text_only: 0.4}
 
+fb_stories:
+  platform: facebook_page
+  display_name: "Facebook Stories — tv3.lv"
+  feeds: [news_all, entertainment_all]
+  min_gap_minutes: 120       # stories are a garnish, not a second feed
+  daily_cap: 6
+  quiet_hours: ["00:00-07:00"]
+  sections: []
+  formats: [story]           # vertical branded image, published as a Page story
+  click_weight: 0.3          # no tappable link via API -> reach/brand play
+
 x_tv3zinas:
   platform: x
   display_name: "X — TV3 Ziņas"

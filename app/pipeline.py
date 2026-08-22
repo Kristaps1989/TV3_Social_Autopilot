@@ -118,6 +118,14 @@ def run_decisions(session, limit: int = 20) -> int:
                 media = card_media
             elif fmt == "photo" and images:
                 media = [branded_photo(article, images[min(idx, len(images) - 1)])]
+            elif fmt == "story":
+                media = story_media(article, images[idx] if idx < len(images)
+                                    else (images[0] if images else ""))
+                if not media:
+                    session.add(Evaluation(article_id=article.id, channel=channel,
+                                           outcome="blocked",
+                                           reason="story needs an image / renderer"))
+                    continue
             elif fmt == "photo_album":
                 media = images[:10]
             else:
@@ -153,6 +161,19 @@ def branded_photo(article, image_url: str) -> str:
     except Exception as e:  # noqa: BLE001
         log.warning("share image render failed for article %s: %s", article.id, e)
         return image_url
+
+
+def story_media(article, image_url: str) -> list[str]:
+    """Vertical branded story image; falls back to the raw article image;
+    empty when there is nothing visual to post."""
+    from app import cards
+
+    if cards.renderer_available():
+        try:
+            return [cards.render_story(article.title, article.section, image_url)]
+        except Exception as e:  # noqa: BLE001
+            log.warning("story render failed for article %s: %s", article.id, e)
+    return [image_url] if image_url else []
 
 
 def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
@@ -206,7 +227,14 @@ def publish_due(session) -> int:
         session.commit()
         try:
             link = add_utm(post.link_url, platform, post.id) if post.link_url else ""
-            text = assemble_post_text(post.copy, post.hashtags or [], link, platform)
+            # SocialFlow-style tactic: on FB image posts the link goes into
+            # the first comment, keeping the caption clean for reach
+            first_comment_link = bool(
+                link and platform == "facebook_page"
+                and post.format in ("photo", "photo_album", "card_carousel")
+                and config.load_rules().get("link_in_first_comment", True))
+            text = assemble_post_text(post.copy, post.hashtags or [],
+                                      "" if first_comment_link else link, platform)
             adapter = get_adapter(platform)
             post.platform_post_id = adapter.publish(
                 text=text, link=link, images=post.media or [], fmt=post.format)
@@ -214,6 +242,12 @@ def publish_due(session) -> int:
             post.published_at = utcnow()
             post.error = ""
             published += 1
+            if first_comment_link and post.platform_post_id:
+                try:
+                    adapter.comment(post.platform_post_id, link)
+                except Exception as e:  # noqa: BLE001 — post stands even if it fails
+                    log.warning("first-comment link failed for post %s: %s", post.id, e)
+                    post.error = f"comment failed: {e}"
         except PublishError as e:
             if e.retryable and post.attempts < MAX_ATTEMPTS:
                 post.state = "scheduled"

@@ -1,0 +1,107 @@
+from datetime import datetime, timedelta
+
+from app import cards
+from app.models import Article, Evaluation, Post, utcnow
+from app.pipeline import publish_due, run_decisions
+from app.slots import violates_diversity
+from sqlalchemy import select
+
+
+def test_story_html_brand_elements():
+    html_doc = cards.build_story_html("Garš stāsta virsraksts ar āēī", "news",
+                                      "https://tv3.lv/img.jpg")
+    for text in ("Garš stāsta virsraksts ar āēī", "Lasi visu rakstā",
+                 "tv3.lv", "1920", "data:image/png;base64,"):
+        assert text in html_doc
+
+
+def test_single_format_channel_not_blocked_by_diversity():
+    rules = {"section_mix": {"window": 3, "min_distinct_sections": 2,
+                             "min_distinct_formats": 2}}
+
+    class P:
+        def __init__(self, when):
+            self.article = type("A", (), {"section": "news"})()
+            self.format = "story"
+            self.scheduled_at = when
+
+    now = datetime(2026, 8, 20, 10, 0)
+    queue = [P(now - timedelta(minutes=i)) for i in (10, 20, 30)]
+    cfg = {"formats": ["story"], "sections": []}
+    # same format forever is fine on a channel that only HAS one format
+    assert not violates_diversity(queue, "sport", "story", now, rules, cfg)
+    # but a multi-format channel still gets the requirement
+    assert violates_diversity(queue, "sport", "story", now, rules,
+                              {"formats": ["story", "link"], "sections": []})
+
+
+def test_stories_channel_flow(session, monkeypatch):
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_story",
+                        lambda *a, **k: "data/cards/story_x.png")
+    a = Article(guid="st-1", url="https://tv3.lv/st", canonical_url="https://tv3.lv/st",
+                title="Stāsta raksts ar attēlu", section="news",
+                editor_status="must", images=["https://tv3.lv/i.jpg"],
+                published_at=utcnow() - timedelta(minutes=5))
+    session.add(a)
+    session.commit()
+    run_decisions(session)
+    story_posts = session.execute(
+        select(Post).where(Post.article_id == a.id, Post.channel == "fb_stories")
+    ).scalars().all()
+    assert len(story_posts) == 1
+    assert story_posts[0].format == "story"
+    assert story_posts[0].media == ["data/cards/story_x.png"]
+
+
+def test_story_without_image_blocked_with_reason(session, monkeypatch):
+    monkeypatch.setattr(cards, "renderer_available", lambda: False)
+    a = Article(guid="st-2", url="https://tv3.lv/st2", canonical_url="https://tv3.lv/st2",
+                title="Raksts bez attēla", section="news", editor_status="must",
+                images=[], published_at=utcnow() - timedelta(minutes=5))
+    session.add(a)
+    session.commit()
+    run_decisions(session)
+    story_posts = session.execute(
+        select(Post).where(Post.article_id == a.id, Post.channel == "fb_stories")
+    ).scalars().all()
+    assert story_posts == []
+    evals = session.execute(
+        select(Evaluation).where(Evaluation.article_id == a.id,
+                                 Evaluation.channel == "fb_stories",
+                                 Evaluation.outcome == "blocked")
+    ).scalars().all()
+    assert any("story" in e.reason for e in evals)
+
+
+def test_fb_photo_gets_link_in_first_comment(session, monkeypatch):
+    calls = {}
+
+    class FakeAdapter:
+        def publish(self, *, text, link, images, fmt):
+            calls["text"] = text
+            calls["fmt"] = fmt
+            return "fake-123"
+
+        def comment(self, post_id, message):
+            calls["comment_on"] = post_id
+            calls["comment"] = message
+            return "c1"
+
+    import app.pipeline as pl
+
+    monkeypatch.setattr(pl, "get_adapter", lambda platform: FakeAdapter())
+    a = Article(guid="fc-2", url="https://tv3.lv/fc2", canonical_url="https://tv3.lv/fc2",
+                title="Foto raksts", section="news", images=["https://tv3.lv/i.jpg"])
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="photo", copy="Apraksts",
+             link_url=a.canonical_url, media=["https://tv3.lv/i.jpg"],
+             state="scheduled", scheduled_at=utcnow() - timedelta(minutes=1))
+    session.add(p)
+    session.commit()
+
+    assert publish_due(session) == 1
+    assert "utm_content" in calls["comment"]        # link went to the comment
+    assert calls["comment_on"] == "fake-123"
+    assert "https://" not in calls["text"]           # ...and NOT into the caption

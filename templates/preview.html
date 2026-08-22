@@ -19,9 +19,16 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
 .mock-copy { padding:.35rem .9rem .7rem; white-space:pre-wrap; font-size:.93rem; }
 .mock-copy a { color:#1b74e4; word-break:break-all; }
 .linkcard { border-top:1px solid var(--line); }
-.linkcard .img, .photo-img { width:100%; aspect-ratio:1.91/1; object-fit:cover;
-        display:block; background:linear-gradient(135deg,#3d1458,#7a1fa2); }
-.photo-img { aspect-ratio:auto; max-height:520px; }
+.linkcard .img, .photo-img { width:100%; height:auto; display:block;
+        background:linear-gradient(135deg,#3d1458,#7a1fa2); }
+.linkcard .img { min-height:120px; }
+.photo-img { max-height:640px; object-fit:contain; }
+.story-img { width:280px; border-radius:14px; display:block;
+             margin:.2rem auto .8rem; border:1px solid var(--line); }
+.fc { border-top:1px solid var(--line); padding:.55rem .9rem; display:flex;
+      gap:.5rem; font-size:.85rem; }
+.fc .bubble { background:#f0f2f5; border-radius:14px; padding:.4rem .7rem;
+              word-break:break-all; color:#1b74e4; }
 .linkcard .txt { background:#f0f2f5; padding:.55rem .9rem; }
 .linkcard .dom { color:var(--muted); font-size:.72rem; text-transform:uppercase; }
 .linkcard .ttl { font-weight:600; font-size:.95rem; }
@@ -42,6 +49,8 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
     </div>
   </div>
 
+  {% set first_comment = platform == 'facebook_page'
+       and post.format in ('photo', 'photo_album', 'card_carousel') and link %}
   <div class="mock-copy">{{ post.copy }}{% if post.hashtags %}
 {{ post.hashtags | join(' ') }}{% endif %}{% if platform != 'facebook_page' and link %}
 <a href="{{ link }}">{{ link[:60] }}…</a>{% endif %}</div>
@@ -50,6 +59,10 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
   <div class="carousel">
     {% for m in post.media %}<img src="/media/{{ m | basename }}">{% endfor %}
   </div>
+  {% elif post.format == 'story' and post.media %}
+  <img class="story-img"
+       src="{{ post.media[0] if post.media[0].startswith('http') else '/media/' + (post.media[0] | basename) }}"
+       onerror="this.style.display='none'">
   {% elif post.format in ('photo', 'photo_album') and post.media %}
   <img class="photo-img"
        src="{{ post.media[0] if post.media[0].startswith('http') else '/media/' + (post.media[0] | basename) }}"
@@ -65,8 +78,23 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
   </div>
   {% endif %}
 
+  {% if post.format != 'story' %}
   <div class="mock-foot"><div>👍 Patīk</div><div>💬 Komentēt</div><div>↗ Dalīties</div></div>
+  {% endif %}
+  {% if first_comment %}
+  <div class="fc"><div class="avatar" style="width:30px;height:30px;font-size:.5rem">tv<span>3</span></div>
+    <div class="bubble">{{ link[:80] }}…</div></div>
+  {% endif %}
 </div>
+{% if first_comment %}
+<p class="muted" style="max-width:520px">Saite automātiski tiks publicēta kā
+<strong>pirmais komentārs</strong> (SocialFlow taktika — tīrs apraksts, labāks sasniegs).</p>
+{% endif %}
+{% if post.format == 'story' %}
+<p class="muted" style="max-width:520px">Stāsts (24 h). Meta API neatbalsta saites
+uzlīmi stāstos, tāpēc attēlā ir redzams tv3.lv aicinājums — šis formāts strādā
+zīmolam un sasniedzamībai, ne tiešiem klikšķiem.</p>
+{% endif %}
 
 <div class="muted" style="max-width:520px">
   <strong>Pilnais teksts, kas tiks publicēts:</strong>

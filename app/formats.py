@@ -20,7 +20,7 @@ from app.models import Article, Post
 # Fallback weights when a channel doesn't configure format_weights.
 DEFAULT_FORMAT_WEIGHTS = {
     "link": 1.0, "photo": 0.9, "photo_album": 0.8,
-    "text_only": 0.6, "carousel": 0.7, "video": 0.9,
+    "text_only": 0.6, "carousel": 0.7, "video": 0.9, "story": 0.8,
 }
 
 DIVERSITY_WINDOW = 6
@@ -35,7 +35,7 @@ def suitable_formats(article: Article, allowed: list[str]) -> list[str]:
             # only the AI proposes carousels (needs card_points); the
             # diversity engine never forces one — handled in the pipeline
             continue
-        if fmt == "photo" and not images:
+        if fmt in ("photo", "story") and not images:
             continue
         if fmt == "photo_album" and len(images) < 4:
             continue
@@ -46,7 +46,14 @@ def suitable_formats(article: Article, allowed: list[str]) -> list[str]:
         if fmt == "link" and not (article.canonical_url or article.url):
             continue
         out.append(fmt)
-    return out or (["link"] if article.url else ["text_only"])
+    if out:
+        return out
+    # nothing suitable: stay within the channel's declared formats (the
+    # pipeline blocks with a reason if the pick can't be produced) rather
+    # than inventing a format the channel never asked for
+    if allowed:
+        return list(allowed[:1])
+    return ["link"] if article.url else ["text_only"]
 
 
 def recent_format_shares(session, channel: str) -> dict[str, float]:
