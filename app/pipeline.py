@@ -221,6 +221,29 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     return fmt, []
 
 
+def refresh_missing_media(session, post, platform: str) -> None:
+    """Rendered images live on disk; a restart before the volume existed (or
+    a wiped deploy) can orphan the stored paths. Re-render what we can just
+    before publishing so the post still goes out."""
+    from pathlib import Path
+
+    media = post.media or []
+    missing = [m for m in media
+               if m and not str(m).startswith("http") and not Path(m).exists()]
+    if not missing or post.article is None:
+        return
+    article = post.article
+    image = (article.images or [""])[0]
+    if post.format == "photo" and image:
+        post.media = [branded_photo(article, image, platform)]
+    elif post.format == "story":
+        post.media = story_media(article, image)
+    # card_carousel can't be regenerated here (the AI's card points aren't
+    # stored on the post) — the adapter will fail with a clear message and
+    # the editor can cancel or let the article be re-decided
+    session.commit()
+
+
 def publish_due(session) -> int:
     """Publish posts whose time has come. Cancels posts whose article turned 'dont'."""
     now = utcnow()
@@ -241,6 +264,7 @@ def publish_due(session) -> int:
             continue  # stays scheduled; resumes when unpaused
 
         platform = (channels_cfg.get(post.channel) or {}).get("platform", "")
+        refresh_missing_media(session, post, platform)
         post.state = "publishing"
         post.attempts += 1
         session.commit()

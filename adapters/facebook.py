@@ -6,6 +6,8 @@ pages_read_engagement.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 
 from adapters.base import Adapter, PublishError
@@ -33,13 +35,33 @@ class FacebookPageAdapter(Adapter):
             raise PublishError(f"FB {resp.status_code}: {resp.text[:200]}", retryable=False)
         return resp.json()
 
-    def _upload_photo(self, image: str, extra: dict) -> dict:
-        """Upload one photo: remote URL via `url`, local file via multipart."""
+    @staticmethod
+    def _image_bytes(image: str) -> bytes:
+        """We always upload the actual bytes — letting FB fetch a URL itself
+        is a whole class of 'Missing or invalid image file' errors."""
         if image.startswith("http"):
-            return self._post(f"{self.page_id}/photos", {**extra, "url": image})
-        with open(image, "rb") as f:
-            return self._post(f"{self.page_id}/photos", extra,
-                              files={"source": (image.rsplit("/", 1)[-1], f, "image/png")})
+            try:
+                resp = httpx.get(image, timeout=30, follow_redirects=True,
+                                 headers={"User-Agent": "TV3-Social-Autopilot/1.0"})
+            except httpx.HTTPError as e:
+                raise PublishError(f"attēlu neizdevās lejupielādēt: {e}",
+                                   retryable=True) from e
+            if resp.status_code != 200 or not resp.content:
+                raise PublishError(
+                    f"attēlu neizdevās lejupielādēt ({resp.status_code}): {image[:80]}",
+                    retryable=True)
+            return resp.content
+        path = Path(image)
+        if not path.exists() or path.stat().st_size == 0:
+            raise PublishError(
+                "attēla fails vairs neeksistē (renderēts pirms restarta) — "
+                "sistēma to pārģenerēs nākamajā mēģinājumā", retryable=True)
+        return path.read_bytes()
+
+    def _upload_photo(self, image: str, extra: dict) -> dict:
+        payload = self._image_bytes(image)
+        return self._post(f"{self.page_id}/photos", extra,
+                          files={"source": ("image.png", payload, "image/png")})
 
     def comment(self, post_id: str, message: str) -> str:
         """First-comment link strategy: photo posts keep the caption clean,

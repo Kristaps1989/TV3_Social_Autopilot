@@ -105,3 +105,66 @@ def test_fb_photo_gets_link_in_first_comment(session, monkeypatch):
     assert "utm_content" in calls["comment"]        # link went to the comment
     assert calls["comment_on"] == "fake-123"
     assert "https://" not in calls["text"]           # ...and NOT into the caption
+
+
+def test_fb_uploads_image_bytes_and_clear_error_on_missing_file(monkeypatch, tmp_path):
+    import adapters.facebook as fbmod
+    from adapters.base import PublishError
+    from adapters.facebook import FacebookPageAdapter
+
+    # missing local file -> clear retryable error, no FB call
+    import pytest as _pytest
+
+    with _pytest.raises(PublishError) as exc:
+        FacebookPageAdapter._image_bytes("data/cards/nope.png")
+    assert "neeksistē" in str(exc.value)
+    assert exc.value.retryable is True
+
+    # remote image is downloaded and uploaded as bytes
+    calls = {}
+
+    class FakeResp:
+        status_code = 200
+        content = b"png-bytes"
+        text = ""
+
+        def json(self):
+            return {"id": "p1", "post_id": "pp1"}
+
+    monkeypatch.setattr(fbmod.httpx, "get", lambda *a, **k: FakeResp())
+
+    def fake_post(url, data=None, files=None, timeout=None):
+        calls["files"] = files
+        return FakeResp()
+
+    monkeypatch.setattr(fbmod.httpx, "post", fake_post)
+    adapter = FacebookPageAdapter()
+    adapter.page_id, adapter.token = "42", "tok"
+    adapter._upload_photo("https://tv3.lv/img.jpg", {"published": "false"})
+    assert calls["files"]["source"][1] == b"png-bytes"
+
+
+def test_refresh_missing_media_regenerates_photo(session, monkeypatch):
+    from app import pipeline
+    from app.models import Article, Post
+
+    monkeypatch.setattr(pipeline, "branded_photo",
+                        lambda article, img, platform="": "data/cards/new.png")
+    a = Article(guid="rm-1", url="https://tv3.lv/rm", canonical_url="https://tv3.lv/rm",
+                title="T", section="news", images=["https://tv3.lv/i.jpg"])
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="photo", copy="x",
+             media=["data/cards/gone_after_deploy.png"], state="scheduled")
+    session.add(p)
+    session.commit()
+    pipeline.refresh_missing_media(session, p, "facebook_page")
+    assert p.media == ["data/cards/new.png"]
+
+    # http media is never touched
+    p2 = Post(article_id=a.id, channel="x_tv3zinas", format="photo", copy="x",
+              media=["https://tv3.lv/i.jpg"], state="scheduled")
+    session.add(p2)
+    session.commit()
+    pipeline.refresh_missing_media(session, p2, "x")
+    assert p2.media == ["https://tv3.lv/i.jpg"]
