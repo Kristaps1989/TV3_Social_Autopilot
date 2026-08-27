@@ -46,6 +46,11 @@ time_windows:
 copy_tone:
   no_emoji_sensitivity: [tragedy, crime]
 
+# Vertikāls og attēls FB saites kartītē tiek apgriezts, tāpēc šādiem
+# rakstiem link posts automātiski kļūst par photo. Izslēdz (false), ja
+# gribi vairāk link postu par spīti apgrieztajiem attēliem.
+portrait_link_to_photo: true
+
 # Photo posts get the article image with the tv3.lv title plate burned in
 # (white box + red accent, same style as the site's share images).
 photo_title_overlay: true

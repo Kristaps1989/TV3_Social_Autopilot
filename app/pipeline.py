@@ -213,7 +213,8 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     # crop (baked-in title plate cut off). Switch to photo: we render our
     # own correctly sized branded image there.
     if (fmt == "link" and (article.images or [])
-            and "photo" in (cfg.get("formats") or [])):
+            and "photo" in (cfg.get("formats") or [])
+            and config.load_rules().get("portrait_link_to_photo", True)):
         from app import imageinfo
 
         if imageinfo.orientation(article) == "portrait":
