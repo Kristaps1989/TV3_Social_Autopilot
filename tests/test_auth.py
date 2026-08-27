@@ -142,3 +142,14 @@ def test_meta_app_credentials_saved_via_ui(client, session, monkeypatch):
     # connect page now shows the connect button
     r = client.get("/connect")
     assert "Savienot ar Facebook" in r.text
+
+
+def test_live_mode_toggle(client, session):
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+
+    assert client.get("/health").json()["dry_run"] is True  # env default
+    client.post("/toggle/live")
+    assert client.get("/health").json()["dry_run"] is False
+    client.post("/toggle/live")
+    assert client.get("/health").json()["dry_run"] is True

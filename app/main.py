@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import auth, config, credentials
+from app import auth, config, credentials, runtime
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -163,7 +163,9 @@ def health():
     session = get_session()
     try:
         session.execute(select(Post.id).limit(1))
-        return {"status": "ok", "dry_run": config.DRY_RUN}
+        from app import runtime
+
+        return {"status": "ok", "dry_run": runtime.is_dry_run(session)}
     finally:
         session.close()
 
@@ -201,11 +203,22 @@ def dashboard(request: Request):
         return templates.TemplateResponse(request, "dashboard.html", {
             "channels": channel_data,
             "kill_switch": get_setting(session, "kill_switch") == "on",
-            "dry_run": config.DRY_RUN,
+            "dry_run": runtime.is_dry_run(session),
+            "data_persistent": runtime.data_dir_persistent(),
             "ai_active": bool(credentials.get("anthropic_api_key", session)),
         })
     finally:
         session.close()
+
+
+@app.post("/toggle/live")
+def toggle_live():
+    session = get_session()
+    try:
+        runtime.set_live(session, runtime.is_dry_run(session))  # flip the mode
+    finally:
+        session.close()
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/toggle/kill")
@@ -324,7 +337,7 @@ def stats(request: Request):
             "summaries": summaries,
             "top": priors.top_posts(session, 10),
             "ga4_on": ga4.configured(),
-            "dry_run": config.DRY_RUN,
+            "dry_run": runtime.is_dry_run(session),
         })
     finally:
         session.close()
@@ -403,7 +416,10 @@ def connect(request: Request, error: str = "", connected: str = ""):
                 return ""
             return "uzstādīts ✓" if secret else value
 
+        vol = runtime.data_dir_persistent()
         env_diag = {
+            "Datu disks (Volume)": ("pastāvīgs ✓" if vol
+                                    else "lokāla vide" if vol is None else ""),
             "META_APP_ID": _env("META_APP_ID"),
             "META_APP_SECRET": _env("META_APP_SECRET", secret=True),
             "META_LOGIN_CONFIG_ID": _env("META_LOGIN_CONFIG_ID"),

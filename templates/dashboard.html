@@ -13,6 +13,23 @@ virsraksts + ievads, un “can” raksti netiek publicēti.
 sociālajiem tīkliem pielāgotus tekstus un izvēlētos labāko formātu katram ierakstam.</div>
 {% endif %}
 
+{% if data_persistent is sameas false %}
+<div class="notice err"><strong>⚠️ Dati NAV uz pastāvīga diska!</strong>
+Railway Volume nav piesaistīts — katrs deploy dzēš visu (vēsturi, atslēgas,
+savienojumus). Railway kanvā: labais klikšķis uz servisa → <strong>Attach Volume</strong>
+→ mount path <code>/srv/autopilot/data</code>. Šis brīdinājums pazudīs, kad Volume būs vietā.</div>
+{% endif %}
+
+<div class="killbar">
+  <strong>{% if dry_run %}🟡 DRY RUN — nekas netiek publicēts{% else %}🔴 LIVE — ieraksti tiek publicēti{% endif %}</strong>
+  <form class="inline" method="post" action="/toggle/live"
+        onsubmit="return confirm('{{ 'Ieslēgt REĀLU publicēšanu sociālajos tīklos? Rindā esošie ieraksti sāks iziet.' if dry_run else 'Pārslēgt atpakaļ uz DRY RUN (publicēšana apstāsies)?' }}');">
+    <button class="{{ 'danger' if dry_run else 'primary' }}">
+      {{ 'Ieslēgt LIVE publicēšanu' if dry_run else 'Atgriezties uz DRY RUN' }}</button>
+  </form>
+  <span class="muted">Pārslēdzas uzreiz, bez deploy.</span>
+</div>
+
 <div class="killbar {{ 'on' if kill_switch }}">
   <strong>{% if kill_switch %}⛔ Viss apturēts{% else %}✅ Sistēma darbojas{% endif %}</strong>
   <form class="inline" method="post" action="/toggle/kill">

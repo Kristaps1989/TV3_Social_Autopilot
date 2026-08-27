@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from app import config
 from adapters.base import Adapter, DryRunAdapter
 from adapters.facebook import FacebookPageAdapter
 from adapters.threads import ThreadsAdapter
@@ -14,7 +13,9 @@ _REAL = {
 
 
 def get_adapter(platform: str) -> Adapter:
-    if config.DRY_RUN:
+    from app import runtime
+
+    if runtime.is_dry_run():
         return DryRunAdapter(platform)
     cls = _REAL.get(platform)
     if cls is None:

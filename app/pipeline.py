@@ -18,6 +18,7 @@ from app.formats import choose_format
 from app.models import Article, Evaluation, Post, get_setting, utcnow
 from app.rules_engine import evaluate_all
 from app.slots import find_slot
+from app import runtime
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ def run_decisions(session, limit: int = 20) -> int:
                 article_id=article.id, channel=channel, format=fmt,
                 copy=copy, hashtags=hashtags, media=media,
                 link_url=article.canonical_url or article.url,
-                scheduled_at=slot, state="scheduled", dry_run=config.DRY_RUN,
+                scheduled_at=slot, state="scheduled", dry_run=runtime.is_dry_run(session),
             )
             session.add(post)
             session.flush()
