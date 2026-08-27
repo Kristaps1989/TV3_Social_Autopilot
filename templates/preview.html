@@ -95,6 +95,13 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
 uzlīmi stāstos, tāpēc attēlā ir redzams tv3.lv aicinājums — šis formāts strādā
 zīmolam un sasniedzamībai, ne tiešiem klikšķiem.</p>
 {% endif %}
+{% if post.format in ('photo', 'story') and post.media and post.media[0].startswith('http') %}
+<div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">
+⚠️ Šim ierakstam tiek izmantots <strong>oriģinālais raksta attēls</strong>, nevis
+renderētais tv3.lv noformējums (bez virsraksta plāksnes un CTA). Tā notiek, kad
+attēlu renderētājs (Chromium) nenostrādā — pārbaudi rindu
+«Attēlu renderētājs» lapā <a href="/connect">Konti</a>.</div>
+{% endif %}
 {% if post.format == 'link' and img_portrait %}
 <div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">
 ⚠️ Raksta og attēls ir <strong>vertikāls</strong> — Facebook saites kartīte to apgriež

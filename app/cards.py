@@ -61,6 +61,36 @@ def renderer_available() -> bool:
     return True
 
 
+_render_check: tuple[float, bool, str] | None = None
+
+
+def renderer_check(max_age: float = 600.0) -> tuple[bool, str]:
+    """(works, error) — actually launches Chromium once (cached). A passing
+    import alone does not prove the renderer works; a failing launch silently
+    downgrades photo/story posts to the raw article image."""
+    global _render_check
+    import time
+
+    now = time.time()
+    if _render_check and now - _render_check[0] < max_age:
+        return _render_check[1], _render_check[2]
+    if not renderer_available():
+        _render_check = (now, False, "playwright/Chromium nav instalēts")
+        return False, _render_check[2]
+    try:
+        from playwright.sync_api import sync_playwright
+
+        chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
+        with sync_playwright() as p:
+            browser = (p.chromium.launch(executable_path=chromium) if chromium
+                       else p.chromium.launch())
+            browser.close()
+        _render_check = (now, True, "")
+    except Exception as e:  # noqa: BLE001
+        _render_check = (now, False, str(e)[:300])
+    return _render_check[1], _render_check[2]
+
+
 # The white corner swoosh is the sponsor area ("SADARBĪBĀ AR ...").
 # tv3.lv has no article sponsors right now, so it is off by default;
 # flip this on (or make it per-post) when sponsorships come back.
@@ -238,6 +268,18 @@ def render_share_image(title: str, section: str, image_url: str,
     return str(out)
 
 
+# Stories publicētas caur API nevar saturēt klikšķējamu link sticker
+# (Page Stories API pieņem tikai photo_id/video_id), tāpēc CTA vizuāli
+# atdarina link sticker ar redzamu domēnu — skatītājs zina, kur iet.
+_LINK_ICON = (
+    '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" '
+    'stroke="#e3000f" stroke-width="2.4" stroke-linecap="round" '
+    'stroke-linejoin="round">'
+    '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>'
+    '<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'
+    '</svg>')
+
+
 def build_story_html(title: str, section: str, image_url: str,
                      kicker: str = "") -> str:
     """Vertical story (1080x1920) in the tv3.lv style: full-bleed image,
@@ -262,17 +304,20 @@ def build_story_html(title: str, section: str, image_url: str,
 .kick {{ position:absolute; top:-52px; left:0; background:#e3000f; color:#fff;
          font-weight:bold; font-size:30px; letter-spacing:.1em; padding:10px 22px; }}
 .plate h1 {{ font-size:64px; line-height:1.16; font-weight:bold; color:#111; }}
-.cta {{ position:absolute; bottom:340px; left:56px; background:#e3000f; color:#fff;
-        font-size:40px; font-weight:bold; padding:26px 54px; border-radius:99px; }}
-.url {{ position:absolute; bottom:270px; left:60px; color:#fff; font-size:32px;
-        font-weight:bold; opacity:.9; }}
+.cta {{ position:absolute; bottom:380px; left:56px; background:#e3000f; color:#fff;
+        font-size:40px; font-weight:bold; padding:24px 50px; border-radius:99px; }}
+.linkpill {{ position:absolute; bottom:252px; left:56px; background:#fff;
+             color:#e3000f; font-size:48px; font-weight:bold;
+             padding:22px 52px; border-radius:99px;
+             box-shadow:0 8px 30px rgba(0,0,0,.35); }}
+.linkpill svg {{ vertical-align:-7px; margin-right:16px; }}
 </style></head><body>
 <div class="story">
   <div class="shade"></div>
   <div class="brand">{_logo(52)}</div>
   <div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>
-  <div class="cta">Lasi visu rakstā →</div>
-  <div class="url">tv3.lv</div>
+  <div class="cta">Lasi visu rakstā</div>
+  <div class="linkpill">{_LINK_ICON}tv3.lv</div>
 </div>
 </body></html>"""
 

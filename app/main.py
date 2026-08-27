@@ -437,9 +437,14 @@ def connect(request: Request, error: str = "", connected: str = ""):
             return "uzstādīts ✓" if secret else value
 
         vol = runtime.data_dir_persistent()
+        from app import cards
+        render_ok, render_err = cards.renderer_check()
         env_diag = {
             "Datu disks (Volume)": ("pastāvīgs ✓" if vol
                                     else "lokāla vide" if vol is None else ""),
+            "Attēlu renderētājs (Chromium)": (
+                "strādā ✓" if render_ok
+                else f"NESTRĀDĀ — foto/story bez virsraksta plāksnes: {render_err}"),
             "META_APP_ID": _env("META_APP_ID"),
             "META_APP_SECRET": _env("META_APP_SECRET", secret=True),
             "META_LOGIN_CONFIG_ID": _env("META_LOGIN_CONFIG_ID"),
