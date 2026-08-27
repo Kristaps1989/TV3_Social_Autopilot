@@ -118,7 +118,7 @@ def run_decisions(session, limit: int = 20) -> int:
             if fmt == "card_carousel":
                 media = card_media
             elif fmt == "photo" and images:
-                media = [branded_photo(article, images[min(idx, len(images) - 1)],
+                media = [branded_photo(article, photo_base_image(article, idx),
                                        cfg.get("platform", ""))]
             elif fmt == "story":
                 media = story_media(article, images[idx] if idx < len(images)
@@ -152,6 +152,27 @@ def run_decisions(session, limit: int = 20) -> int:
 # Best-practice photo sizes: FB feed shows 4:5 uncropped and it takes the
 # most screen space; X/Threads are safest at 1:1.
 PHOTO_SIZES = {"facebook_page": (1080, 1350)}
+
+
+def photo_base_image(article, idx: int = 0) -> str:
+    """Base image for branded renders. When the chosen image is portrait —
+    on tv3.lv usually a 'photopost' graphic with its own baked-in headline —
+    and the feed also carries a horizontal photo, use the horizontal one:
+    the title plate then sits on a clean photo instead of doubling text.
+    Toggle: rules.yaml photo_prefer_landscape."""
+    images = article.images or []
+    if not images:
+        return ""
+    chosen = images[min(idx, len(images) - 1)]
+    if not config.load_rules().get("photo_prefer_landscape", True):
+        return chosen
+    from app import imageinfo
+
+    if imageinfo.is_portrait(article, chosen):
+        alt = imageinfo.landscape_image(article)
+        if alt:
+            return alt
+    return chosen
 
 
 def branded_photo(article, image_url: str, platform: str = "") -> str:
@@ -198,7 +219,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         if len(points) >= 3 and cards.renderer_available():
             tag = "#" + (article.labels[0].upper().replace(" ", "")
                          if article.labels else article.section.upper())
-            image = (article.images or [""])[0]
+            image = photo_base_image(article)
             question = (ch_dec.get("card_end_question")
                         or "Uzzini visu stāstu tv3.lv").strip()
             try:
@@ -234,10 +255,12 @@ def refresh_missing_media(session, post, platform: str) -> None:
     if not missing or post.article is None:
         return
     article = post.article
-    image = (article.images or [""])[0]
-    if post.format == "photo" and image:
-        post.media = [branded_photo(article, image, platform)]
+    if post.format == "photo":
+        image = photo_base_image(article)
+        if image:
+            post.media = [branded_photo(article, image, platform)]
     elif post.format == "story":
+        image = (article.images or [""])[0]
         post.media = story_media(article, image)
     # card_carousel can't be regenerated here (the AI's card points aren't
     # stored on the post) — the adapter will fail with a clear message and

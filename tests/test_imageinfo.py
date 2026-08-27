@@ -67,6 +67,49 @@ def test_portrait_og_image_switches_link_to_photo(session, monkeypatch):
     assert fmt == "link"
 
 
+def test_photo_base_image_prefers_landscape(monkeypatch):
+    from app.pipeline import photo_base_image
+
+    sizes = {"https://tv3.lv/vert.jpg": (1080, 1920),
+             "https://tv3.lv/wide.jpg": (1200, 630)}
+
+    monkeypatch.setattr(imageinfo, "probe_size", lambda url, **kw: sizes.get(url))
+    a = Article(guid="io-4", url="https://tv3.lv/io4", canonical_url="https://tv3.lv/io4",
+                title="T", section="news",
+                images=["https://tv3.lv/vert.jpg", "https://tv3.lv/wide.jpg"],
+                raw_json={})
+    assert photo_base_image(a) == "https://tv3.lv/wide.jpg"
+    # per-URL sizes cached on the article
+    assert a.raw_json["_img_dims"]["https://tv3.lv/vert.jpg"] == [1080, 1920]
+
+    # no landscape alternative -> keep the chosen image
+    b = Article(guid="io-5", url="https://tv3.lv/io5", canonical_url="https://tv3.lv/io5",
+                title="T", section="news",
+                images=["https://tv3.lv/vert.jpg"], raw_json={})
+    assert photo_base_image(b) == "https://tv3.lv/vert.jpg"
+
+    # landscape image chosen by the AI stays as-is
+    c = Article(guid="io-6", url="https://tv3.lv/io6", canonical_url="https://tv3.lv/io6",
+                title="T", section="news",
+                images=["https://tv3.lv/wide.jpg", "https://tv3.lv/vert.jpg"],
+                raw_json={})
+    assert photo_base_image(c) == "https://tv3.lv/wide.jpg"
+
+
+def test_photo_base_image_toggle_off(monkeypatch):
+    from app import config
+    from app.pipeline import photo_base_image
+
+    monkeypatch.setattr(config, "load_rules",
+                        lambda: {"photo_prefer_landscape": False})
+    monkeypatch.setattr(imageinfo, "probe_size", lambda url, **kw: (1080, 1920))
+    a = Article(guid="io-7", url="https://tv3.lv/io7", canonical_url="https://tv3.lv/io7",
+                title="T", section="news",
+                images=["https://tv3.lv/vert.jpg", "https://tv3.lv/wide.jpg"],
+                raw_json={})
+    assert photo_base_image(a) == "https://tv3.lv/vert.jpg"
+
+
 def test_ensure_editable_dirs_seeds_volume(tmp_path, monkeypatch):
     from app import config
 

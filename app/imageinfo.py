@@ -80,6 +80,40 @@ def probe_size(url: str, max_bytes: int = 262144) -> tuple[int, int] | None:
         return None
 
 
+def image_size(article, url: str) -> tuple[int, int] | None:
+    """(width, height) for one of the article's images, cached per URL on
+    the article's raw_json so every image is probed at most once."""
+    if not url:
+        return None
+    raw = article.raw_json or {}
+    dims = dict(raw.get("_img_dims") or {})
+    if url in dims:
+        wh = dims[url]
+    else:
+        size = probe_size(url)
+        wh = list(size) if size else []
+        dims[url] = wh
+        article.raw_json = {**raw, "_img_dims": dims}
+    return (wh[0], wh[1]) if wh else None
+
+
+def is_portrait(article, url: str) -> bool:
+    size = image_size(article, url)
+    return bool(size and size[1] > size[0] * 1.05)
+
+
+def landscape_image(article, limit: int = 6) -> str:
+    """First non-portrait image among the article's images ('' if none).
+    tv3.lv lead images are often vertical 'photopost' graphics with a
+    headline already baked in; when the feed also carries the original
+    horizontal photo it is the better base for our own title plate."""
+    for url in (article.images or [])[:limit]:
+        size = image_size(article, url)
+        if size and not size[1] > size[0] * 1.05:
+            return url
+    return ""
+
+
 def orientation(article) -> str | None:
     """'portrait' | 'landscape' | None for the article's lead image.
     Result is cached on the article's raw_json to avoid re-fetching."""
