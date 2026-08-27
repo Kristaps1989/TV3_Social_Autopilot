@@ -644,6 +644,41 @@ def connect_facebook_select(page_id: str = Form(...)):
         session.close()
 
 
+@app.post("/connect/facebook/disconnect")
+def disconnect_facebook():
+    """Drop the stored page connection so the admin can connect cleanly
+    from scratch (the app credentials stay — only tokens are removed)."""
+    session = get_session()
+    try:
+        for key in ("fb_page_id", "fb_page_token", "fb_user_token"):
+            credentials.put(session, key, "", label="")
+        if credentials.get("fb_page_token", session):
+            return RedirectResponse(
+                "/connect?error=Savienojums+noņemts+no+DB,+bet+vides+mainīgie+"
+                "joprojām+satur+FB+atslēgu+—+izdzēs+FB_PAGE_ACCESS_TOKEN",
+                status_code=303)
+        return RedirectResponse("/connect?connected=Facebook+savienojums+noņemts",
+                                status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/threads/disconnect")
+def disconnect_threads():
+    session = get_session()
+    try:
+        for key in ("threads_user_id", "threads_token"):
+            credentials.put(session, key, "", label="")
+        if credentials.get("threads_token", session):
+            return RedirectResponse(
+                "/connect?error=Savienojums+noņemts+no+DB,+bet+vides+mainīgie+"
+                "joprojām+satur+Threads+atslēgu", status_code=303)
+        return RedirectResponse("/connect?connected=Threads+savienojums+noņemts",
+                                status_code=303)
+    finally:
+        session.close()
+
+
 @app.get("/connect/threads")
 def connect_threads(request: Request):
     from urllib.parse import quote

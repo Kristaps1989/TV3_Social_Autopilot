@@ -68,6 +68,12 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
         {{ 'Pārslēgt / atjaunot savienojumu' if status.facebook.connected else 'Savienot ar Facebook' }}
       </button></a>
     {% endif %}
+    {% if status.facebook.connected %}
+    <form method="post" action="/connect/facebook/disconnect" style="margin-top:.4rem"
+          onsubmit="return confirm('Atvienot Facebook lapu? Publicēšana apstāsies, līdz savienosi no jauna.')">
+      <button class="danger">Atvienot</button>
+    </form>
+    {% endif %}
     <p class="muted">Meta lietotnē (developers.facebook.com) jābūt pievienotam šim
     Redirect URI: <code>{{ redirect_fb }}</code>.
     Alternatīva bez OAuth: System User token → <code>FB_PAGE_ID</code> /
@@ -101,6 +107,12 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <a class="btn" href="/connect/threads"><button class="primary" type="button">
         {{ 'Pārslēgt / atjaunot savienojumu' if status.threads.connected else 'Savienot ar Threads' }}
       </button></a>
+    {% endif %}
+    {% if status.threads.connected %}
+    <form method="post" action="/connect/threads/disconnect" style="margin-top:.4rem"
+          onsubmit="return confirm('Atvienot Threads kontu?')">
+      <button class="danger">Atvienot</button>
+    </form>
     {% endif %}
     <p class="muted">Meta lietotnē pievieno “Threads API” use case ar
     <code>threads_basic</code> + <code>threads_content_publish</code> un Redirect URI:

@@ -144,6 +144,29 @@ def test_meta_app_credentials_saved_via_ui(client, session, monkeypatch):
     assert "Savienot ar Facebook" in r.text
 
 
+def test_disconnect_clears_page_connection(client, session, monkeypatch):
+    for var in ("FB_PAGE_ID", "FB_PAGE_ACCESS_TOKEN",
+                "THREADS_USER_ID", "THREADS_ACCESS_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+    credentials.put(session, "fb_page_id", "520279391805002", label="Skatieslv")
+    credentials.put(session, "fb_page_token", "tok-x", label="Skatieslv")
+    credentials.put(session, "threads_user_id", "77", label="tv3sports")
+    credentials.put(session, "threads_token", "tok-t")
+
+    r = client.post("/connect/facebook/disconnect", follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert credentials.get("fb_page_id", session) == ""
+    assert credentials.get("fb_page_token", session) == ""
+    # threads untouched by the FB disconnect
+    assert credentials.get("threads_token", session) == "tok-t"
+
+    r = client.post("/connect/threads/disconnect", follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert credentials.get("threads_token", session) == ""
+
+
 def test_live_mode_toggle(client, session):
     credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
     client.post("/login", data={"password": "slepens123"})
