@@ -271,6 +271,26 @@ def publish_now(post_id: int):
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/post/{post_id}/republish")
+def republish_post(post_id: int):
+    """A dry-run 'published' post never went to the platform. This clones it
+    into the queue for immediate real publishing (respects the current mode)."""
+    session = get_session()
+    try:
+        post = session.get(Post, post_id)
+        if post and post.state == "published" and post.dry_run:
+            clone = Post(article_id=post.article_id, channel=post.channel,
+                         format=post.format, copy=post.copy,
+                         hashtags=post.hashtags or [], media=post.media or [],
+                         link_url=post.link_url, scheduled_at=utcnow(),
+                         state="scheduled", dry_run=runtime.is_dry_run(session))
+            session.add(clone)
+            session.commit()
+    finally:
+        session.close()
+    return RedirectResponse("/", status_code=303)
+
+
 @app.post("/post/{post_id}/copy")
 def edit_copy(post_id: int, copy: str = Form(...)):
     session = get_session()

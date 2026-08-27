@@ -100,6 +100,13 @@ savienojumus). Railway kanvā: labais klikšķis uz servisa → <strong>Attach V
           <td>{{ (p.published_at or p.created_at) | local }}</td>
           <td class="copytext">{{ p.copy[:90] }}</td>
           <td><span class="state {{ p.state }}">{{ p.state }}</span>
+              {% if p.state == 'published' and p.dry_run %}
+              <div class="muted">dry-run — FB neaizgāja</div>
+              <form class="inline" method="post" action="/post/{{ p.id }}/republish"
+                    onsubmit="return confirm('Ievietot rindā REĀLAI publicēšanai tagad?');">
+                <button title="Publicēt pa īstam">↻ publicēt</button>
+              </form>
+              {% endif %}
               {% if p.error %}<div class="muted">{{ p.error[:120] }}</div>{% endif %}</td>
         </tr>
         {% endfor %}

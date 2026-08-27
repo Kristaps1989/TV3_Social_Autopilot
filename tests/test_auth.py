@@ -153,3 +153,41 @@ def test_live_mode_toggle(client, session):
     assert client.get("/health").json()["dry_run"] is False
     client.post("/toggle/live")
     assert client.get("/health").json()["dry_run"] is True
+
+
+def test_republish_clones_dry_run_post(client, session):
+    from datetime import timedelta
+
+    from app.models import Article, Post, utcnow
+    from sqlalchemy import select
+
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+
+    a = Article(guid="rp-1", url="https://tv3.lv/rp", canonical_url="https://tv3.lv/rp",
+                title="Republish tests", section="news")
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="link", copy="Teksts",
+             link_url=a.canonical_url, state="published", dry_run=True,
+             published_at=utcnow() - timedelta(minutes=5))
+    session.add(p)
+    session.commit()
+
+    client.post(f"/post/{p.id}/republish")
+    clones = session.execute(
+        select(Post).where(Post.article_id == a.id, Post.state == "scheduled")
+    ).scalars().all()
+    assert len(clones) == 1
+    assert clones[0].copy == "Teksts"
+
+    # a REAL published post can not be re-queued this way
+    p2 = Post(article_id=a.id, channel="x_tv3zinas", format="link", copy="x",
+              state="published", dry_run=False, published_at=utcnow())
+    session.add(p2)
+    session.commit()
+    client.post(f"/post/{p2.id}/republish")
+    clones2 = session.execute(
+        select(Post).where(Post.channel == "x_tv3zinas", Post.state == "scheduled")
+    ).scalars().all()
+    assert clones2 == []
