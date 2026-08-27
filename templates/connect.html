@@ -130,6 +130,40 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
     <code>X_API_KEY</code>, <code>X_API_SECRET</code>, <code>X_ACCESS_TOKEN</code>,
     <code>X_ACCESS_TOKEN_SECRET</code>.</p>
   </div>
+
+  <div class="card">
+    <h2>Google Analytics 4
+      {% if ga4_connected %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="meta">
+      {% if ga4_connected %}
+        Property {{ ga4_property }}{% if ga4_sa_label %} · {{ ga4_sa_label }}{% endif %}
+        — tv3.lv sesijas pēc utm_content nonāk Statistikā un māca sistēmu.
+      {% else %}
+        Bez GA4 mācīšanās balstās tikai uz platformu klikšķiem; ar GA4 sistēma
+        redz reālās tv3.lv sesijas katram postam.
+      {% endif %}
+    </div>
+    <form method="post" action="/connect/ga4">
+      <label class="muted" style="display:block">GA4 Property ID</label>
+      <input type="text" name="property_id" value="{{ ga4_property }}" placeholder="piem. 123456789">
+      <label class="muted" style="display:block;margin-top:.4rem">Service account atslēga (JSON)</label>
+      <textarea name="service_account" rows="4" style="width:100%;font-family:monospace"
+        placeholder="{{ 'saglabāta — atstāj tukšu, ja nemaina' if ga4_sa_label else 'ielīmē visu lejupielādēto .json failu' }}"></textarea>
+      <div style="margin-top:.5rem"><button class="primary">Saglabāt GA4</button></div>
+    </form>
+    {% if ga4_connected %}
+    <form method="post" action="/connect/ga4/disconnect" style="margin-top:.4rem"
+          onsubmit="return confirm('Noņemt GA4 iestatījumus?')">
+      <button class="danger">Atvienot</button>
+    </form>
+    {% endif %}
+    <p class="muted">Google Cloud Console → izveido service account → Keys →
+    Add key (JSON). GA4 īpašumā (Admin → Property access management) piešķir šim
+    service account e-pastam <b>Viewer</b> lomu. Property ID ir Admin →
+    Property settings.</p>
+  </div>
 </div>
 
 <div class="card" style="margin-top:1rem">

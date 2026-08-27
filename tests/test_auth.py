@@ -167,6 +167,38 @@ def test_disconnect_clears_page_connection(client, session, monkeypatch):
     assert credentials.get("threads_token", session) == ""
 
 
+def test_ga4_settings_saved_via_ui(client, session, monkeypatch):
+    import json
+
+    from app import ga4
+
+    monkeypatch.delenv("GA4_PROPERTY_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+
+    sa = json.dumps({"type": "service_account", "client_email": "ga@x.iam",
+                     "private_key": "-----BEGIN PRIVATE KEY-----..."})
+    r = client.post("/connect/ga4", data={"property_id": "123456789",
+                                          "service_account": sa},
+                    follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert ga4.property_id() == "123456789"
+    assert ga4.sa_info()["client_email"] == "ga@x.iam"
+    assert ga4.configured()
+
+    # invalid JSON is rejected, existing value kept
+    r = client.post("/connect/ga4", data={"property_id": "",
+                                          "service_account": "{oops"},
+                    follow_redirects=False)
+    assert "error" in r.headers["location"]
+    assert ga4.configured()
+
+    r = client.post("/connect/ga4/disconnect", follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert not ga4.configured()
+
+
 def test_live_mode_toggle(client, session):
     credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
     client.post("/login", data={"password": "slepens123"})

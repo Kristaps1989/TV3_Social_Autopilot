@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import auth, config, credentials, runtime
+from app import auth, config, credentials, ga4, runtime
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -436,6 +436,7 @@ def connect(request: Request, error: str = "", connected: str = ""):
                 return ""
             return "uzstādīts ✓" if secret else value
 
+        ga4_sa = credentials.info(session, "ga4_service_account")
         vol = runtime.data_dir_persistent()
         from app import cards
         render_ok, render_err = cards.renderer_check()
@@ -468,6 +469,9 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "threads_app_id": th_app_id,
             "redirect_fb": f"{public_base(request)}/connect/facebook/callback",
             "redirect_th": f"{public_base(request)}/connect/threads/callback",
+            "ga4_connected": ga4.configured(),
+            "ga4_property": credentials.get("ga4_property_id", session),
+            "ga4_sa_label": (ga4_sa.label if ga4_sa and ga4_sa.value else ""),
             "error": error, "connected": connected,
         })
     finally:
@@ -502,6 +506,51 @@ def connect_threads_app(app_id: str = Form(""), app_secret: str = Form("")):
         if app_secret.strip():
             credentials.put(session, "threads_app_secret", app_secret.strip())
         return RedirectResponse("/connect?connected=Threads+lietotnes+dati+saglabāti",
+                                status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/ga4")
+def connect_ga4(property_id: str = Form(""), service_account: str = Form("")):
+    """Save GA4 settings from the UI. Empty fields keep their current value."""
+    import json as _json
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if property_id.strip():
+            credentials.put(session, "ga4_property_id", property_id.strip())
+        sa = service_account.strip()
+        if sa:
+            try:
+                info = _json.loads(sa)
+            except ValueError:
+                return RedirectResponse(
+                    "/connect?error=Service+account+lauks+nav+derīgs+JSON+—+"
+                    "ielīmē+visu+lejupielādēto+failu", status_code=303)
+            if not (info.get("client_email") and info.get("private_key")):
+                return RedirectResponse(
+                    "/connect?error=JSON+trūkst+client_email+/+private_key+—+"
+                    "vajadzīga+service+account+atslēga,+ne+cits+fails",
+                    status_code=303)
+            credentials.put(session, "ga4_service_account", sa,
+                            label=info.get("client_email", ""))
+        return RedirectResponse("/connect?connected=GA4+iestatījumi+saglabāti",
+                                status_code=303)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/ga4/disconnect")
+def disconnect_ga4():
+    session = get_session()
+    try:
+        for key in ("ga4_property_id", "ga4_service_account"):
+            credentials.put(session, key, "", label="")
+        return RedirectResponse("/connect?connected=GA4+iestatījumi+noņemti",
                                 status_code=303)
     finally:
         session.close()

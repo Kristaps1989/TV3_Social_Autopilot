@@ -33,6 +33,7 @@ ENV_FALLBACK = {
     "fb_page_token": "FB_PAGE_ACCESS_TOKEN",
     "threads_user_id": "THREADS_USER_ID",
     "threads_token": "THREADS_ACCESS_TOKEN",
+    "ga4_property_id": "GA4_PROPERTY_ID",
     "x_api_key": "X_API_KEY",
     "x_api_secret": "X_API_SECRET",
     "x_access_token": "X_ACCESS_TOKEN",
