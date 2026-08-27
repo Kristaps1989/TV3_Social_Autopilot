@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import auth, config, credentials, ga4, runtime
+from app import auth, config, credentials, ga4, reels, runtime
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -372,9 +372,10 @@ def media(name: str):
 
     safe = Path(name).name
     path = CARDS_DIR / safe
-    if not safe.endswith(".png") or not path.exists():
+    if not safe.endswith((".png", ".mp4")) or not path.exists():
         return Response(status_code=404)
-    return FileResponse(path, media_type="image/png")
+    media_type = "video/mp4" if safe.endswith(".mp4") else "image/png"
+    return FileResponse(path, media_type=media_type)
 
 
 @app.get("/why", response_class=HTMLResponse)
@@ -446,6 +447,8 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "Attēlu renderētājs (Chromium)": (
                 "strādā ✓" if render_ok
                 else f"NESTRĀDĀ — foto/story bez virsraksta plāksnes: {render_err}"),
+            "Video (ffmpeg)": ("strādā ✓" if reels.ffmpeg_bin()
+                               else "nav — reel formāts izslēgts"),
             "META_APP_ID": _env("META_APP_ID"),
             "META_APP_SECRET": _env("META_APP_SECRET", secret=True),
             "META_LOGIN_CONFIG_ID": _env("META_LOGIN_CONFIG_ID"),

@@ -45,14 +45,14 @@ DECISION_TOOL = {
                         "format": {"type": "string",
                                    "enum": ["link", "photo", "photo_album", "text_only",
                                             "carousel", "card_carousel", "story",
-                                            "video"]},
+                                            "reel", "video"]},
                         "copy": {"type": "string"},
                         "card_points": {
                             "type": "array", "items": {"type": "string"},
                             "maxItems": 5,
-                            "description": "Only for format card_carousel: 3-5 īsi, "
-                                           "intriģējoši punkti no raksta. Ieinteresē, "
-                                           "bet NEATKLĀJ atrisinājumu.",
+                            "description": "For card_carousel (3-5) un reel (2-3): "
+                                           "īsi, intriģējoši punkti no raksta. "
+                                           "Ieinteresē, bet NEATKLĀJ atrisinājumu.",
                         },
                         "card_end_question": {
                             "type": "string",
@@ -124,6 +124,11 @@ Formāts card_carousel (ja kanāls to atbalsta): kartīšu galerija — izmanto
 skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. Tad aizpildi
 card_points (3-5 īsi punkti, kas ieintriģē, bet neatklāj atrisinājumu) un
 card_end_question. Ātrām īsziņām labāks parasts saites ieraksts.
+
+Formāts reel (ja kanāls to atbalsta): 10-15 s vertikāls slideshow video
+(vāks ar virsrakstu → 2-3 punkti → CTA kadrs "lasi tv3.lv"). Izvēlies to
+stāstiem ar spēcīgu āķi vai skaidrojumiem — ne biežāk kā ~2x dienā kanālā.
+Tad aizpildi card_points (2-3 punkti).
 
 Pieņem lēmumu ar record_decision. Ja raksts nav pietiekami interesants
 ('can' statuss ļauj izlaist), atzīmē publish=false ar īsu iemeslu latviski."""

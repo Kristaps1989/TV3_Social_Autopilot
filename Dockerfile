@@ -7,6 +7,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt psycopg2-binary
 # Chromium for the carousel card renderer (app/cards.py)
 RUN playwright install --with-deps chromium
+# ffmpeg for the slideshow reel builder (app/reels.py)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 

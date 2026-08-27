@@ -115,7 +115,7 @@ def run_decisions(session, limit: int = 20) -> int:
 
             idx = ch_dec.get("image_index") or 0
             images = article.images or []
-            if fmt == "card_carousel":
+            if fmt in ("card_carousel", "reel"):
                 media = card_media
             elif fmt == "photo" and images:
                 media = [branded_photo(article, photo_base_image(article, idx),
@@ -229,6 +229,20 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("card render failed for article %s: %s", article.id, e)
         ai_fmt = None  # fall back to a normal format
+    if ai_fmt == "reel" and "reel" in (cfg.get("formats") or []):
+        from app import reels
+
+        points = [p.strip() for p in (ch_dec.get("card_points") or [])
+                  if isinstance(p, str) and p.strip()][:3]
+        image = photo_base_image(article)
+        if len(points) >= 2 and image and reels.available():
+            try:
+                media = reels.build_reel(article.title, article.section,
+                                         image, points)
+                return "reel", [media]
+            except Exception as e:  # noqa: BLE001 — never lose the post over a render
+                log.warning("reel build failed for article %s: %s", article.id, e)
+        ai_fmt = None
     fmt = choose_format(session, channel, cfg, article, ai_fmt)
     # A portrait og-image gets butchered by Facebook's 1.91:1 link-card
     # crop (baked-in title plate cut off). Switch to photo: we render our
@@ -262,9 +276,9 @@ def refresh_missing_media(session, post, platform: str) -> None:
     elif post.format == "story":
         image = (article.images or [""])[0]
         post.media = story_media(article, image)
-    # card_carousel can't be regenerated here (the AI's card points aren't
-    # stored on the post) — the adapter will fail with a clear message and
-    # the editor can cancel or let the article be re-decided
+    # card_carousel and reel can't be regenerated here (the AI's card points
+    # aren't stored on the post) — the adapter will fail with a clear message
+    # and the editor can cancel or let the article be re-decided
     session.commit()
 
 
@@ -299,7 +313,7 @@ def publish_due(session) -> int:
             # caption links aren't clickable at all)
             first_comment_link = bool(
                 link and platform in ("facebook_page", "instagram")
-                and post.format in ("photo", "photo_album", "card_carousel")
+                and post.format in ("photo", "photo_album", "card_carousel", "reel")
                 and config.load_rules().get("link_in_first_comment", True))
             text = assemble_post_text(post.copy, post.hashtags or [],
                                       "" if first_comment_link else link, platform)

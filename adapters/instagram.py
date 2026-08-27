@@ -45,7 +45,13 @@ class InstagramAdapter(Adapter):
             raise PublishError(
                 "Instagram vajag publisku attēla URL — nav attēla vai nav "
                 "uzstādīts PUBLIC_BASE_URL", retryable=False)
-        if fmt == "story":
+        if fmt == "reel":
+            container = self._container({"media_type": "REELS",
+                                         "video_url": urls[0],
+                                         "caption": text,
+                                         "share_to_feed": "true"})
+            self._wait_processed(container)
+        elif fmt == "story":
             container = self._container({"media_type": "STORIES",
                                          "image_url": urls[0]})
         elif fmt in ("photo_album", "card_carousel") and len(urls) > 1:
@@ -58,6 +64,26 @@ class InstagramAdapter(Adapter):
             container = self._container({"image_url": urls[0], "caption": text})
         return self._post(f"{self.user_id}/media_publish",
                           {"creation_id": container})["id"]
+
+    def _wait_processed(self, container_id: str, timeout: int = 240) -> None:
+        """Video containers process asynchronously; publishing before the
+        status is FINISHED fails, so poll until ready."""
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            r = httpx.get(f"{GRAPH}/{container_id}", timeout=30,
+                          params={"fields": "status_code",
+                                  "access_token": self.token})
+            status = r.json().get("status_code") if r.status_code == 200 else None
+            if status == "FINISHED":
+                return
+            if status == "ERROR":
+                raise PublishError("IG video apstrāde neizdevās (status ERROR)",
+                                   retryable=False)
+            time.sleep(5)
+        raise PublishError("IG video apstrāde pārsniedza laika limitu",
+                           retryable=True)
 
     def comment(self, post_id: str, message: str) -> str:
         """Caption links are not clickable on IG, so the article link lands

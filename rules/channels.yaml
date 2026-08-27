@@ -13,7 +13,8 @@ fb_tv3lv:
   sections: []
   # card_carousel = branded card gallery (cover + highlights + CTA card),
   # used by the AI for explainers/list stories; needs the AI key active.
-  formats: [link, photo, photo_album, card_carousel]
+  # reel = 10-15 s slideshow video (vāks + punkti + CTA kadrs); arī AI izvēle.
+  formats: [link, photo, photo_album, card_carousel, reel]
   # Starting weight for the pageview KPI, replaced by measured data after ~2 weeks
   click_weight: 1.0
   # Relative preference per format for THIS channel. TV3's own data shows
@@ -59,7 +60,7 @@ ig_tv3lv:
   sections: []
   # IG nav link/teksta postu: brendēts foto, karuselis (card gallery tur ir
   # visdabiskākais formāts) un story. Saite vienmēr pirmajā komentārā.
-  formats: [photo, photo_album, card_carousel, story]
+  formats: [photo, photo_album, card_carousel, reel, story]
   format_weights: {photo: 1.0, photo_album: 1.0, story: 0.6}
   click_weight: 0.5
 

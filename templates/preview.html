@@ -59,6 +59,9 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
   <div class="carousel">
     {% for m in post.media %}<img src="/media/{{ m | basename }}">{% endfor %}
   </div>
+  {% elif post.format == 'reel' and post.media %}
+  <video class="story-img" controls muted
+         src="{{ post.media[0] if post.media[0].startswith('http') else '/media/' + (post.media[0] | basename) }}"></video>
   {% elif post.format == 'story' and post.media %}
   <img class="story-img"
        src="{{ post.media[0] if post.media[0].startswith('http') else '/media/' + (post.media[0] | basename) }}"

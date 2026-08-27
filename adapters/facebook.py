@@ -68,7 +68,28 @@ class FacebookPageAdapter(Adapter):
         the article link lands as the first comment."""
         return self._post(f"{post_id}/comments", {"message": message}).get("id", "")
 
+    def _publish_reel(self, video: str, description: str) -> str:
+        """FB Reels three-step flow: start -> binary upload -> finish."""
+        init = self._post(f"{self.page_id}/video_reels", {"upload_phase": "start"})
+        video_id = init["video_id"]
+        upload_url = (init.get("upload_url")
+                      or f"https://rupload.facebook.com/video-upload/v21.0/{video_id}")
+        payload = self._image_bytes(video)  # any local/remote file -> bytes
+        resp = httpx.post(upload_url, content=payload, timeout=300, headers={
+            "Authorization": f"OAuth {self.token}",
+            "offset": "0", "file_size": str(len(payload)),
+            "Content-Type": "application/octet-stream"})
+        if resp.status_code >= 400:
+            raise PublishError(f"FB reel upload {resp.status_code}: {resp.text[:200]}",
+                               retryable=True)
+        self._post(f"{self.page_id}/video_reels", {
+            "upload_phase": "finish", "video_id": video_id,
+            "video_state": "PUBLISHED", "description": description})
+        return video_id
+
     def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
+        if fmt == "reel" and images:
+            return self._publish_reel(images[0], text)
         if fmt == "story" and images:
             up = self._upload_photo(images[0], {"published": "false"})
             out = self._post(f"{self.page_id}/photo_stories", {"photo_id": up["id"]})
