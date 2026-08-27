@@ -396,8 +396,29 @@ def connect(request: Request, error: str = "", connected: str = ""):
         fb_app_id, _ = credentials.fb_app()
         th_app_id, _ = credentials.threads_app()
         ai_key = credentials.get("anthropic_api_key", session)
+
+        def _env(name: str, secret: bool = False) -> str:
+            value = os.environ.get(name, "")
+            if not value:
+                return ""
+            return "uzstādīts ✓" if secret else value
+
+        env_diag = {
+            "META_APP_ID": _env("META_APP_ID"),
+            "META_APP_SECRET": _env("META_APP_SECRET", secret=True),
+            "META_LOGIN_CONFIG_ID": _env("META_LOGIN_CONFIG_ID"),
+            "PUBLIC_BASE_URL": _env("PUBLIC_BASE_URL"),
+            "ANTHROPIC_API_KEY": _env("ANTHROPIC_API_KEY", secret=True),
+            "DATABASE_URL": (os.environ.get("DATABASE_URL", "").split("://")[0] + "://…"
+                             if os.environ.get("DATABASE_URL") else ""),
+            "RULES_DIR": _env("RULES_DIR"),
+            "PROMPTS_DIR": _env("PROMPTS_DIR"),
+            "THREADS_APP_ID": _env("THREADS_APP_ID"),
+            "THREADS_APP_SECRET": _env("THREADS_APP_SECRET", secret=True),
+        }
         return templates.TemplateResponse(request, "connect.html", {
             "status": status,
+            "env_diag": env_diag,
             "ai_key_masked": f"sk-ant-…{ai_key[-4:]}" if ai_key else "",
             "meta_app_ready": bool(fb_app_id),
             "threads_app_ready": bool(th_app_id),

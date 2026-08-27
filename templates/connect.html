@@ -109,6 +109,22 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
 </div>
 
 <div class="card" style="margin-top:1rem">
+  <h2>Diagnostika — vides mainīgie, ko serveris redz</h2>
+  <p class="muted">Ja šeit rāda "nav uzstādīts", mainīgais nav nonācis līdz deployotajai
+  versijai (nepareizs serviss, nav redeploy, vai rakstības kļūda nosaukumā).
+  Noslēpumu vērtības netiek rādītas.</p>
+  <table style="max-width:640px">
+    {% for name, value in env_diag.items() %}
+    <tr>
+      <td><code>{{ name }}</code></td>
+      <td>{% if value %}<span class="state published">{{ value }}</span>
+          {% else %}<span class="state failed">nav uzstādīts ✗</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card" style="margin-top:1rem">
   <h2>Drošība</h2>
   <ul class="muted">
     <li>Atslēgas glabājas tikai šī servera datubāzē (vai vides mainīgajos) — nekad git repozitorijā.</li>
