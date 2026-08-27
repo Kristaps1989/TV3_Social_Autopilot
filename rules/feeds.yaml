@@ -1,24 +1,24 @@
 # WordPress source feeds (built by Artis).
-# URL pattern: https://www.tv3.lv/api/1/social/{termIds}/{status}/{timeframe}/
+# URL pattern: https://tv3.lv/api/1/social/{termIds}/{status}/{timeframe}/
 # Poll interval is global (INGEST_INTERVAL_MINUTES, default 3).
 
 news_all:
-  url: "https://www.tv3.lv/api/1/social/26336,60119/now/evergreen/"
+  url: "https://tv3.lv/api/1/social/26336,60119/now/evergreen/"
   section_hint: news
   active: true
 
 photo_posts:
-  url: "https://www.tv3.lv/api/1/social/26336/60119,58898,21300,3,32543,108271,4596,4657/must/evergreen/"
+  url: "https://tv3.lv/api/1/social/26336/60119,58898,21300,3,32543,108271,4596,4657/must/evergreen/"
   section_hint: entertainment
   active: true
 
 sport_all:
-  url: "https://www.tv3.lv/api/1/social/3383/now/evergreen/"
+  url: "https://tv3.lv/api/1/social/3383/now/evergreen/"
   section_hint: sport
   active: true
 
 entertainment_all:
-  url: "https://www.tv3.lv/api/1/social/3/can/evergreen/"
+  url: "https://tv3.lv/api/1/social/3/can/evergreen/"
   section_hint: entertainment
   active: false   # enable once the term IDs are confirmed with Artis
 

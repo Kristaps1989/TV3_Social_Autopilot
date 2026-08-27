@@ -105,7 +105,8 @@ def fb_auth_url(redirect_uri: str, state: str) -> str:
     config_id = get("meta_login_config_id")
     if config_id:
         return f"{base}&config_id={config_id}"
-    scope = "pages_show_list,pages_manage_posts,pages_read_engagement,business_management"
+    scope = ("pages_show_list,pages_manage_posts,pages_read_engagement,"
+             "pages_manage_engagement,business_management")
     return f"{base}&scope={scope}"
 
 

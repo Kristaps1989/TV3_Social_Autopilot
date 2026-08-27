@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
         from app.scheduler import start_scheduler
 
         scheduler = start_scheduler()
-        log.info("scheduler started (dry_run=%s)", config.DRY_RUN)
+        log.info("scheduler started (dry_run=%s)", runtime.is_dry_run())
     yield
     if scheduler:
         scheduler.shutdown(wait=False)
