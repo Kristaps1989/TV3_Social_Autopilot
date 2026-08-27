@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    config.ensure_editable_dirs()
     init_db()
     import os
 

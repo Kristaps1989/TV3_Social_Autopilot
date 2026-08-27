@@ -65,3 +65,17 @@ def test_portrait_og_image_switches_link_to_photo(session, monkeypatch):
     session.flush()
     fmt, _ = resolve_format(session, "fb_x", cfg, b, {"format": "link"})
     assert fmt == "link"
+
+
+def test_ensure_editable_dirs_seeds_volume(tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path / "rules")
+    monkeypatch.setattr(config, "PROMPTS_DIR", tmp_path / "prompts")
+    config.ensure_editable_dirs()
+    assert (tmp_path / "rules" / "rules.yaml").exists()
+    assert (tmp_path / "prompts" / "system_base.md").exists()
+    # user edits are never overwritten
+    (tmp_path / "rules" / "rules.yaml").write_text("edited: true", encoding="utf-8")
+    config.ensure_editable_dirs()
+    assert (tmp_path / "rules" / "rules.yaml").read_text(encoding="utf-8") == "edited: true"

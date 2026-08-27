@@ -36,6 +36,22 @@ class ConfigError(Exception):
     pass
 
 
+def ensure_editable_dirs() -> None:
+    """When RULES_DIR/PROMPTS_DIR point at a persistent volume (outside the
+    repo), seed them with the repo defaults on first start so editor changes
+    made in the admin UI survive redeploys. Existing files are never touched."""
+    import shutil
+
+    for target, source in ((RULES_DIR, BASE_DIR / "rules"),
+                           (PROMPTS_DIR, BASE_DIR / "prompts")):
+        if target.resolve() == source.resolve():
+            continue
+        target.mkdir(parents=True, exist_ok=True)
+        for f in source.glob("*"):
+            if f.is_file() and not (target / f.name).exists():
+                shutil.copy2(f, target / f.name)
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"Missing config file: {path}")
