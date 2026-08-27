@@ -52,20 +52,26 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
         Nepieciešama TV3 Business Manager piekļuve.
       {% endif %}
     </div>
+    <form method="post" action="/connect/meta" style="margin-bottom:.6rem">
+      <label class="muted" style="display:block">Meta App ID</label>
+      <input type="text" name="app_id" value="{{ meta_app_id }}" placeholder="piem. 1014675528221260">
+      <label class="muted" style="display:block;margin-top:.4rem">Meta App secret</label>
+      <input type="password" name="app_secret" autocomplete="off"
+             placeholder="{{ 'saglabāts — atstāj tukšu, ja nemaina' if meta_app_ready else 'no Settings → Basic' }}">
+      <label class="muted" style="display:block;margin-top:.4rem">Login Configuration ID</label>
+      <input type="text" name="config_id" value="{{ meta_config_id }}"
+             placeholder="no FB Login for Business → Configurations">
+      <div style="margin-top:.5rem"><button class="primary">Saglabāt lietotnes datus</button></div>
+    </form>
     {% if meta_app_ready %}
       <a class="btn" href="/connect/facebook"><button class="primary" type="button">
         {{ 'Pārslēgt / atjaunot savienojumu' if status.facebook.connected else 'Savienot ar Facebook' }}
       </button></a>
-      <p class="muted">Pieteikties jāļauj cilvēkam, kurš pārvalda tv3.lv lapu.
-      Redirect URI, kas jāpievieno Meta lietotnē: <code>{{ redirect_fb }}</code></p>
-    {% else %}
-      <p class="muted">Lai ieslēgtu pogu, vajadzīga Meta lietotne:
-      <b>developers.facebook.com</b> → Create App (tips “Business”, īpašnieks — TV3 Business
-      Manager) → iestati <code>META_APP_ID</code> un <code>META_APP_SECRET</code> vides
-      mainīgajos un pievieno šo Redirect URI: <code>{{ redirect_fb }}</code>.
-      Alternatīva bez OAuth: System User token Business Manager iestatījumos →
-      <code>FB_PAGE_ID</code> / <code>FB_PAGE_ACCESS_TOKEN</code>.</p>
     {% endif %}
+    <p class="muted">Meta lietotnē (developers.facebook.com) jābūt pievienotam šim
+    Redirect URI: <code>{{ redirect_fb }}</code>.
+    Alternatīva bez OAuth: System User token → <code>FB_PAGE_ID</code> /
+    <code>FB_PAGE_ACCESS_TOKEN</code> vides mainīgajos.</p>
   </div>
 
   <div class="card">
@@ -82,17 +88,23 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
         Jāpiesakās ar TV3 sporta Threads kontu.
       {% endif %}
     </div>
+    <form method="post" action="/connect/threads-app" style="margin-bottom:.6rem">
+      <label class="muted" style="display:block">Threads App ID</label>
+      <input type="text" name="app_id" value="{{ threads_app_id }}"
+             placeholder="no Threads use case iestatījumiem">
+      <label class="muted" style="display:block;margin-top:.4rem">Threads App secret</label>
+      <input type="password" name="app_secret" autocomplete="off"
+             placeholder="{{ 'saglabāts — atstāj tukšu, ja nemaina' if threads_app_ready else '' }}">
+      <div style="margin-top:.5rem"><button class="primary">Saglabāt lietotnes datus</button></div>
+    </form>
     {% if threads_app_ready %}
       <a class="btn" href="/connect/threads"><button class="primary" type="button">
         {{ 'Pārslēgt / atjaunot savienojumu' if status.threads.connected else 'Savienot ar Threads' }}
       </button></a>
-      <p class="muted">Redirect URI Meta lietotnē (Threads use case): <code>{{ redirect_th }}</code></p>
-    {% else %}
-      <p class="muted">Tajā pašā Meta lietotnē pievieno “Threads API” use case ar
-      <code>threads_basic</code> + <code>threads_content_publish</code>, iestati
-      <code>THREADS_APP_ID</code> / <code>THREADS_APP_SECRET</code> un Redirect URI:
-      <code>{{ redirect_th }}</code>.</p>
     {% endif %}
+    <p class="muted">Meta lietotnē pievieno “Threads API” use case ar
+    <code>threads_basic</code> + <code>threads_content_publish</code> un Redirect URI:
+    <code>{{ redirect_th }}</code>.</p>
   </div>
 
   <div class="card">

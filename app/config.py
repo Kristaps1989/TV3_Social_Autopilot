@@ -16,8 +16,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-RULES_DIR = Path(os.environ.get("RULES_DIR", BASE_DIR / "rules"))
-PROMPTS_DIR = Path(os.environ.get("PROMPTS_DIR", BASE_DIR / "prompts"))
+# Repo defaults (read-only templates); editable copies live under data/ so
+# a persistent volume mounted at data/ keeps admin-UI edits across deploys.
+DEFAULT_RULES_DIR = BASE_DIR / "rules"
+DEFAULT_PROMPTS_DIR = BASE_DIR / "prompts"
+RULES_DIR = Path(os.environ.get("RULES_DIR", BASE_DIR / "data" / "rules"))
+PROMPTS_DIR = Path(os.environ.get("PROMPTS_DIR", BASE_DIR / "data" / "prompts"))
 
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///data/autopilot.db")
@@ -42,14 +46,20 @@ def ensure_editable_dirs() -> None:
     made in the admin UI survive redeploys. Existing files are never touched."""
     import shutil
 
-    for target, source in ((RULES_DIR, BASE_DIR / "rules"),
-                           (PROMPTS_DIR, BASE_DIR / "prompts")):
+    for target, source in ((RULES_DIR, DEFAULT_RULES_DIR),
+                           (PROMPTS_DIR, DEFAULT_PROMPTS_DIR)):
         if target.resolve() == source.resolve():
             continue
         target.mkdir(parents=True, exist_ok=True)
         for f in source.glob("*"):
             if f.is_file() and not (target / f.name).exists():
                 shutil.copy2(f, target / f.name)
+
+
+def _editable(name: str, editable_dir: Path, default_dir: Path) -> Path:
+    """The editable copy when it exists, else the repo default."""
+    candidate = editable_dir / name
+    return candidate if candidate.exists() else default_dir / name
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -63,19 +73,19 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_rules() -> dict[str, Any]:
-    return _load_yaml(RULES_DIR / "rules.yaml")
+    return _load_yaml(_editable("rules.yaml", RULES_DIR, DEFAULT_RULES_DIR))
 
 
 def load_channels() -> dict[str, Any]:
-    return _load_yaml(RULES_DIR / "channels.yaml")
+    return _load_yaml(_editable("channels.yaml", RULES_DIR, DEFAULT_RULES_DIR))
 
 
 def load_feeds() -> dict[str, Any]:
-    return _load_yaml(RULES_DIR / "feeds.yaml")
+    return _load_yaml(_editable("feeds.yaml", RULES_DIR, DEFAULT_RULES_DIR))
 
 
 def load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / f"{name}.md"
+    path = _editable(f"{name}.md", PROMPTS_DIR, DEFAULT_PROMPTS_DIR)
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 

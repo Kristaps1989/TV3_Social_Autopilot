@@ -24,6 +24,11 @@ THREADS_GRAPH = "https://graph.threads.net"
 # credential key -> env var fallback
 ENV_FALLBACK = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "meta_app_id": "META_APP_ID",
+    "meta_app_secret": "META_APP_SECRET",
+    "meta_login_config_id": "META_LOGIN_CONFIG_ID",
+    "threads_app_id": "THREADS_APP_ID",
+    "threads_app_secret": "THREADS_APP_SECRET",
     "fb_page_id": "FB_PAGE_ID",
     "fb_page_token": "FB_PAGE_ACCESS_TOKEN",
     "threads_user_id": "THREADS_USER_ID",
@@ -87,7 +92,8 @@ def check_state(session, state: str) -> bool:
 # --- Facebook -------------------------------------------------------------
 
 def fb_app() -> tuple[str, str]:
-    return os.environ.get("META_APP_ID", ""), os.environ.get("META_APP_SECRET", "")
+    """Meta app credentials: entered in the admin UI (DB) or env fallback."""
+    return get("meta_app_id"), get("meta_app_secret")
 
 
 def fb_auth_url(redirect_uri: str, state: str) -> str:
@@ -96,9 +102,7 @@ def fb_auth_url(redirect_uri: str, state: str) -> str:
             f"&redirect_uri={redirect_uri}&state={state}&response_type=code")
     # "Facebook Login for Business" apps request permissions via a login
     # Configuration (config_id) instead of the classic scope parameter.
-    # Create one under FB Login for Business -> Configurations and set
-    # META_LOGIN_CONFIG_ID; without it we fall back to classic scopes.
-    config_id = os.environ.get("META_LOGIN_CONFIG_ID", "")
+    config_id = get("meta_login_config_id")
     if config_id:
         return f"{base}&config_id={config_id}"
     scope = "pages_show_list,pages_manage_posts,pages_read_engagement,business_management"
@@ -133,7 +137,7 @@ def fb_list_pages(user_token: str) -> list[dict]:
 # --- Threads --------------------------------------------------------------
 
 def threads_app() -> tuple[str, str]:
-    return os.environ.get("THREADS_APP_ID", ""), os.environ.get("THREADS_APP_SECRET", "")
+    return get("threads_app_id"), get("threads_app_secret")
 
 
 def threads_auth_url(redirect_uri: str, state: str) -> str:

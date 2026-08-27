@@ -421,11 +421,47 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "env_diag": env_diag,
             "ai_key_masked": f"sk-ant-…{ai_key[-4:]}" if ai_key else "",
             "meta_app_ready": bool(fb_app_id),
+            "meta_app_id": fb_app_id,
+            "meta_config_id": credentials.get("meta_login_config_id", session),
             "threads_app_ready": bool(th_app_id),
+            "threads_app_id": th_app_id,
             "redirect_fb": f"{public_base(request)}/connect/facebook/callback",
             "redirect_th": f"{public_base(request)}/connect/threads/callback",
             "error": error, "connected": connected,
         })
+    finally:
+        session.close()
+
+
+@app.post("/connect/meta")
+def connect_meta(app_id: str = Form(""), app_secret: str = Form(""),
+                 config_id: str = Form("")):
+    """Save Meta app credentials from the UI (stored in DB, like the AI key).
+    Empty fields keep their current value."""
+    session = get_session()
+    try:
+        if app_id.strip():
+            credentials.put(session, "meta_app_id", app_id.strip())
+        if app_secret.strip():
+            credentials.put(session, "meta_app_secret", app_secret.strip())
+        if config_id.strip():
+            credentials.put(session, "meta_login_config_id", config_id.strip())
+        return RedirectResponse("/connect?connected=Meta+lietotnes+dati+saglabāti",
+                                status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/threads-app")
+def connect_threads_app(app_id: str = Form(""), app_secret: str = Form("")):
+    session = get_session()
+    try:
+        if app_id.strip():
+            credentials.put(session, "threads_app_id", app_id.strip())
+        if app_secret.strip():
+            credentials.put(session, "threads_app_secret", app_secret.strip())
+        return RedirectResponse("/connect?connected=Threads+lietotnes+dati+saglabāti",
+                                status_code=303)
     finally:
         session.close()
 

@@ -120,3 +120,25 @@ def test_anthropic_key_saved_and_visible(client, session, monkeypatch):
 
     r = client.post("/connect/anthropic", data={"api_key": ""}, follow_redirects=False)
     assert credentials.get("anthropic_api_key", session) == ""
+
+
+def test_meta_app_credentials_saved_via_ui(client, session, monkeypatch):
+    for var in ("META_APP_ID", "META_APP_SECRET", "META_LOGIN_CONFIG_ID"):
+        monkeypatch.delenv(var, raising=False)
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+
+    r = client.post("/connect/meta", data={
+        "app_id": "1014675528221260", "app_secret": "sec-x",
+        "config_id": "1054313277453272"}, follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert credentials.fb_app() == ("1014675528221260", "sec-x")
+    assert "config_id=1054313277453272" in credentials.fb_auth_url("https://x/cb", "st")
+
+    # empty fields keep existing values
+    client.post("/connect/meta", data={"app_id": "", "app_secret": "", "config_id": ""})
+    assert credentials.fb_app() == ("1014675528221260", "sec-x")
+
+    # connect page now shows the connect button
+    r = client.get("/connect")
+    assert "Savienot ar Facebook" in r.text
