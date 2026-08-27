@@ -92,9 +92,17 @@ def fb_app() -> tuple[str, str]:
 
 def fb_auth_url(redirect_uri: str, state: str) -> str:
     app_id, _ = fb_app()
-    scope = "pages_manage_posts,pages_read_engagement,business_management"
-    return (f"https://www.facebook.com/v21.0/dialog/oauth?client_id={app_id}"
-            f"&redirect_uri={redirect_uri}&state={state}&scope={scope}")
+    base = (f"https://www.facebook.com/v21.0/dialog/oauth?client_id={app_id}"
+            f"&redirect_uri={redirect_uri}&state={state}&response_type=code")
+    # "Facebook Login for Business" apps request permissions via a login
+    # Configuration (config_id) instead of the classic scope parameter.
+    # Create one under FB Login for Business -> Configurations and set
+    # META_LOGIN_CONFIG_ID; without it we fall back to classic scopes.
+    config_id = os.environ.get("META_LOGIN_CONFIG_ID", "")
+    if config_id:
+        return f"{base}&config_id={config_id}"
+    scope = "pages_show_list,pages_manage_posts,pages_read_engagement,business_management"
+    return f"{base}&scope={scope}"
 
 
 def fb_exchange_code(code: str, redirect_uri: str) -> str:
