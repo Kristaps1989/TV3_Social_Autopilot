@@ -14,6 +14,19 @@ class PublishError(Exception):
         self.retryable = retryable
 
 
+def public_image_url(image: str) -> str:
+    """Meta's URL-based upload APIs (Threads, Instagram) only accept public
+    URLs — locally rendered images are served by the app's own /media
+    endpoint, reachable at PUBLIC_BASE_URL."""
+    if image.startswith("http"):
+        return image
+    import os
+    from pathlib import Path
+
+    base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    return f"{base}/media/{Path(image).name}" if base else ""
+
+
 class Adapter(ABC):
     platform: str = ""
 

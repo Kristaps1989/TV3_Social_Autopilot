@@ -46,6 +46,23 @@ x_tv3zinas:
   format_weights: {link: 1.0, photo: 1.0, text_only: 0.5}
   click_weight: 0.7
 
+ig_tv3lv:
+  platform: instagram
+  display_name: "Instagram — tv3.lv"
+  # Ieslēdz (active: true), kad Konti sadaļā ir sasaistīts Instagram konts
+  # un Login konfigurācijā ir instagram_basic + instagram_content_publish.
+  active: false
+  feeds: [news_all, entertainment_all, photo_posts]
+  min_gap_minutes: 90        # IG soda pārlieku biežu postēšanu vairāk nekā FB
+  daily_cap: 8
+  quiet_hours: ["00:00-07:00"]
+  sections: []
+  # IG nav link/teksta postu: brendēts foto, karuselis (card gallery tur ir
+  # visdabiskākais formāts) un story. Saite vienmēr pirmajā komentārā.
+  formats: [photo, photo_album, card_carousel, story]
+  format_weights: {photo: 1.0, photo_album: 1.0, story: 0.6}
+  click_weight: 0.5
+
 threads_sport:
   platform: threads
   display_name: "Threads — Sports"

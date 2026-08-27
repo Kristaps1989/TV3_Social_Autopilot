@@ -167,6 +167,64 @@ def test_disconnect_clears_page_connection(client, session, monkeypatch):
     assert credentials.get("threads_token", session) == ""
 
 
+def test_x_keys_saved_via_ui(client, session, monkeypatch):
+    for var in ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+
+    r = client.post("/connect/x", data={
+        "api_key": "k1", "api_secret": "k2",
+        "access_token": "k3", "access_secret": "k4"}, follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert credentials.get("x_access_token", session) == "k3"
+
+    # empty fields keep existing values
+    client.post("/connect/x", data={"api_key": "", "api_secret": "new-secret",
+                                    "access_token": "", "access_secret": ""})
+    assert credentials.get("x_api_key", session) == "k1"
+    assert credentials.get("x_api_secret", session) == "new-secret"
+
+    r = client.post("/connect/x/disconnect", follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert credentials.get("x_api_key", session) == ""
+
+
+def test_instagram_link_via_page_token(client, session, monkeypatch):
+    from app import credentials as creds_mod
+
+    for var in ("IG_USER_ID", "FB_PAGE_ID", "FB_PAGE_ACCESS_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+
+    # no FB connection yet -> clear error
+    r = client.post("/connect/instagram/link", follow_redirects=False)
+    assert "error" in r.headers["location"]
+
+    monkeypatch.setattr(creds_mod, "fb_page_instagram",
+                        lambda s: ("17841400000000", "tv3.lv"))
+    r = client.post("/connect/instagram/link", follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert credentials.get("ig_user_id", session) == "17841400000000"
+    assert credentials.connection_status(session)["instagram"]["label"] == "tv3.lv"
+
+    r = client.post("/connect/instagram/disconnect", follow_redirects=False)
+    assert credentials.get("ig_user_id", session) == ""
+
+
+def test_inactive_channels_hidden(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "_load_yaml", lambda p: {
+        "fb": {"platform": "facebook_page"},
+        "ig": {"platform": "instagram", "active": False},
+        "on": {"platform": "x", "active": True},
+    })
+    channels = config.load_channels()
+    assert set(channels) == {"fb", "on"}
+
+
 def test_ga4_settings_saved_via_ui(client, session, monkeypatch):
     import json
 

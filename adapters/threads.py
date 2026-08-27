@@ -5,7 +5,7 @@ import time
 
 import httpx
 
-from adapters.base import Adapter, PublishError
+from adapters.base import Adapter, PublishError, public_image_url
 from app import credentials
 
 API = "https://graph.threads.net/v1.0"
@@ -30,21 +30,9 @@ class ThreadsAdapter(Adapter):
             raise PublishError(f"Threads {resp.status_code}: {resp.text[:200]}", retryable=False)
         return resp.json()
 
-    @staticmethod
-    def _public_url(image: str) -> str:
-        """Threads only accepts public URLs — locally rendered images are
-        served by the app's own /media endpoint."""
-        if image.startswith("http"):
-            return image
-        import os
-        from pathlib import Path
-
-        base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
-        return f"{base}/media/{Path(image).name}" if base else ""
-
     def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
         data: dict = {"text": text}
-        image_url = self._public_url(images[0]) if images else ""
+        image_url = public_image_url(images[0]) if images else ""
         if fmt == "photo" and image_url:
             data.update({"media_type": "IMAGE", "image_url": image_url})
         else:

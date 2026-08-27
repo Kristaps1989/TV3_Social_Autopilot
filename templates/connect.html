@@ -81,6 +81,41 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
   </div>
 
   <div class="card">
+    <h2>Instagram
+      {% if status.instagram.connected %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="meta">
+      {% if status.instagram.connected %}
+        {{ '@' + status.instagram.label if status.instagram.label else 'Konts sasaistīts' }}
+        — publicē caur Facebook lapas savienojumu (atsevišķa atslēga nav vajadzīga).
+      {% else %}
+        Izmanto Facebook lapas savienojumu: IG Business kontam jābūt sasaistītam
+        ar savienoto lapu.
+      {% endif %}
+    </div>
+    {% if status.facebook.connected %}
+    <form method="post" action="/connect/instagram/link">
+      <button class="primary">{{ 'Pārbaudīt / atjaunot sasaisti' if status.instagram.connected else 'Sasaistīt Instagram (caur FB lapu)' }}</button>
+    </form>
+    {% else %}
+    <p class="muted">Vispirms savieno Facebook lapu — Instagram izmanto tās tokenu.</p>
+    {% endif %}
+    {% if status.instagram.connected %}
+    <form method="post" action="/connect/instagram/disconnect" style="margin-top:.4rem"
+          onsubmit="return confirm('Atvienot Instagram?')">
+      <button class="danger">Atvienot</button>
+    </form>
+    {% endif %}
+    <p class="muted">Priekšnosacījumi: IG konts ir <b>Business/Creator</b> tips un
+    sasaistīts ar lapu (Page settings → Linked accounts); Login konfigurācijai
+    Meta lietotnē pievienotas <code>instagram_basic</code> +
+    <code>instagram_content_publish</code> atļaujas (pēc pievienošanas pārslēdz
+    Facebook savienojumu). Kad sasaistīts, ieslēdz <code>ig_tv3lv</code> kanālu
+    (channels.yaml → <code>active: true</code>).</p>
+  </div>
+
+  <div class="card">
     <h2>Threads
       {% if status.threads.connected %}<span class="badge live">savienots</span>
       {% else %}<span class="badge paused">nav savienots</span>{% endif %}
@@ -124,11 +159,37 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       {% if status.x.connected %}<span class="badge live">savienots</span>
       {% else %}<span class="badge paused">nav savienots</span>{% endif %}
     </h2>
-    <div class="meta">X nepiedāvā vienkāršu OAuth pogu bez maksas līmeņa — atslēgas jāievada kā vides mainīgie.</div>
+    <div class="meta">
+      {% if status.x.connected %}
+        Visas 4 atslēgas saglabātas · avots: {{ 'admin UI' if status.x.source == 'admin' else 'vides mainīgie' }}
+      {% else %}
+        X OAuth pogu nepiedāvā — 4 atslēgas jāizveido developer.x.com un jāielīmē šeit.
+      {% endif %}
+    </div>
+    <form method="post" action="/connect/x">
+      <label class="muted" style="display:block">API Key</label>
+      <input type="password" name="api_key" autocomplete="off"
+             placeholder="{{ 'saglabāta — atstāj tukšu, ja nemaina' if status.x.connected else 'Consumer Keys → API Key' }}">
+      <label class="muted" style="display:block;margin-top:.4rem">API Key Secret</label>
+      <input type="password" name="api_secret" autocomplete="off"
+             placeholder="{{ 'saglabāta — atstāj tukšu, ja nemaina' if status.x.connected else 'Consumer Keys → Secret' }}">
+      <label class="muted" style="display:block;margin-top:.4rem">Access Token</label>
+      <input type="password" name="access_token" autocomplete="off"
+             placeholder="{{ 'saglabāts — atstāj tukšu, ja nemaina' if status.x.connected else 'Authentication Tokens → Access Token' }}">
+      <label class="muted" style="display:block;margin-top:.4rem">Access Token Secret</label>
+      <input type="password" name="access_secret" autocomplete="off"
+             placeholder="{{ 'saglabāts — atstāj tukšu, ja nemaina' if status.x.connected else 'Authentication Tokens → Secret' }}">
+      <div style="margin-top:.5rem"><button class="primary">Saglabāt atslēgas</button></div>
+    </form>
+    {% if status.x.connected %}
+    <form method="post" action="/connect/x/disconnect" style="margin-top:.4rem"
+          onsubmit="return confirm('Noņemt X atslēgas?')">
+      <button class="danger">Atvienot</button>
+    </form>
+    {% endif %}
     <p class="muted">developer.x.com (pieteikties <b>kā @TV3Zinas</b>) → maksas līmenis →
-    App permissions “Read and Write” → izveido visas 4 atslēgas →
-    <code>X_API_KEY</code>, <code>X_API_SECRET</code>, <code>X_ACCESS_TOKEN</code>,
-    <code>X_ACCESS_TOKEN_SECRET</code>.</p>
+    App permissions <b>“Read and Write”</b> (jāuzstāda PIRMS Access Token izveides) →
+    Keys and tokens → izveido API Key/Secret un Access Token/Secret.</p>
   </div>
 
   <div class="card">

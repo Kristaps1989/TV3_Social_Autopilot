@@ -151,7 +151,7 @@ def run_decisions(session, limit: int = 20) -> int:
 
 # Best-practice photo sizes: FB feed shows 4:5 uncropped and it takes the
 # most screen space; X/Threads are safest at 1:1.
-PHOTO_SIZES = {"facebook_page": (1080, 1350)}
+PHOTO_SIZES = {"facebook_page": (1080, 1350), "instagram": (1080, 1350)}
 
 
 def photo_base_image(article, idx: int = 0) -> str:
@@ -294,10 +294,11 @@ def publish_due(session) -> int:
         session.commit()
         try:
             link = add_utm(post.link_url, platform, post.id) if post.link_url else ""
-            # SocialFlow-style tactic: on FB image posts the link goes into
-            # the first comment, keeping the caption clean for reach
+            # SocialFlow-style tactic: on FB/IG image posts the link goes into
+            # the first comment, keeping the caption clean for reach (on IG
+            # caption links aren't clickable at all)
             first_comment_link = bool(
-                link and platform == "facebook_page"
+                link and platform in ("facebook_page", "instagram")
                 and post.format in ("photo", "photo_album", "card_carousel")
                 and config.load_rules().get("link_in_first_comment", True))
             text = assemble_post_text(post.copy, post.hashtags or [],

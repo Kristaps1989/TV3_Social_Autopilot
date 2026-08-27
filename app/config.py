@@ -77,7 +77,12 @@ def load_rules() -> dict[str, Any]:
 
 
 def load_channels() -> dict[str, Any]:
-    return _load_yaml(_editable("channels.yaml", RULES_DIR, DEFAULT_RULES_DIR))
+    """Channels with active: false are hidden everywhere (dashboard,
+    scheduling, publishing) until the flag is flipped — used to ship
+    channel configs ahead of their account connection."""
+    channels = _load_yaml(_editable("channels.yaml", RULES_DIR, DEFAULT_RULES_DIR))
+    return {name: cfg for name, cfg in channels.items()
+            if (cfg or {}).get("active", True)}
 
 
 def load_feeds() -> dict[str, Any]:

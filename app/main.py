@@ -511,6 +511,67 @@ def connect_threads_app(app_id: str = Form(""), app_secret: str = Form("")):
         session.close()
 
 
+@app.post("/connect/instagram/link")
+def connect_instagram():
+    """Look up the IG Business account linked to the connected FB page and
+    store its id — no separate OAuth needed, the page token authorizes IG."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        try:
+            ig_id, username = credentials.fb_page_instagram(session)
+        except Exception as e:  # noqa: BLE001 — clear message to the UI
+            return RedirectResponse(f"/connect?error={quote(str(e)[:250])}",
+                                    status_code=303)
+        credentials.put(session, "ig_user_id", ig_id, label=username)
+        return RedirectResponse(
+            f"/connect?connected={quote('Instagram @' + (username or ig_id))}",
+            status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/instagram/disconnect")
+def disconnect_instagram():
+    session = get_session()
+    try:
+        credentials.put(session, "ig_user_id", "", label="")
+        return RedirectResponse("/connect?connected=Instagram+savienojums+noņemts",
+                                status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/x")
+def connect_x(api_key: str = Form(""), api_secret: str = Form(""),
+              access_token: str = Form(""), access_secret: str = Form("")):
+    """Save X API keys from the UI. Empty fields keep their current value."""
+    session = get_session()
+    try:
+        for key, value in (("x_api_key", api_key), ("x_api_secret", api_secret),
+                           ("x_access_token", access_token),
+                           ("x_access_secret", access_secret)):
+            if value.strip():
+                credentials.put(session, key, value.strip())
+        return RedirectResponse("/connect?connected=X+atslēgas+saglabātas",
+                                status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/x/disconnect")
+def disconnect_x():
+    session = get_session()
+    try:
+        for key in ("x_api_key", "x_api_secret", "x_access_token", "x_access_secret"):
+            credentials.put(session, key, "", label="")
+        return RedirectResponse("/connect?connected=X+atslēgas+noņemtas",
+                                status_code=303)
+    finally:
+        session.close()
+
+
 @app.post("/connect/ga4")
 def connect_ga4(property_id: str = Form(""), service_account: str = Form("")):
     """Save GA4 settings from the UI. Empty fields keep their current value."""

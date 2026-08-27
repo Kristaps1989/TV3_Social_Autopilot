@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from adapters.base import Adapter, DryRunAdapter
 from adapters.facebook import FacebookPageAdapter
+from adapters.instagram import InstagramAdapter
 from adapters.threads import ThreadsAdapter
 from adapters.x import XAdapter
 
 _REAL = {
     "facebook_page": FacebookPageAdapter,
+    "instagram": InstagramAdapter,
     "x": XAdapter,
     "threads": ThreadsAdapter,
 }

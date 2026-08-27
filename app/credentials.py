@@ -33,6 +33,7 @@ ENV_FALLBACK = {
     "fb_page_token": "FB_PAGE_ACCESS_TOKEN",
     "threads_user_id": "THREADS_USER_ID",
     "threads_token": "THREADS_ACCESS_TOKEN",
+    "ig_user_id": "IG_USER_ID",
     "ga4_property_id": "GA4_PROPERTY_ID",
     "x_api_key": "X_API_KEY",
     "x_api_secret": "X_API_SECRET",
@@ -136,6 +137,26 @@ def fb_list_pages(user_token: str) -> list[dict]:
     return r.json().get("data", [])
 
 
+def fb_page_instagram(session) -> tuple[str, str]:
+    """(ig_user_id, username) of the IG Business account linked to the
+    connected Facebook page. Raises with a clear message when absent."""
+    page_id, token = get("fb_page_id", session), get("fb_page_token", session)
+    if not (page_id and token):
+        raise RuntimeError("vispirms jāsavieno Facebook lapa")
+    r = httpx.get(f"{GRAPH}/{page_id}", timeout=30, params={
+        "fields": "instagram_business_account{id,username}",
+        "access_token": token})
+    if r.status_code != 200:
+        raise RuntimeError(f"Meta atbildēja {r.status_code}: {r.text[:150]}")
+    ig = r.json().get("instagram_business_account") or {}
+    if not ig.get("id"):
+        raise RuntimeError(
+            "lapai nav sasaistīta Instagram Business konta, vai lapas tokenam "
+            "trūkst instagram_basic atļaujas — pievieno to Login konfigurācijai "
+            "un pārslēdz Facebook savienojumu")
+    return str(ig["id"]), ig.get("username", "")
+
+
 # --- Threads --------------------------------------------------------------
 
 def threads_app() -> tuple[str, str]:
@@ -224,6 +245,8 @@ def connection_status(session) -> dict[str, dict]:
 
     return {
         "facebook": _status(["fb_page_id", "fb_page_token"], "fb_page_token"),
+        "instagram": _status(["ig_user_id", "fb_page_token"], "ig_user_id"),
         "threads": _status(["threads_user_id", "threads_token"], "threads_token"),
-        "x": _status(["x_api_key", "x_api_secret", "x_access_token", "x_access_secret"]),
+        "x": _status(["x_api_key", "x_api_secret", "x_access_token", "x_access_secret"],
+                     "x_access_token"),
     }
