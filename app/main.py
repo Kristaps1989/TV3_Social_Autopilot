@@ -523,13 +523,21 @@ def change_password(current: str = Form(...), password: str = Form(...),
 
 @app.get("/connect/facebook")
 def connect_facebook(request: Request):
+    from urllib.parse import quote
+
     session = get_session()
     try:
         state = credentials.new_state(session)
+        url = credentials.fb_auth_url(
+            f"{public_base(request)}/connect/facebook/callback", state)
+        return RedirectResponse(url, status_code=302)
+    except Exception as e:  # noqa: BLE001 — surface the reason in the UI
+        log.exception("facebook connect start failed")
+        return RedirectResponse(
+            f"/connect?error={quote(f'{type(e).__name__}: {str(e)[:180]}')}",
+            status_code=303)
     finally:
         session.close()
-    url = credentials.fb_auth_url(f"{public_base(request)}/connect/facebook/callback", state)
-    return RedirectResponse(url, status_code=302)
 
 
 @app.get("/connect/facebook/callback", response_class=HTMLResponse)
@@ -597,14 +605,21 @@ def connect_facebook_select(page_id: str = Form(...)):
 
 @app.get("/connect/threads")
 def connect_threads(request: Request):
+    from urllib.parse import quote
+
     session = get_session()
     try:
         state = credentials.new_state(session)
+        url = credentials.threads_auth_url(
+            f"{public_base(request)}/connect/threads/callback", state)
+        return RedirectResponse(url, status_code=302)
+    except Exception as e:  # noqa: BLE001
+        log.exception("threads connect start failed")
+        return RedirectResponse(
+            f"/connect?error={quote(f'{type(e).__name__}: {str(e)[:180]}')}",
+            status_code=303)
     finally:
         session.close()
-    url = credentials.threads_auth_url(
-        f"{public_base(request)}/connect/threads/callback", state)
-    return RedirectResponse(url, status_code=302)
 
 
 @app.get("/connect/threads/callback")
