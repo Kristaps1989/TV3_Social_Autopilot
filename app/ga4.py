@@ -73,7 +73,9 @@ def collect(session, days: int = 3) -> int:
             headers={"Authorization": f"Bearer {_token()}"},
             json={
                 "dateRanges": [{"startDate": f"{days}daysAgo", "endDate": "today"}],
-                "dimensions": [{"name": "sessionManualAdContent"}],
+                # GA4 requires filtered dimensions to be present in the request
+                "dimensions": [{"name": "sessionManualAdContent"},
+                               {"name": "sessionCampaignName"}],
                 "metrics": [{"name": "sessions"}, {"name": "screenPageViews"}],
                 "dimensionFilter": {"filter": {
                     "fieldName": "sessionCampaignName",
@@ -268,7 +270,7 @@ def top_content(days: int = 30, limit: int = 10) -> list[dict]:
         return []
     from app import config
 
-    url_sections = config.load_feeds().get("url_sections") or {}
+    url_sections = config.url_sections()
     for p in pages:
         p["section"] = _section_for_path(p["path"], url_sections)
     return pages[:limit]
@@ -287,7 +289,7 @@ def section_breakdown(days: int = 30) -> list[dict]:
     url_sections — no GA4 custom dimension needed), with a period delta."""
     from app import config
 
-    url_sections = config.load_feeds().get("url_sections") or {}
+    url_sections = config.url_sections()
     if not url_sections:
         return []
     cs, ce, ps, pe = _window(days)
@@ -408,7 +410,7 @@ def _section_filter(section: str) -> dict | None:
     exclusion: news = /zinas/ minus the segments of every other section."""
     from app import config
 
-    url_sections = config.load_feeds().get("url_sections") or {}
+    url_sections = config.url_sections()
     include = [seg for seg, sec in url_sections.items() if sec == section]
     if not include:
         return None
@@ -429,22 +431,36 @@ def _section_filter(section: str) -> dict | None:
 
 def _dim_report(prop: str, start: str, end: str, dimension: str,
                 metrics: list[str], dim_filter: dict | None, limit: int) -> list[dict]:
+    """One-dimension report. GA4 only allows filtering on requested
+    dimensions, so a pagePath (section) filter adds pagePath to the request
+    and the rows are re-aggregated by the asked-for dimension."""
+    dims = [{"name": dimension}]
+    if dim_filter:
+        dims.append({"name": "pagePath"})
     body: dict = {
         "dateRanges": [{"startDate": start, "endDate": end}],
-        "dimensions": [{"name": dimension}],
+        "dimensions": dims,
         "metrics": [{"name": m} for m in metrics],
         "orderBys": [{"metric": {"metricName": metrics[0]}, "desc": True}],
-        "limit": limit,
+        "limit": limit if not dim_filter else 100000,
     }
     if dim_filter:
         body["dimensionFilter"] = dim_filter
     data = _report(prop, body)
     if data is None:
         return []
-    return [{"name": r["dimensionValues"][0]["value"],
-             **{m: float(r["metricValues"][i]["value"] or 0)
-                for i, m in enumerate(metrics)}}
-            for r in data.get("rows") or []]
+    agg: dict[str, dict[str, float]] = {}
+    order: list[str] = []
+    for r in data.get("rows") or []:
+        name = r["dimensionValues"][0]["value"]
+        if name not in agg:
+            agg[name] = {m: 0.0 for m in metrics}
+            order.append(name)
+        for i, m in enumerate(metrics):
+            agg[name][m] += float(r["metricValues"][i]["value"] or 0)
+    rows = [{"name": n, **agg[n]} for n in order]
+    rows.sort(key=lambda r: -r[metrics[0]])
+    return rows[:limit]
 
 
 def _kpis(prop: str, p: dict, dim_filter: dict | None) -> dict:
@@ -452,10 +468,18 @@ def _kpis(prop: str, p: dict, dim_filter: dict | None) -> dict:
                "userEngagementDuration", "engagementRate"]
 
     def totals(start: str, end: str) -> dict[str, float] | None:
+        if dim_filter:
+            rows = _dim_report(prop, start, end, "pagePath", metrics,
+                               dim_filter, limit=100000)
+            if rows and rows[0].get("_error"):
+                return None
+            out = {m: sum(r[m] for r in rows) for m in metrics}
+            # engagementRate is a ratio — recompute from engaged duration proxy
+            n = len(rows) or 1
+            out["engagementRate"] = sum(r["engagementRate"] for r in rows) / n
+            return out
         body: dict = {"dateRanges": [{"startDate": start, "endDate": end}],
                       "metrics": [{"name": m} for m in metrics]}
-        if dim_filter:
-            body["dimensionFilter"] = dim_filter
         data = _report(prop, body)
         if data is None:
             return None
@@ -500,7 +524,7 @@ def _kpis(prop: str, p: dict, dim_filter: dict | None) -> dict:
 def _timeseries(prop: str, p: dict, dim_filter: dict | None) -> list[dict]:
     dim = "dateHour" if p["granularity"] == "hour" else "date"
     rows = _dim_report(prop, p["start"], p["end"], dim, ["sessions"],
-                       dim_filter, limit=400)
+                       dim_filter, limit=2000)
     rows.sort(key=lambda r: r["name"])
     out = []
     for r in rows:
@@ -511,23 +535,29 @@ def _timeseries(prop: str, p: dict, dim_filter: dict | None) -> list[dict]:
     return out
 
 
-def _authors(prop: str, p: dict, dim_filter: dict | None, limit: int = 12) -> list[dict] | None:
-    """Author breakdown via a GA4 custom dimension. Returns None when the
-    property has no such dimension registered (UI shows setup guidance)."""
+def _authors(prop: str, p: dict, dim_filter: dict | None,
+             limit: int = 12) -> tuple[list[dict] | None, str]:
+    """(rows, error) — author breakdown via a GA4 custom dimension. Runs
+    ONLY when the dimension name is configured in Konti; its failure never
+    leaks into the page-level error banner."""
+    global _last_error
     from app import credentials
 
-    dim = credentials.get("ga4_author_dimension") or "customEvent:author"
+    dim = credentials.get("ga4_author_dimension")
+    if not dim:
+        return None, ""
+    prev_err = _last_error
     rows = _dim_report(prop, p["start"], p["end"], dim,
                        ["screenPageViews", "sessions", "userEngagementDuration"],
                        dim_filter, limit)
-    if not rows and last_error():
-        return None
+    author_err = _last_error if not rows else ""
+    _last_error = prev_err
     out = [{"author": r["name"], "pageviews": r["screenPageViews"],
             "sessions": r["sessions"],
             "avg_engagement_s": (r["userEngagementDuration"] / r["screenPageViews"]
                                  if r["screenPageViews"] else 0)}
            for r in rows if r["name"] not in ("", "(not set)")]
-    return out
+    return (out or None), author_err
 
 
 def explore(session, period: str, section: str = "",
@@ -544,7 +574,7 @@ def explore(session, period: str, section: str = "",
         pages = _page_metrics_filtered(prop, p, dim_filter, limit=200)
         from app import config
 
-        url_sections = config.load_feeds().get("url_sections") or {}
+        url_sections = config.url_sections()
         for pg in pages:
             pg["section"] = _section_for_path(pg["path"], url_sections)
         return {
@@ -559,7 +589,7 @@ def explore(session, period: str, section: str = "",
                     prop, {**p, "start": p["prev_start"], "end": p["prev_end"]},
                     None, limit=200), url_sections)),
             "top_content": pages[:15],
-            "authors": _authors(prop, p, dim_filter),
+            "authors_result": _authors(prop, p, dim_filter),
             "countries": _dim_report(prop, p["start"], p["end"], "country",
                                      ["sessions"], dim_filter, 8),
             "cities": _dim_report(prop, p["start"], p["end"], "city",
@@ -571,7 +601,10 @@ def explore(session, period: str, section: str = "",
             "error": last_error(),
         }
 
-    return _cached(key, build)
+    out = _cached(key, build)
+    if "authors_result" in out:
+        out["authors"], out["author_error"] = out.pop("authors_result")
+    return out
 
 
 def _sections_from_pages(cur_pages: list[dict], prev_pages: list[dict],
@@ -659,3 +692,72 @@ def sparkline(series: list[dict], width: int = 860, height: int = 120) -> dict:
             "points": [{"x": x, "y": y, "label": s["label"], "value": s["value"]}
                        for (x, y), s in zip(pts, series)],
             "ticks": ticks}
+
+
+# --- Raksta detaļu skats ---------------------------------------------------
+
+def page_insight(path: str, period: str, date_from: str = "",
+                 date_to: str = "") -> dict:
+    """One article drill-down: KPIs, where its readers came from (channels +
+    referrers), what sessions landing on it read next, and in-article video
+    events (GA4 video_start/_progress/_complete when the player emits them)."""
+    if not configured():
+        return {"configured": False}
+    prop = property_id()
+    p = resolve_period(period, date_from, date_to)
+    exact = {"filter": {"fieldName": "pagePath",
+                        "stringFilter": {"matchType": "EXACT", "value": path}}}
+    landing = {"filter": {"fieldName": "landingPagePlusQueryString",
+                          "stringFilter": {"matchType": "BEGINS_WITH",
+                                           "value": path}}}
+    key = f"page:{p['start']}:{p['end']}:{path}"
+
+    def build() -> dict:
+        # totals: pagePath is both requested and filtered
+        totals_rows = _report(prop, {
+            "dateRanges": [{"startDate": p["start"], "endDate": p["end"]}],
+            "dimensions": [{"name": "pagePath"}, {"name": "pageTitle"}],
+            "metrics": [{"name": "screenPageViews"}, {"name": "sessions"},
+                        {"name": "userEngagementDuration"}],
+            "dimensionFilter": exact, "limit": 5}) or {}
+        rows = totals_rows.get("rows") or []
+        views = sum(float(r["metricValues"][0]["value"] or 0) for r in rows)
+        sessions_n = sum(float(r["metricValues"][1]["value"] or 0) for r in rows)
+        engagement = sum(float(r["metricValues"][2]["value"] or 0) for r in rows)
+        title = rows[0]["dimensionValues"][1]["value"] if rows else path
+
+        def two_dim(dim: str, flt: dict, limit: int = 12) -> list[dict]:
+            data = _report(prop, {
+                "dateRanges": [{"startDate": p["start"], "endDate": p["end"]}],
+                "dimensions": [{"name": dim},
+                               {"name": ("pagePath" if flt is exact
+                                         else "landingPagePlusQueryString")}],
+                "metrics": [{"name": "sessions"}],
+                "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
+                "dimensionFilter": flt, "limit": 5000}) or {}
+            agg: dict[str, float] = {}
+            for r in data.get("rows") or []:
+                name = r["dimensionValues"][0]["value"]
+                agg[name] = agg.get(name, 0.0) + float(r["metricValues"][0]["value"] or 0)
+            out = [{"name": n, "sessions": v} for n, v in agg.items()]
+            out.sort(key=lambda x: -x["sessions"])
+            return out[:limit]
+
+        next_reads = [r for r in two_dim("pagePath", landing, 14)
+                      if r["name"].rstrip("/") != path.rstrip("/")][:10]
+        events = two_dim("eventName", exact, 30)
+        video = [e for e in events
+                 if e["name"] in ("video_start", "video_progress", "video_complete")]
+        return {
+            "configured": True, "period": p, "path": path, "title": title,
+            "pageviews": views, "sessions": sessions_n,
+            "avg_engagement_s": engagement / views if views else 0,
+            "channels": two_dim("sessionDefaultChannelGroup", exact, 10),
+            "referrers": [r for r in two_dim("pageReferrer", exact, 14)
+                          if r["name"] not in ("", "(not set)")][:10],
+            "next_reads": next_reads,
+            "video_events": video,
+            "error": last_error(),
+        }
+
+    return _cached(key, build)

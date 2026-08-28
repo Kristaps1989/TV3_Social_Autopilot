@@ -89,6 +89,18 @@ def load_feeds() -> dict[str, Any]:
     return _load_yaml(_editable("feeds.yaml", RULES_DIR, DEFAULT_RULES_DIR))
 
 
+# CMS sadaļas no raksta URL ceļa. feeds.yaml url_sections pārraksta šo;
+# noklusējums nodrošina, ka sadaļu noteikšana un Statistikas filtrs strādā
+# arī ar vecu (nepapildinātu) konfigurācijas kopiju uz servera diska.
+DEFAULT_URL_SECTIONS = {"zinas": "news", "sports": "sport",
+                        "izklaide": "entertainment",
+                        "dzivesstils": "entertainment"}
+
+
+def url_sections() -> dict:
+    return load_feeds().get("url_sections") or DEFAULT_URL_SECTIONS
+
+
 def load_prompt(name: str) -> str:
     path = _editable(f"{name}.md", PROMPTS_DIR, DEFAULT_PROMPTS_DIR)
     return path.read_text(encoding="utf-8") if path.exists() else ""

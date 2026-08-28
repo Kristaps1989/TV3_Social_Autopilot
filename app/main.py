@@ -381,8 +381,7 @@ def stats(request: Request, period: str = "7d", section: str = "",
         channels = config.load_channels()
         summaries = [priors.channel_summary(session, ch) for ch in channels]
         d = ga4.explore(session, period, section, date_from, date_to)
-        sections_available = sorted(set(
-            (config.load_feeds().get("url_sections") or {}).values()))
+        sections_available = sorted(set(config.url_sections().values()))
         return templates.TemplateResponse(request, "stats.html", {
             "d": d,
             "spark": ga4.sparkline(d.get("timeseries") or []),
@@ -394,7 +393,26 @@ def stats(request: Request, period: str = "7d", section: str = "",
             "top": priors.top_posts(session, 10),
             "hooks": priors.hook_summary(session),
             "ga4_on": ga4.configured(),
-            "ga4_error": ga4.last_error(),
+            "ga4_error": d.get("error", ""),
+            "dry_run": runtime.is_dry_run(session),
+        })
+    finally:
+        session.close()
+
+
+@app.get("/stats/page", response_class=HTMLResponse)
+def stats_page(request: Request, path: str, period: str = "7d",
+               section: str = "", date_from: str = "", date_to: str = ""):
+    """Viena raksta auditorijas skats (no Lasītākā satura tabulas)."""
+    from app import ga4
+
+    d = ga4.page_insight(path, period, date_from, date_to)
+    session = get_session()
+    try:
+        return templates.TemplateResponse(request, "page_insight.html", {
+            "d": d, "path": path,
+            "back": f"/stats?period={period}&section={section}"
+                    f"&date_from={date_from}&date_to={date_to}",
             "dry_run": runtime.is_dry_run(session),
         })
     finally:

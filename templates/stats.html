@@ -186,15 +186,19 @@ td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
     <tr><th>Virsraksts</th><th>Sadaļa</th><th class="n">Skatījumi</th>
         <th class="n">Sesijas</th><th class="n">Vid. lasīšanas laiks</th></tr>
     {% for r in d.top_content %}
-    <tr><td class="copytext"><a href="https://tv3.lv{{ r.path }}" target="_blank" rel="noopener">
-          {{ (r.title or r.path)[:85] }}</a></td>
+    <tr><td class="copytext">
+          <a href="/stats/page?path={{ r.path | urlencode }}&period={{ sel_period }}&section={{ sel_section }}&date_from={{ sel_from }}&date_to={{ sel_to }}">
+          {{ (r.title or r.path)[:85] }}</a>
+          <a href="https://tv3.lv{{ r.path }}" target="_blank" rel="noopener" class="muted">↗</a></td>
         <td>{{ r.section }}</td><td class="n">{{ r.pageviews | num }}</td>
         <td class="n">{{ r.sessions | num }}</td>
         <td class="n">{{ r.avg_engagement_s | dur }}</td></tr>
     {% else %}<tr><td colspan="5" class="muted">Nav datu.</td></tr>{% endfor %}
   </table>
-  <p class="muted">Vid. lasīšanas laiks = iesaistes laiks / skatījumi. Zem ~0:30 ziņu
-  rakstam parasti nozīmē, ka virsraksts sola vairāk, nekā teksts dod.</p>
+  <p class="muted">Klikšķis uz virsraksta atver raksta auditorijas skatu (avoti,
+  ko lasīja tālāk, video); ↗ atver pašu rakstu. Vid. lasīšanas laiks = iesaistes
+  laiks / skatījumi — zem ~0:30 ziņu rakstam parasti nozīmē, ka virsraksts sola
+  vairāk, nekā teksts dod.</p>
 </div>
 
 <div class="card" style="margin-top:1rem">
@@ -210,6 +214,10 @@ td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
     {% endfor %}
   </table>
   {% else %}
+  {% if d.author_error %}
+  <div class="notice err">Autora dimensija neder: <code>{{ d.author_error }}</code> —
+  pārbaudi nosaukumu Konti → GA4 kartē.</div>
+  {% endif %}
   <p class="muted">Autoru griezumam GA4 īpašumā jābūt reģistrētai autora
   custom dimensijai (vietnei jāsūta autora vārds līdzi katram skatījumam —
   parasti caur dataLayer). Ja tv3.lv GA4 tāda jau ir, ieraksti tās API

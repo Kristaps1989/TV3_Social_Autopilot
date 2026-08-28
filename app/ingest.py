@@ -106,7 +106,7 @@ def normalize_json_item(item: dict, feed_name: str, hint: str, term_sections: di
     status = str(_first(item, "status", "social_status", "editor_status", default="can")).lower()
     if status not in STATUSES:
         status = "can"
-    url_sections = config.load_feeds().get("url_sections") or {}
+    url_sections = config.url_sections()
     if term_section([str(t) for t in term_ids], term_sections):
         section_src = "terms"
     elif url_section(url, url_sections):
@@ -162,12 +162,12 @@ def normalize_rss_entry(entry: Any, feed_name: str, hint: str, term_sections: di
         "published_at": published,
         "editor_status": "can",  # RSS carries no status; the feed URL already filters it
         "editor_timeframe": "",
-        "section": (url_section(url, config.load_feeds().get("url_sections") or {})
+        "section": (url_section(url, config.url_sections())
                     or hint or "news"),
         "feed_name": feed_name,
         "raw_json": {
             "_section_src": ("url" if url_section(
-                url, config.load_feeds().get("url_sections") or {}) else "hint"),
+                url, config.url_sections()) else "hint"),
             **({"_video_url": video_url} if video_url else {}),
         },
     }

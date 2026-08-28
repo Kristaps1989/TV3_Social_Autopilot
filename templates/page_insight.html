@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="{{ back }}">← Atpakaļ uz Statistiku</a></p>
+
+{% if not d.configured %}
+<div class="notice err">GA4 nav pieslēgts.</div>
+{% else %}
+{% if d.error %}<div class="notice err">GA4 API kļūda: <code>{{ d.error }}</code></div>{% endif %}
+
+<h1 style="max-width:70ch">{{ d.title }}</h1>
+<p class="muted">{{ d.period.label }} ·
+<a href="https://tv3.lv{{ d.path }}" target="_blank" rel="noopener">tv3.lv{{ d.path }}</a></p>
+
+<div class="kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.8rem;margin-bottom:1rem">
+  {% for lab, val in [('Skatījumi', d.pageviews | num), ('Sesijas', d.sessions | num),
+                      ('Vid. lasīšanas laiks', d.avg_engagement_s | dur)] %}
+  <div class="card"><div class="muted" style="font-size:.74rem">{{ lab }}</div>
+    <div style="font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums">{{ val }}</div></div>
+  {% endfor %}
+</div>
+
+<div class="cards">
+  <div class="card">
+    <h2>No kurienes nāca lasītāji</h2>
+    <table>
+      <tr><th>Kanāls</th><th style="text-align:right">Sesijas</th></tr>
+      {% for r in d.channels %}
+      <tr><td>{{ r.name }}</td><td style="text-align:right">{{ r.sessions | num }}</td></tr>
+      {% else %}<tr><td colspan="2" class="muted">Nav datu.</td></tr>{% endfor %}
+    </table>
+    <h3 style="margin-top:1rem">Konkrētās atsauces (referrer)</h3>
+    <table>
+      {% for r in d.referrers %}
+      <tr><td class="copytext" style="word-break:break-all">{{ r.name[:70] }}</td>
+          <td style="text-align:right">{{ r.sessions | num }}</td></tr>
+      {% else %}<tr><td class="muted">GA4 šim periodam atsauces nerāda.</td></tr>{% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Ko lasīja tālāk</h2>
+    <p class="muted">Lapas, ko atvēra sesijās, kuras portālā <b>ienāca caur šo
+    rakstu</b> (piem., no sociālajiem tīkliem) — recirkulācijas mērs.</p>
+    <table>
+      {% for r in d.next_reads %}
+      <tr><td class="copytext"><a href="https://tv3.lv{{ r.name }}" target="_blank"
+            rel="noopener">{{ r.name[:70] }}</a></td>
+          <td style="text-align:right">{{ r.sessions | num }}</td></tr>
+      {% else %}<tr><td class="muted">Sesijas, kas sākās ar šo rakstu, citas lapas
+      neatvēra (vai datu vēl nav).</td></tr>{% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Video skatīšanās rakstā</h2>
+    {% if d.video_events %}
+    <table>
+      <tr><th>Notikums</th><th style="text-align:right">Reizes</th></tr>
+      {% for e in d.video_events %}
+      <tr><td>{{ {'video_start': 'Sāka skatīties', 'video_progress': 'Skatījās tālāk',
+                  'video_complete': 'Noskatījās līdz beigām'}[e.name] }}</td>
+          <td style="text-align:right">{{ e.sessions | num }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="muted">Šim rakstam video notikumu nav. Ja rakstā IR video, tas nozīmē,
+    ka tv3.lv atskaņotājs nesūta GA4 <code>video_start / video_progress /
+    video_complete</code> notikumus (GA4 tos uztver automātiski tikai YouTube
+    iegulumiem) — lai mērītu pašu atskaņotāju, web komandai jāpievieno šie
+    notikumi dataLayer. Tas pats attieksies uz visiem rakstiem.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
