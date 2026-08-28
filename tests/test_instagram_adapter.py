@@ -31,7 +31,11 @@ def test_public_image_url(monkeypatch):
     assert public_image_url("https://cdn/img.png") == "https://cdn/img.png"
     assert public_image_url("/srv/data/cards/a.png") == "https://x.app/media/a.png"
     monkeypatch.delenv("PUBLIC_BASE_URL")
+    monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
     assert public_image_url("/srv/data/cards/a.png") == ""
+    # Railway public domain works without any configuration
+    monkeypatch.setenv("RAILWAY_PUBLIC_DOMAIN", "app.up.railway.app")
+    assert public_image_url("/srv/data/cards/a.png") == "https://app.up.railway.app/media/a.png"
 
 
 def test_photo_publish_uses_container_flow(monkeypatch):

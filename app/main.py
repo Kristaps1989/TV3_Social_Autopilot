@@ -452,7 +452,9 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "META_APP_ID": _env("META_APP_ID"),
             "META_APP_SECRET": _env("META_APP_SECRET", secret=True),
             "META_LOGIN_CONFIG_ID": _env("META_LOGIN_CONFIG_ID"),
-            "PUBLIC_BASE_URL": _env("PUBLIC_BASE_URL"),
+            "PUBLIC_BASE_URL": (_env("PUBLIC_BASE_URL")
+                                or (f"auto: https://{os.environ['RAILWAY_PUBLIC_DOMAIN']}"
+                                    if os.environ.get("RAILWAY_PUBLIC_DOMAIN") else "")),
             "ANTHROPIC_API_KEY": _env("ANTHROPIC_API_KEY", secret=True),
             "DATABASE_URL": (os.environ.get("DATABASE_URL", "").split("://")[0] + "://…"
                              if os.environ.get("DATABASE_URL") else ""),

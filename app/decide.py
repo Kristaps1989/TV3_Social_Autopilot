@@ -132,6 +132,9 @@ priekšroku vizuāliem stāstiem, tas ir spēcīgākais formāts. Ja video nav,
 reel ir 10-15 s slideshow (vāks → 2-3 punkti → CTA); tad aizpildi
 card_points (2-3 punkti). Ne biežāk kā ~2x dienā kanālā.
 
+Formātu mērķis dienā (kopumā, kur saturs tam der): ~1-2 card_carousel un
+~1-2 reel — neizvēlies visiem rakstiem photo tikai tāpēc, ka tas ir drošākais.
+
 Pieņem lēmumu ar record_decision. Ja raksts nav pietiekami interesants
 ('can' statuss ļauj izlaist), atzīmē publish=false ar īsu iemeslu latviski."""
 

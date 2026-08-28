@@ -24,6 +24,10 @@ def public_image_url(image: str) -> str:
     from pathlib import Path
 
     base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    if not base:
+        # Railway injects the app's public domain automatically
+        domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+        base = f"https://{domain}" if domain else ""
     return f"{base}/media/{Path(image).name}" if base else ""
 
 
