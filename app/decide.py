@@ -138,7 +138,8 @@ Nesenie ieraksti (neatkārto leņķus):
 Izmērītā veiktspēja (izmanto formāta un laika izvēlē):
 {performance_context(session, list(eligible))}
 
-Formāts card_carousel (ja kanāls to atbalsta): kartīšu galerija — izmanto
+Formāts card_carousel (ja kanāls to atbalsta): svaipojams kartīšu
+karuselis, kur KATRA kartīte ir klikšķināma saite uz rakstu — izmanto
 skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. card_points =
 2-4 KONKRĒTI FAKTI no raksta — tik, cik tiešām ir spēcīgu (labāk 2 trāpīgi
 nekā 4 uzpildīti); katrs ar skaitli, nosaukumu vai spilgtu detaļu, un

@@ -6,14 +6,18 @@ pages_read_engagement.
 """
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 
 import httpx
 
-from adapters.base import Adapter, PublishError, is_video
+from adapters.base import Adapter, PublishError, is_video, public_image_url
 from app import credentials
 
 GRAPH = "https://graph.facebook.com/v21.0"
+
+log = logging.getLogger(__name__)
 
 
 class FacebookPageAdapter(Adapter):
@@ -100,6 +104,40 @@ class FacebookPageAdapter(Adapter):
                          {"upload_phase": "finish", "video_id": video_id})
         return out.get("post_id") or video_id
 
+    def _publish_link_carousel(self, text: str, link: str,
+                               images: list[str]) -> str:
+        """Organic swipeable carousel: /feed with child_attachments — each
+        card is an image + the article link, the TVNET-style format. Needs
+        public image URLs (PUBLIC_BASE_URL). Returns '' when the carousel
+        can't be built or FB rejects it, so the caller can fall back to the
+        album collage instead of losing the post."""
+        # max 5 cards; keep the cover, trim middle points, never drop the
+        # closing CTA card (it is the last image the renderer produced)
+        picked = images if len(images) <= 5 else images[:4] + [images[-1]]
+        cards = []
+        for img in picked:
+            url = public_image_url(img)
+            if not url:
+                return ""
+            cards.append({"link": link, "picture": url})
+        if len(cards) < 2:
+            return ""
+        data = {
+            "message": text, "link": link,
+            "child_attachments": json.dumps(cards),
+            # keep OUR card order and OUR closing CTA card — no FB reshuffle,
+            # no auto-generated end card on top of ours
+            "multi_share_optimized": "false",
+            "multi_share_end_card": "false",
+        }
+        try:
+            return self._post(f"{self.page_id}/feed", data)["id"]
+        except PublishError as e:
+            if e.retryable:
+                raise
+            log.warning("FB link carousel rejected, falling back to album: %s", e)
+            return ""
+
     def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
         if fmt == "reel" and images:
             return self._publish_reel(images[0], text)
@@ -112,6 +150,11 @@ class FacebookPageAdapter(Adapter):
         if fmt == "photo" and images:
             out = self._upload_photo(images[0], {"caption": text})
             return out.get("post_id") or out.get("id", "")
+        if fmt == "card_carousel" and link and len(images) > 1:
+            post_id = self._publish_link_carousel(text, link, images)
+            if post_id:
+                return post_id
+            # no public URLs / FB rejected the carousel -> album collage below
         if fmt in ("photo_album", "card_carousel") and len(images) > 1:
             media_ids = []
             for img in images[:10]:

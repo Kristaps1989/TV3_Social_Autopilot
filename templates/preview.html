@@ -95,6 +95,12 @@ automātiski tiks publicēta kā <strong>pirmais komentārs</strong> — lasīt�
 viens pieskāriens abos gadījumos, un apraksts ar saiti ir tas, ko var
 pastiprināt maksas kampaņā.</p>
 {% endif %}
+{% if post.format == 'card_carousel' and platform == 'facebook_page' %}
+<p class="muted" style="max-width:520px">Kartītes publicējas kā
+<strong>svaipojams karuselis</strong> (child_attachments) — katra kartīte ir
+klikšķināma saite uz rakstu. Ja Facebook karuseli noraida vai attēliem nav
+publiskas adreses, sistēma automātiski atkāpjas uz foto albumu.</p>
+{% endif %}
 {% if post.format == 'story' %}
 <p class="muted" style="max-width:520px">{% if media_is_video %}Video stāsts (24 h) —
 raksta klips ar tv3.lv CTA beigu kadru.{% else %}Stāsts (24 h).{% endif %}
