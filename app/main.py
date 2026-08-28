@@ -154,8 +154,32 @@ def to_local(dt):
         ZoneInfo(config.TIMEZONE)).strftime("%d.%m. %H:%M")
 
 
+def fmt_num(v):
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return v
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 10_000:
+        return f"{n / 1000:.0f}k"
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return f"{n:.0f}"
+
+
+def fmt_dur(seconds):
+    try:
+        s = int(float(seconds))
+    except (TypeError, ValueError):
+        return "—"
+    return f"{s // 60}:{s % 60:02d}"
+
+
 templates.env.filters["local"] = to_local
 templates.env.filters["basename"] = lambda p: Path(str(p)).name
+templates.env.filters["num"] = fmt_num
+templates.env.filters["dur"] = fmt_dur
 
 
 @app.get("/health")
@@ -358,6 +382,20 @@ def stats(request: Request):
             "top": priors.top_posts(session, 10),
             "hooks": priors.hook_summary(session),
             "ga4_on": ga4.configured(),
+            "dry_run": runtime.is_dry_run(session),
+        })
+    finally:
+        session.close()
+
+
+@app.get("/portal", response_class=HTMLResponse)
+def portal(request: Request):
+    """Site-wide GA4 dashboard: the whole tv3.lv property (not just
+    autopilot posts) for editorial/strategic decisions."""
+    session = get_session()
+    try:
+        return templates.TemplateResponse(request, "portal.html", {
+            "d": ga4.dashboard(session),
             "dry_run": runtime.is_dry_run(session),
         })
     finally:
