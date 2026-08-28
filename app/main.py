@@ -400,6 +400,22 @@ def stats(request: Request, period: str = "7d", section: str = "",
         session.close()
 
 
+@app.get("/stats/live", response_class=HTMLResponse)
+def stats_live(request: Request):
+    """Tiešraide: kas notiek portālā tieši tagad (GA4 Realtime API)."""
+    from app import ga4
+
+    session = get_session()
+    try:
+        d = ga4.realtime()
+        return templates.TemplateResponse(request, "live.html", {
+            "d": d, "spark": ga4.sparkline(d.get("series") or [], width=860, height=90),
+            "dry_run": runtime.is_dry_run(session),
+        })
+    finally:
+        session.close()
+
+
 @app.get("/stats/page", response_class=HTMLResponse)
 def stats_page(request: Request, path: str, period: str = "7d",
                section: str = "", date_from: str = "", date_to: str = ""):

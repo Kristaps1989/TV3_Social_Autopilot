@@ -761,3 +761,77 @@ def page_insight(path: str, period: str, date_from: str = "",
         }
 
     return _cached(key, build)
+
+
+# --- Tiešraide (Chartbeat-stila reāllaika skats) ---------------------------
+#
+# GA4 Realtime API dod pēdējo 30 min datus: aktīvie lietotāji, minūšu līkne,
+# lapas (pēc virsraksta), ierīces, valstis. Avotu/kanālu griezumu realtime
+# API nedod — to rāda periodu skati.
+
+_rt_cache: dict[str, tuple[float, dict]] = {}
+RT_TTL = 30.0
+
+
+def _rt_report(prop: str, body: dict) -> dict | None:
+    global _last_error
+    try:
+        resp = httpx.post(
+            "https://analyticsdata.googleapis.com/v1beta/"
+            f"properties/{prop}:runRealtimeReport",
+            headers={"Authorization": f"Bearer {_token()}"}, json=body, timeout=30)
+        if resp.status_code != 200:
+            try:
+                msg = resp.json().get("error", {}).get("message", "")
+            except ValueError:
+                msg = ""
+            _last_error = f"HTTP {resp.status_code}: {msg or resp.text[:200]}"
+            log.warning("GA4 realtime failed: %s", _last_error)
+            return None
+        _last_error = ""
+        return resp.json()
+    except Exception as e:  # noqa: BLE001
+        _last_error = f"{type(e).__name__}: {str(e)[:250]}"
+        return None
+
+
+def realtime() -> dict:
+    """Active-now snapshot for the Tiešraide page (cached 30 s)."""
+    if not configured():
+        return {"configured": False}
+    prop = property_id()
+    import time
+
+    hit = _rt_cache.get("rt")
+    if hit and time.time() - hit[0] < RT_TTL:
+        return hit[1]
+
+    def rt_dim(dim: str, metric: str = "activeUsers", limit: int = 12) -> list[dict]:
+        data = _rt_report(prop, {
+            "dimensions": [{"name": dim}],
+            "metrics": [{"name": metric}],
+            "orderBys": [{"metric": {"metricName": metric}, "desc": True}],
+            "limit": limit}) or {}
+        return [{"name": r["dimensionValues"][0]["value"],
+                 "value": float(r["metricValues"][0]["value"] or 0)}
+                for r in data.get("rows") or []]
+
+    totals = _rt_report(prop, {"metrics": [{"name": "activeUsers"},
+                                           {"name": "screenPageViews"}]}) or {}
+    trow = (totals.get("rows") or [{}])[0].get("metricValues", [])
+    minutes = {r["name"]: r["value"] for r in rt_dim("minutesAgo", limit=30)}
+    series = [{"label": f"-{m}′" if m else "tagad",
+               "value": minutes.get(f"{m:02d}", 0.0)}
+              for m in range(29, -1, -1)]
+    out = {
+        "configured": True,
+        "active_now": float(trow[0]["value"]) if trow else 0.0,
+        "pageviews_30m": float(trow[1]["value"]) if len(trow) > 1 else 0.0,
+        "series": series,
+        "pages": rt_dim("unifiedScreenName", "screenPageViews", 12),
+        "devices": rt_dim("deviceCategory", limit=4),
+        "countries": rt_dim("country", limit=6),
+        "error": last_error(),
+    }
+    _rt_cache["rt"] = (time.time(), out)
+    return out

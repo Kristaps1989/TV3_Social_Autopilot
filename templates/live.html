@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<meta http-equiv="refresh" content="60">
+<p><a href="/stats">← Statistika</a></p>
+<h1>Tiešraide — kas notiek tagad</h1>
+<p class="muted">GA4 reāllaika dati (pēdējās 30 minūtes). Lapa atjaunojas ik minūti;
+skaitļi kavējas ~1–2 min. Avotu griezums reāllaikā GA4 nav pieejams — to rāda periodu skati.</p>
+
+{% if not d.configured %}
+<div class="notice err">GA4 nav pieslēgts — savieno Konti sadaļā.</div>
+{% else %}
+{% if d.error %}<div class="notice err">GA4 API kļūda: <code>{{ d.error }}</code></div>{% endif %}
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem;margin-bottom:1rem">
+  <div class="card"><div class="muted" style="font-size:.74rem">Aktīvie lasītāji šobrīd</div>
+    <div style="font-size:2.4rem;font-weight:800;font-variant-numeric:tabular-nums;color:#7a1fa2">
+      {{ d.active_now | num }}</div></div>
+  <div class="card"><div class="muted" style="font-size:.74rem">Skatījumi pēdējās 30 min</div>
+    <div style="font-size:2.4rem;font-weight:800;font-variant-numeric:tabular-nums">
+      {{ d.pageviews_30m | num }}</div></div>
+</div>
+
+{% if spark and spark.line %}
+<div class="card">
+  <h2>Aktivitāte pa minūtēm</h2>
+  <div style="overflow-x:auto">
+  <svg viewBox="0 0 {{ spark.width + 70 }} {{ spark.height + 26 }}" style="width:100%;max-width:960px">
+    <polygon points="{{ spark.area }}" fill="#7a1fa2" opacity="0.09"/>
+    <polyline points="{{ spark.line }}" fill="none" stroke="#7a1fa2" stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round"/>
+    {% for pt in spark.points %}
+    <circle cx="{{ pt.x }}" cy="{{ pt.y }}" r="6" fill="transparent">
+      <title>{{ pt.label }}: {{ pt.value | num }}</title></circle>
+    {% endfor %}
+    <circle cx="{{ spark.last.x }}" cy="{{ spark.last.y }}" r="4" fill="#7a1fa2"/>
+    <text x="4" y="{{ spark.height + 18 }}" font-size="11" fill="var(--muted)">pirms 30 min</text>
+    <text x="{{ spark.width - 4 }}" y="{{ spark.height + 18 }}" font-size="11"
+          fill="var(--muted)" text-anchor="end">tagad</text>
+  </svg>
+  </div>
+</div>
+{% endif %}
+
+<div class="cards" style="margin-top:1rem">
+  <div class="card" style="grid-column:span 2;min-width:340px">
+    <h2>Ko šobrīd lasa</h2>
+    <table>
+      <tr><th>Lapa</th><th style="text-align:right">Skatījumi (30 min)</th></tr>
+      {% for r in d.pages %}
+      <tr><td class="copytext">{{ r.name[:95] }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ r.value | num }}</td></tr>
+      {% else %}<tr><td colspan="2" class="muted">Nav datu.</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="card">
+    <h2>Ierīces un valstis</h2>
+    <table>
+      <tr><th>Ierīce</th><th style="text-align:right">Lasītāji</th></tr>
+      {% for r in d.devices %}
+      <tr><td>{{ r.name }}</td><td style="text-align:right">{{ r.value | num }}</td></tr>{% endfor %}
+    </table>
+    <table style="margin-top:.8rem">
+      <tr><th>Valsts</th><th style="text-align:right">Lasītāji</th></tr>
+      {% for r in d.countries %}
+      <tr><td>{{ r.name }}</td><td style="text-align:right">{{ r.value | num }}</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

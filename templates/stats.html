@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Statistika</h1>
+<h1 style="display:flex;align-items:center;gap:1rem">Statistika
+  <a href="/stats/live" class="btn" style="font-size:.8rem;text-decoration:none">● Tiešraide</a></h1>
 
 {% if not d.configured %}
 <div class="notice err">GA4 nav pieslēgts — savieno to sadaļā <a href="/connect">Konti</a>,
