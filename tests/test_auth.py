@@ -225,6 +225,31 @@ def test_inactive_channels_hidden(monkeypatch):
     assert set(channels) == {"fb", "on"}
 
 
+def test_facebook_manual_token_connect(client, session, monkeypatch):
+    from app import credentials as creds_mod
+
+    for var in ("FB_PAGE_ID", "FB_PAGE_ACCESS_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"})
+
+    monkeypatch.setattr(creds_mod, "fb_extend_user_token", lambda t: "long-" + t)
+    monkeypatch.setattr(creds_mod, "fb_list_pages", lambda t: [
+        {"id": "520279391805002", "name": "Skatieslv", "access_token": "page-tok"}])
+    r = client.post("/connect/facebook/token", data={"user_token": "EAABshort"},
+                    follow_redirects=False)
+    assert "connected" in r.headers["location"]
+    assert credentials.get("fb_page_id", session) == "520279391805002"
+    assert credentials.get("fb_page_token", session) == "page-tok"
+
+    # several pages -> pick-page screen backed by the stored user token
+    monkeypatch.setattr(creds_mod, "fb_list_pages", lambda t: [
+        {"id": "1", "name": "A", "access_token": "t1"},
+        {"id": "2", "name": "B", "access_token": "t2"}])
+    r = client.post("/connect/facebook/token", data={"user_token": "EAABshort"})
+    assert r.status_code == 200 and "A" in r.text and "B" in r.text
+
+
 def test_ga4_settings_saved_via_ui(client, session, monkeypatch):
     import json
 

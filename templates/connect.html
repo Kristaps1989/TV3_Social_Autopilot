@@ -74,6 +74,23 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <button class="danger">Atvienot</button>
     </form>
     {% endif %}
+    <details style="margin-top:.6rem">
+      <summary class="muted" style="cursor:pointer">Rezerves ceļš: manuāls token
+      (ja Facebook logs rāda “Sorry, something went wrong”)</summary>
+      <p class="muted" style="margin-top:.4rem">
+        Atver <b>developers.facebook.com/tools/explorer</b> → izvēlies šo lietotni →
+        “User Token” → pie Permissions pievieno <code>pages_show_list</code>,
+        <code>pages_manage_posts</code>, <code>pages_read_engagement</code>,
+        <code>pages_manage_engagement</code>, <code>business_management</code> →
+        “Generate Access Token” (apstiprini pieteikšanos) → nokopē token un ielīmē
+        šeit. Sistēma to apmainīs pret pastāvīgu lapas atslēgu — rezultāts tieši
+        tāds pats kā ar zilo pogu.
+      </p>
+      <form method="post" action="/connect/facebook/token">
+        <input type="password" name="user_token" placeholder="EAAB..." autocomplete="off" required>
+        <div style="margin-top:.5rem"><button class="primary">Savienot ar token</button></div>
+      </form>
+    </details>
     <p class="muted">Meta lietotnē (developers.facebook.com) jābūt pievienotam šim
     Redirect URI: <code>{{ redirect_fb }}</code>.
     Alternatīva bez OAuth: System User token → <code>FB_PAGE_ID</code> /

@@ -732,6 +732,42 @@ def connect_facebook_callback(request: Request, code: str = "", state: str = "",
         session.close()
 
 
+@app.post("/connect/facebook/token")
+def connect_facebook_token(request: Request, user_token: str = Form(...)):
+    """Fallback when Meta's OAuth dialog is broken: paste a user token from
+    Graph API Explorer; it is extended to long-lived and the page connection
+    is derived exactly like in the OAuth callback."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        token = user_token.strip()
+        if not token:
+            return RedirectResponse("/connect?error=Ievadi+user+token", status_code=303)
+        try:
+            token = credentials.fb_extend_user_token(token)
+            pages = credentials.fb_list_pages(token)
+        except Exception as e:  # noqa: BLE001
+            return RedirectResponse(f"/connect?error={quote(str(e)[:200])}",
+                                    status_code=303)
+        if not pages:
+            return RedirectResponse(
+                "/connect?error=Token+nedod+piekļuvi+nevienai+lapai+—+"
+                "pārbaudi+pages_show_list+atļauju", status_code=303)
+        if len(pages) == 1:
+            p = pages[0]
+            credentials.put(session, "fb_page_id", p["id"], label=p.get("name", ""))
+            credentials.put(session, "fb_page_token", p["access_token"],
+                            label=p.get("name", ""))
+            return RedirectResponse("/connect?connected=facebook", status_code=303)
+        credentials.put(session, "fb_user_token", token,
+                        expires_at=utcnow() + timedelta(minutes=15))
+        return templates.TemplateResponse(request, "connect_pick_page.html",
+                                          {"pages": pages})
+    finally:
+        session.close()
+
+
 @app.post("/connect/facebook/select")
 def connect_facebook_select(page_id: str = Form(...)):
     from urllib.parse import quote

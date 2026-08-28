@@ -127,6 +127,22 @@ def fb_exchange_code(code: str, redirect_uri: str) -> str:
     return r.json()["access_token"]
 
 
+def fb_extend_user_token(token: str) -> str:
+    """Short-lived user token (e.g. from Graph API Explorer) -> long-lived.
+    Returns the input unchanged when the exchange is not possible, so page
+    tokens can still be derived (they just expire with the user token)."""
+    app_id, app_secret = fb_app()
+    if not (app_id and app_secret):
+        return token
+    r = httpx.get(f"{GRAPH}/oauth/access_token", timeout=30, params={
+        "grant_type": "fb_exchange_token", "client_id": app_id,
+        "client_secret": app_secret, "fb_exchange_token": token})
+    if r.status_code != 200:
+        log.warning("user token extension failed: %s", r.text[:200])
+        return token
+    return r.json().get("access_token", token)
+
+
 def fb_list_pages(user_token: str) -> list[dict]:
     """Pages this user manages; each entry carries its own page token.
     Page tokens derived from a long-lived user token do not expire."""
