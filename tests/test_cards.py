@@ -168,3 +168,23 @@ def test_cards_dir_is_absolute():
     from app import cards
 
     assert cards.CARDS_DIR.is_absolute()
+
+
+def test_prebranded_cover_and_photo_point_backgrounds():
+    from app import cards
+
+    html_doc = cards.build_cards_html(
+        "Virsraksts", "entertainment", "#CEĻOJUMI",
+        ["Fakts ar 59 eiro", "Otrs fakts"],
+        "https://tv3cdn.lv/photopost/x.jpg", "Jautājums?",
+        cover_title=False, point_bg="https://tv3cdn.lv/uploads/foto.jpg")
+    assert "photopost/x.jpg" in html_doc          # vāks = pati grafika
+    assert '<div class="cover-txt">' not in html_doc  # bez dubulta virsraksta
+    assert "uploads/foto.jpg" in html_doc         # punktu kartēm foto fons
+    assert '<div class="pshade">' in html_doc     # ar aptumšojumu tekstam
+
+    # noklusējums paliek nemainīgs: vāks ar plāksni, punkti uz krāsas
+    html_doc2 = cards.build_cards_html(
+        "Virsraksts", "news", "#TAGS", ["Punkts"], "https://x/foto.jpg", "J?")
+    assert '<div class="cover-txt">' in html_doc2
+    assert '<div class="pshade">' not in html_doc2

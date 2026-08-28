@@ -121,7 +121,12 @@ SHOW_SPONSOR = os.environ.get("CARD_SPONSOR", "").lower() == "true"
 
 def build_cards_html(title: str, section: str, tag: str, points: list[str],
                      image_url: str, end_question: str,
-                     show_sponsor: bool | None = None) -> str:
+                     show_sponsor: bool | None = None,
+                     cover_title: bool = True, point_bg: str = "") -> str:
+    """cover_title=False: the cover image is a pre-branded graphic that
+    already carries the headline — show it full-bleed without our plate.
+    point_bg: photo used as a dimmed background on the content cards so the
+    gallery is visual, not flat color blocks."""
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     dark = _shade(color, -0.18)
@@ -146,27 +151,37 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
                 if image_url else f"background:{color};")
     # the darkening gradient exists to keep the headline readable over a
     # photo; on a flat color card it just muddies the brand color
-    shade = '<div class="shade"></div>' if image_url else ""
+    shade = '<div class="shade"></div>' if image_url and cover_title else ""
+    cover_txt = (f"""<div class="cover-txt">
+          <div class="kicker" style="background:{dark}">{esc(style['kicker'])}</div>
+          <h1>{esc(title)}</h1>
+        </div>""" if cover_title else "")
     cards = [f"""
     <div class="card">
       <div class="art" style="{cover_bg}">
         {shade}{swoosh}
         <div class="page">1/{total} →</div>
-        <div class="cover-txt">
-          <div class="kicker" style="background:{dark}">{esc(style['kicker'])}</div>
-          <h1>{esc(title)}</h1>
-        </div>
+        {cover_txt}
       </div>{bar(1)}
     </div>"""]
 
+    if point_bg:
+        point_style = (f'background:url({html.escape(point_bg, quote=True)}) '
+                       f'center/cover, {color};')
+        point_shade = '<div class="pshade"></div>'
+        num_color = "rgba(255,255,255,.45)"
+    else:
+        point_style = f"background:{color};"
+        point_shade = ""
+        num_color = dark
     for n, point in enumerate(points, start=1):
         cards.append(f"""
     <div class="card">
-      <div class="art" style="background:{color}">
-        {swoosh}
+      <div class="art" style="{point_style}">
+        {point_shade}{swoosh}
         <div class="page">{n + 1}/{total} →</div>
         <div class="point">
-          <div class="num" style="color:{dark}">{n}</div>
+          <div class="num" style="color:{num_color}">{n}</div>
           <p>{esc(point)}</p>
         </div>
         <div class="dots">{''.join('<i class="on"></i>' if i == n else '<i></i>'
@@ -189,6 +204,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
 .card {{ width:1080px; height:1080px; overflow:hidden; display:flex;
         flex-direction:column; background:#fff; }}
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
+.pshade {{ position:absolute; inset:0;
+  background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(10,5,15,.92) 18%, rgba(10,5,15,.1) 55%); }}
 .sw {{ position:absolute; top:0; right:0; width:100%; height:100%; }}
@@ -319,6 +336,8 @@ def build_story_html(title: str, section: str, image_url: str,
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden; {bg} }}
+.pshade {{ position:absolute; inset:0;
+  background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(8,4,12,.88) 22%, rgba(8,4,12,0) 55%); }}
 .brand {{ position:absolute; top:200px; right:48px; background:#fff;
@@ -378,13 +397,16 @@ def render_story(title: str, section: str, image_url: str,
 
 def render_cards(title: str, section: str, tag: str, points: list[str],
                  image_url: str, end_question: str,
-                 out_dir: Path | None = None) -> list[str]:
+                 out_dir: Path | None = None,
+                 cover_title: bool = True, point_bg: str = "") -> list[str]:
     """Render carousel cards to PNG files; returns local file paths."""
     from playwright.sync_api import sync_playwright
 
     out_dir = Path(out_dir or CARDS_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    html_doc = build_cards_html(title, section, tag, points, image_url, end_question)
+    html_doc = build_cards_html(title, section, tag, points, image_url,
+                                end_question, cover_title=cover_title,
+                                point_bg=point_bg)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_{token}.html"
     tmp.write_text(html_doc, encoding="utf-8")

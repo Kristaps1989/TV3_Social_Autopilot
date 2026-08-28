@@ -306,18 +306,23 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     ai_fmt = ch_dec.get("format")
     if ai_fmt == "card_carousel" and "card_carousel" in (cfg.get("formats") or []):
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
-                  if isinstance(p, str) and p.strip()][:5]
-        if len(points) >= 3 and cards.renderer_available():
+                  if isinstance(p, str) and p.strip()][:4]
+        if len(points) >= 2 and cards.renderer_available():
             tag = "#" + (article.labels[0].upper().replace(" ", "")
                          if article.labels else article.section.upper())
             image = photo_base_image(article)
-            if prebranded(image):
-                image = ""  # flat section-color cover instead of doubled text
+            # a pre-branded graphic becomes the cover as-is (its headline IS
+            # the cover); a clean photo gets our title plate on top
+            cover_title = not prebranded(image)
+            point_bg = next((img for img in (article.images or [])
+                             if img and not prebranded(img)), "")
             question = (ch_dec.get("card_end_question")
                         or "Uzzini visu stāstu tv3.lv").strip()
             try:
                 media = cards.render_cards(article.title, article.section, tag,
-                                           points, image, question)
+                                           points, image, question,
+                                           cover_title=cover_title,
+                                           point_bg=point_bg)
                 return "card_carousel", media
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("card render failed for article %s: %s", article.id, e)

@@ -56,9 +56,11 @@ DECISION_TOOL = {
                         "card_points": {
                             "type": "array", "items": {"type": "string"},
                             "maxItems": 5,
-                            "description": "For card_carousel (3-5) un reel (2-3): "
-                                           "īsi, intriģējoši punkti no raksta. "
-                                           "Ieinteresē, bet NEATKLĀJ atrisinājumu.",
+                            "description": "For card_carousel (2-4) un reel (2-3): "
+                                           "KONKRĒTI FAKTI no raksta — katrs ar "
+                                           "skaitli, vārdu vai detaļu, pašpietiekams "
+                                           "un vērtīgs. Tik, cik rakstā tiešām ir "
+                                           "spēcīgu faktu — NE uzpildi, NE miglaini āķīši.",
                         },
                         "card_end_question": {
                             "type": "string",
@@ -137,9 +139,15 @@ Izmērītā veiktspēja (izmanto formāta un laika izvēlē):
 {performance_context(session, list(eligible))}
 
 Formāts card_carousel (ja kanāls to atbalsta): kartīšu galerija — izmanto
-skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. Tad aizpildi
-card_points (3-5 īsi punkti, kas ieintriģē, bet neatklāj atrisinājumu) un
-card_end_question. Ātrām īsziņām labāks parasts saites ieraksts.
+skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. card_points =
+2-4 KONKRĒTI FAKTI no raksta — tik, cik tiešām ir spēcīgu (labāk 2 trāpīgi
+nekā 4 uzpildīti); katrs ar skaitli, nosaukumu vai spilgtu detaļu, un
+katrs vērtīgs pats par sevi. Piemērs labam punktam: "Diena
+Bukarestē maksā 59 eiro — Parīzē tā pati programma maksā 180". Piemērs
+sliktam (NELIETO): "Kāpēc cenas tik krasi atšķiras". Drīksti atklāt
+būtību — vērtība dzen dalīšanos; card_end_question ved uz pilno rakstu ar
+to niansi, kas kartītēs palika neatbildēta. Ātrām īsziņām labāks parasts
+saites/foto ieraksts.
 
 Formāts reel (ja kanāls to atbalsta): vertikāls video ar CTA beigu kadru
 "lasi tv3.lv". Ja rakstam IR videoklips, reel izmanto īsto video — dod tam
@@ -154,6 +162,10 @@ Satura izmantošana: lēmums vienmēr ir tavs (redaktora statuss ir signāls,
 ne pavēle), bet noklusējums ir PUBLICĒT — nepublicēts raksts ir izniekots
 redakcijas darbs. publish=false lieto tikai tiešām nederīgam saturam
 (dublikāts, servisa paziņojums, tukša ziņa) un vienmēr ar konkrētu iemeslu.
+
+Valoda: nevainojama latviešu pareizrakstība visos tekstos un card_points —
+pareizas galotnes, locījumi un garumzīmes; pirms atbildes pārlasi katru
+teikumu. Kļūdains teksts ziņu zīmolam nav pieļaujams.
 
 Āķu A/B: katram kanālam norādi hook_type un vienam rakstam uz dažādām
 platformām apzināti izmanto dažādus āķu stilus — sistēma mēra, kurš stils

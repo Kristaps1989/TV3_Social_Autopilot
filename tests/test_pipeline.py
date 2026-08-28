@@ -182,3 +182,35 @@ def test_asap_ignores_ai_preferred_hour(session, monkeypatch):
     assert p is not None
     # asap: iet ārā tūlīt, nevis gaida AI ieteikto 12:00
     assert p.scheduled_at - utcnow() < timedelta(minutes=30)
+
+
+def test_carousel_uses_prebranded_cover_and_photo_points(session, monkeypatch):
+    from app import cards as cards_mod
+    from app import pipeline
+    from app.models import Article
+
+    captured = {}
+
+    def fake_render(title, section, tag, points, image, question,
+                    out_dir=None, cover_title=True, point_bg=""):
+        captured.update(image=image, cover_title=cover_title, point_bg=point_bg)
+        return ["data/cards/c1.png", "data/cards/c2.png"]
+
+    monkeypatch.setattr(cards_mod, "render_cards", fake_render)
+    monkeypatch.setattr(cards_mod, "renderer_available", lambda: True)
+    a = Article(guid="cc-1", url="u", canonical_url="u", title="T", section="news",
+                images=["https://tv3cdn.lv/photopost/graf.jpg",
+                        "https://tv3cdn.lv/uploads/tirs-foto.jpg"],
+                raw_json={"_img_dims": {"https://tv3cdn.lv/photopost/graf.jpg": [1080, 1350],
+                                        "https://tv3cdn.lv/uploads/tirs-foto.jpg": [1200, 630]}})
+    session.add(a)
+    session.flush()
+    cfg = {"formats": ["photo", "card_carousel"], "platform": "facebook_page"}
+    fmt, media = pipeline.resolve_format(session, "fb", cfg, a, {
+        "format": "card_carousel",
+        "card_points": ["Fakts 1 ar 59 eiro", "Fakts 2", "Fakts 3"]})
+    assert fmt == "card_carousel"
+    # photo_prefer_landscape izvēlas tīro foto par vāku -> plāksne paliek
+    assert captured["image"] == "https://tv3cdn.lv/uploads/tirs-foto.jpg"
+    assert captured["cover_title"] is True
+    assert captured["point_bg"] == "https://tv3cdn.lv/uploads/tirs-foto.jpg"
