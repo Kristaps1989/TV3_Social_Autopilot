@@ -107,8 +107,10 @@ def fb_auth_url(redirect_uri: str, state: str) -> str:
     config_id = get("meta_login_config_id")
     if config_id:
         return f"{base}&config_id={config_id}"
+    # pages_manage_engagement (pirmais komentārs) prasa līdzi
+    # pages_read_user_content — bez pāra Meta dialogs krīt ar "Invalid Scopes"
     scope = ("pages_show_list,pages_manage_posts,pages_read_engagement,"
-             "pages_manage_engagement,business_management")
+             "pages_manage_engagement,pages_read_user_content,business_management")
     return f"{base}&scope={scope}"
 
 
