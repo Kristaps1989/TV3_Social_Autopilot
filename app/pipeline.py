@@ -17,7 +17,7 @@ from app.decide import decide
 from app.formats import choose_format
 from app.models import Article, Evaluation, Post, get_setting, utcnow
 from app.rules_engine import evaluate_all
-from app.slots import find_slot
+from app.slots import plan_slot
 from app import runtime
 
 log = logging.getLogger(__name__)
@@ -47,6 +47,8 @@ def run_decisions(session, limit: int = 20) -> int:
     created = 0
 
     for article in articles:
+        if retry_pending(article, now):
+            continue  # queue was full: waiting out the backoff before retrying
         verdicts = evaluate_all(article, now)
         for channel, verdict in verdicts.items():
             session.add(Evaluation(article_id=article.id, channel=channel,
@@ -58,6 +60,7 @@ def run_decisions(session, limit: int = 20) -> int:
 
         decision = decide(article, verdicts, session)
         maybe_correct_section(article, decision)
+        scheduled_here = 0
 
         if not decision.get("publish"):
             for channel, verdict in verdicts.items():
@@ -107,24 +110,24 @@ def run_decisions(session, limit: int = 20) -> int:
                     candidate += timedelta(hours=1)
 
             score = float(article.ai_score or 0)
-            slot = find_slot(session, channel, cfg, verdict,
-                             article.section, fmt, article.title, now, preferred,
-                             score=score)
+            slot, why = plan_slot(session, channel, cfg, verdict,
+                                  article.section, fmt, article.title, now, preferred,
+                                  score=score)
             late = False
             if slot is None and verdict.latest is not None:
                 # queue was full inside the status window — a later slot still
                 # beats dropping content the AI decided to publish
                 import dataclasses
 
-                slot = find_slot(session, channel, cfg,
-                                 dataclasses.replace(verdict, latest=None),
-                                 article.section, fmt, article.title, now, preferred,
-                                 score=score)
+                slot, why = plan_slot(session, channel, cfg,
+                                      dataclasses.replace(verdict, latest=None),
+                                      article.section, fmt, article.title, now,
+                                      preferred, score=score)
                 late = slot is not None
             if slot is None:
                 session.add(Evaluation(article_id=article.id, channel=channel,
                                        outcome="blocked",
-                                       reason="no valid slot (cadence/diversity/similarity)"))
+                                       reason=f"nav derīga laika: {why}"))
                 continue
 
             idx = ch_dec.get("image_index") or 0
@@ -161,8 +164,47 @@ def run_decisions(session, limit: int = 20) -> int:
                                           + (" (vēlāk — rinda bija pilna)" if late else "")
                                           + (f" (fixes: {', '.join(fixes)})" if fixes else "")))
             created += 1
+            scheduled_here += 1
+        if scheduled_here == 0:
+            requeue_for_retry(article, now)
         session.commit()
     return created
+
+
+# The queue can be genuinely full when an article is decided. Dropping it
+# there wastes editorial work, so such articles are re-decided on later
+# cycles until they land — bounded, because freshness rules eventually
+# block them anyway.
+MAX_DECISION_RETRIES = 8
+RETRY_BACKOFF_MINUTES = 20
+
+
+def retry_pending(article, now) -> bool:
+    """True while an article is waiting out its retry backoff."""
+    stamp = (article.raw_json or {}).get("_decide_retry_after")
+    if not stamp:
+        return False
+    try:
+        return datetime.fromisoformat(str(stamp)) > now
+    except ValueError:
+        return False
+
+
+def requeue_for_retry(article, now) -> None:
+    raw = dict(article.raw_json or {})
+    tries = int(raw.get("_decide_retries") or 0) + 1
+    raw["_decide_retries"] = tries
+    raw["_decide_retry_after"] = (
+        now + timedelta(minutes=RETRY_BACKOFF_MINUTES * tries)).isoformat()
+    article.raw_json = raw
+    if tries <= MAX_DECISION_RETRIES:
+        article.decided_at = None  # picked up again by the next decision run
+        log.info("article %s scheduled nowhere (attempt %d) — will retry",
+                 article.id, tries)
+    else:
+        article.decided_at = now
+        log.info("article %s scheduled nowhere after %d attempts — giving up",
+                 article.id, tries)
 
 
 def maybe_correct_section(article, decision: dict) -> None:

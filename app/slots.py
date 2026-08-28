@@ -57,13 +57,19 @@ def _daily_count(queue: list[Post], local_day, tz) -> int:
 
 
 def violates_similarity(session, channel: str, title: str, rules: dict,
-                        queue: list[Post] | None = None) -> bool:
+                        queue: list[Post] | None = None,
+                        slot: datetime | None = None) -> bool:
+    """True when the title repeats one of the posts right before `slot`
+    (or the latest posts when no slot is given). Judging per candidate slot
+    matters: a near-duplicate blocks the next slots, not the whole day."""
     guard = rules.get("similarity_guard") or {}
     window = int(guard.get("window", 3))
     threshold = float(guard.get("threshold", 0.70))
     if queue is None:
         queue = []
-    recent = sorted((p for p in queue if p.scheduled_at), key=lambda p: p.scheduled_at)[-window:]
+    posts = [p for p in queue if p.scheduled_at
+             and (slot is None or p.scheduled_at <= slot)]
+    recent = sorted(posts, key=lambda p: p.scheduled_at)[-window:]
     for p in recent:
         other = p.article.title if p.article else p.copy
         if title_similarity(title, other) >= threshold:
@@ -101,7 +107,16 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
               section: str, fmt: str, title: str,
               now: datetime, preferred: datetime | None = None,
               score: float = 0.0) -> datetime | None:
-    """Earliest valid slot honouring all constraints; None if nothing fits.
+    return plan_slot(session, channel, channel_cfg, verdict, section, fmt,
+                     title, now, preferred, score)[0]
+
+
+def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
+              section: str, fmt: str, title: str,
+              now: datetime, preferred: datetime | None = None,
+              score: float = 0.0) -> tuple[datetime | None, str]:
+    """(slot, reason) — earliest valid slot honouring all constraints, and
+    when nothing fits, which guard actually blocked it.
 
     Among the first valid candidates we bias toward high-engagement hours:
     we scan forward and accept a slot immediately if its hour weight is
@@ -111,14 +126,12 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
     rules = config.load_rules()
     tz = ZoneInfo(config.TIMEZONE)
     queue = _channel_queue(session, channel, now)
+    blocked_by: dict[str, int] = {}
 
     # measured audience curve replaces the default once enough data exists
     from app import priors
 
     hour_weights = priors.channel_hour_weights(session, channel) or DEFAULT_HOUR_WEIGHTS
-
-    if violates_similarity(session, channel, title, rules, queue):
-        return None
 
     min_gap = timedelta(minutes=int(channel_cfg.get("min_gap_minutes", 30)))
     daily_cap = int(channel_cfg.get("daily_cap", 24))
@@ -136,20 +149,26 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         start += timedelta(minutes=STEP_MINUTES - start.minute % STEP_MINUTES)
 
     def valid(candidate: datetime) -> bool:
-        if verdict.latest and candidate > verdict.latest:
+        def no(reason: str) -> bool:
+            blocked_by[reason] = blocked_by.get(reason, 0) + 1
             return False
+
+        if verdict.latest and candidate > verdict.latest:
+            return no("statusa termiņš")
         local_dt = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
         if _quiet(local_dt, quiet_hours):
-            return False
+            return no("klusās stundas")
         if not _window_ok(local_dt, verdict.allowed_windows):
-            return False
+            return no("jutīga satura laika logs")
         for p in queue:
             if p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap:
-                return False
+                return no("minimālā atstarpe — rinda pilna")
         if _daily_count(queue, local_dt.date(), tz) >= daily_cap:
-            return False
+            return no("dienas limits")
         if violates_diversity(queue, section, fmt, candidate, rules, channel_cfg):
-            return False
+            return no("daudzveidība (sadaļu/formātu mikss)")
+        if violates_similarity(session, channel, title, rules, queue, candidate):
+            return no("līdzīgs ieraksts tuvu šim laikam")
         return True
 
     if verdict.outcome == "forced_now":
@@ -160,7 +179,7 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         taken = sorted(p.scheduled_at for p in queue if p.scheduled_at)
         while any(abs(t - candidate) < burst_gap for t in taken):
             candidate += burst_gap
-        return candidate
+        return candidate, ""
 
     best: datetime | None = None
     best_weight = -1.0
@@ -187,6 +206,10 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         while candidate <= verdict.latest:
             if all(not (p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap)
                    for p in queue):
-                return candidate
+                return candidate, ""
             candidate += timedelta(minutes=STEP_MINUTES)
-    return best
+    if best is not None:
+        return best, ""
+    top = sorted(blocked_by.items(), key=lambda kv: -kv[1])[:2]
+    reason = ", ".join(name for name, _ in top) or "nav derīga laika"
+    return None, reason

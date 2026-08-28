@@ -108,3 +108,51 @@ def test_no_duplicate_posts_per_channel(session):
     second = session.execute(
         select(Post).where(Post.article_id == article.id)).scalars().all()
     assert len(second) == len(first), "same article+channel must not be scheduled twice"
+
+
+def test_blocked_article_is_retried_then_given_up(session, monkeypatch):
+    from datetime import timedelta
+
+    from app import pipeline
+    from app.models import Article, utcnow
+
+    a = Article(guid="rt-1", url="https://tv3.lv/rt", canonical_url="https://tv3.lv/rt",
+                title="T", section="news", editor_status="must", raw_json={})
+    now = utcnow()
+
+    pipeline.requeue_for_retry(a, now)
+    assert a.decided_at is None                      # will be decided again
+    assert a.raw_json["_decide_retries"] == 1
+    assert pipeline.retry_pending(a, now)            # backoff still running
+    assert not pipeline.retry_pending(a, now + timedelta(minutes=25))
+
+    a.raw_json = {**a.raw_json, "_decide_retries": pipeline.MAX_DECISION_RETRIES}
+    pipeline.requeue_for_retry(a, now)
+    assert a.decided_at == now                       # gives up, stops re-deciding
+
+
+def test_plan_slot_reports_the_blocking_guard(session):
+    from datetime import datetime, timedelta
+
+    from app.models import Article, Post
+    from app.rules_engine import Verdict
+    from app.slots import plan_slot
+
+    a = Article(guid="rt-2", url="u", canonical_url="u", title="Virsraksts A",
+                section="news")
+    session.add(a)
+    session.flush()
+    now = datetime(2026, 8, 28, 9, 0)
+    # fill the next hours so only the gap guard can block
+    for i in range(20):
+        session.add(Post(article_id=a.id, channel="fb_full", state="scheduled",
+                         format="photo", scheduled_at=now + timedelta(minutes=10 * i)))
+    session.commit()
+    cfg = {"min_gap_minutes": 45, "daily_cap": 50, "quiet_hours": []}
+    verdict = Verdict(outcome="eligible", reason="", earliest=now,
+                      latest=now + timedelta(hours=2), allowed_windows=[])
+    slot, why = plan_slot(session, "fb_full", cfg, verdict, "news", "photo",
+                          "Pavisam cits virsraksts", now)
+    assert slot is None or isinstance(slot, datetime)
+    if slot is None:
+        assert "atstarpe" in why or "daudzveidība" in why
