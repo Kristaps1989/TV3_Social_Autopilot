@@ -103,9 +103,12 @@ def normalize_rss_entry(entry: Any, feed_name: str, hint: str, term_sections: di
     for m in getattr(entry, "media_content", []) or []:
         if m.get("url"):
             images.append(m["url"])
+    video_url = ""
     for enc in getattr(entry, "enclosures", []) or []:
         if enc.get("href") and "image" in enc.get("type", ""):
             images.append(enc["href"])
+        elif enc.get("href") and "video" in enc.get("type", ""):
+            video_url = video_url or enc["href"]
     tags = [t.get("term", "") for t in getattr(entry, "tags", []) or []]
     published = None
     if getattr(entry, "published_parsed", None):
@@ -124,7 +127,7 @@ def normalize_rss_entry(entry: Any, feed_name: str, hint: str, term_sections: di
         "editor_timeframe": "",
         "section": hint or "news",
         "feed_name": feed_name,
-        "raw_json": {},
+        "raw_json": {"_video_url": video_url} if video_url else {},
     }
 
 
@@ -170,6 +173,12 @@ def upsert_article(session, data: dict) -> tuple[Article, bool, bool]:
     existing.title = data["title"] or existing.title
     existing.lead = data["lead"] or existing.lead
     existing.images = data["images"] or existing.images
+    if data["raw_json"]:
+        # refresh feed data (e.g. a video URL added later) but keep the
+        # underscore-prefixed caches the pipeline stores on the article
+        cached = {k: v for k, v in (existing.raw_json or {}).items()
+                  if k.startswith("_") and k not in data["raw_json"]}
+        existing.raw_json = {**data["raw_json"], **cached}
     existing.last_seen_at = utcnow()
     if status_changed:
         # A status change means the editor changed their mind: re-decide.

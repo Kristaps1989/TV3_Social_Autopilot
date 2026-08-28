@@ -23,6 +23,24 @@ log = logging.getLogger(__name__)
 FPS = 25
 FRAME_SECONDS = 2.8
 MAX_POINTS = 3
+MAX_VIDEO_SECONDS = 45      # reels teaser: pietiek āķim, pārējais rakstā
+MAX_VIDEO_BYTES = 300 * 1024 * 1024
+
+# Feed lauki, kuros meklēt raksta videoklipu (tv3.lv/video 9:16 klipi)
+VIDEO_KEYS = ("video", "video_url", "videoUrl", "video_src", "video_file",
+              "videoFile", "mp4")
+
+
+def article_video(article) -> str:
+    """Raksta 9:16 videoklipa URL no feed datiem ('' ja nav)."""
+    raw = article.raw_json or {}
+    for key in ("_video_url", *VIDEO_KEYS):
+        v = raw.get(key)
+        if isinstance(v, dict):
+            v = v.get("url") or v.get("src") or v.get("mp4") or ""
+        if isinstance(v, str) and v.startswith("http"):
+            return v
+    return ""
 
 
 def ffmpeg_bin() -> str:
@@ -137,6 +155,80 @@ def _assemble(frames: list[Path], workdir: Path, out: Path) -> None:
         "-f", "concat", "-safe", "0", "-i", str(lst),
         "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-shortest", "-c:v", "copy", "-c:a", "aac", "-b:a", "64k", str(out)])
+
+
+def _fetch_video(url: str, dest: Path) -> str:
+    """Returns the ffmpeg input: a downloaded local file, the URL itself for
+    HLS streams (ffmpeg reads m3u8 directly), or a local path passed as-is."""
+    if not url.startswith("http"):
+        return url
+    if ".m3u8" in url:
+        return url
+    import httpx
+
+    with httpx.stream("GET", url, timeout=60, follow_redirects=True,
+                      headers={"User-Agent": "TV3-Social-Autopilot/1.0"}) as resp:
+        if resp.status_code != 200:
+            raise RuntimeError(f"video lejupielāde neizdevās ({resp.status_code})")
+        size = 0
+        with dest.open("wb") as fh:
+            for chunk in resp.iter_bytes(chunk_size=1 << 20):
+                size += len(chunk)
+                if size > MAX_VIDEO_BYTES:
+                    raise RuntimeError("video pārsniedz izmēra limitu")
+                fh.write(chunk)
+    return str(dest)
+
+
+def _has_audio(path: Path) -> bool:
+    proc = subprocess.run([ffmpeg_bin(), "-hide_banner", "-i", str(path)],
+                          capture_output=True, text=True, timeout=60)
+    return "Audio:" in proc.stderr
+
+
+def build_video_reel(video_url: str, out_dir: Path | None = None) -> str:
+    """Real video reel: the article's 9:16 clip, capped at MAX_VIDEO_SECONDS,
+    normalised to 1080x1920 H.264/AAC, with the branded CTA end card appended
+    so every reel closes on 'lasi tv3.lv'. Returns the local file path."""
+    out_dir = Path(out_dir or cards.CARDS_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"reel_{secrets.token_hex(6)}.mp4"
+    common_v = ["-c:v", "libx264", "-preset", "veryfast"]
+    common_a = ["-ar", "44100", "-ac", "2", "-c:a", "aac", "-b:a", "128k"]
+    with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
+        workdir = Path(tmp)
+        src = _fetch_video(video_url, workdir / "src.mp4")
+        seg0 = workdir / "seg0.mp4"
+        _run_ffmpeg([
+            "-i", src, "-t", str(MAX_VIDEO_SECONDS),
+            "-vf", ("scale=1080:1920:force_original_aspect_ratio=decrease,"
+                    "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,"
+                    f"fps={FPS},format=yuv420p"),
+            "-map", "0:v:0", "-map", "0:a:0?",
+            *common_v, *common_a, str(seg0)])
+        if not _has_audio(seg0):
+            fixed = workdir / "seg0a.mp4"
+            _run_ffmpeg([
+                "-i", str(seg0), "-f", "lavfi",
+                "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                "-shortest", "-c:v", "copy",
+                "-ar", "44100", "-ac", "2", "-c:a", "aac", "-b:a", "128k",
+                str(fixed)])
+            seg0 = fixed
+        frame = _render_frames([_end_frame_html()], workdir)[0]
+        seg1 = workdir / "seg1.mp4"
+        _run_ffmpeg([
+            "-loop", "1", "-i", str(frame), "-f", "lavfi",
+            "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-frames:v", str(int(FRAME_SECONDS * FPS)),
+            "-vf", f"scale=1080:1920,fps={FPS},format=yuv420p",
+            *common_v, *common_a, "-shortest", str(seg1)])
+        lst = workdir / "list.txt"
+        lst.write_text(f"file '{seg0}'\nfile '{seg1}'\n", encoding="utf-8")
+        _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(lst),
+                     "-c", "copy", str(out)])
+    log.info("video reel built: %s (source %s)", out.name, video_url[:80])
+    return str(out)
 
 
 def build_reel(title: str, section: str, image_url: str, points: list[str],

@@ -118,6 +118,96 @@ def test_facebook_reel_flow(monkeypatch, tmp_path):
     assert graph_calls[-1][1]["video_state"] == "PUBLISHED"
 
 
+def test_article_video_extraction():
+    from app.reels import article_video
+
+    a = Article(guid="v-1", url="u", canonical_url="u", title="T", section="news",
+                raw_json={"video_url": "https://cdn/klips.mp4"})
+    assert article_video(a) == "https://cdn/klips.mp4"
+    b = Article(guid="v-2", url="u", canonical_url="u", title="T", section="news",
+                raw_json={"video": {"url": "https://cdn/k2.mp4"}})
+    assert article_video(b) == "https://cdn/k2.mp4"
+    c = Article(guid="v-3", url="u", canonical_url="u", title="T", section="news",
+                raw_json={"video": "ne-url"})
+    assert article_video(c) == ""
+
+
+def test_resolve_format_prefers_real_video(session, monkeypatch):
+    from app import pipeline, reels
+
+    monkeypatch.setattr(reels, "available", lambda: True)
+    monkeypatch.setattr(reels, "build_video_reel",
+                        lambda url, out_dir=None: "/data/cards/reel_v.mp4")
+    monkeypatch.setattr(reels, "build_reel",
+                        lambda *a, **kw: (_ for _ in ()).throw(AssertionError(
+                            "slideshow nedrīkst būvēties, ja ir īsts video")))
+    a = _article(session, "v-4")
+    a.raw_json = {"video_url": "https://cdn/klips.mp4"}
+    cfg = {"formats": ["photo", "reel"], "platform": "instagram"}
+    fmt, media = pipeline.resolve_format(session, "ig", cfg, a,
+                                         {"format": "reel", "card_points": []})
+    assert fmt == "reel"
+    assert media == ["/data/cards/reel_v.mp4"]
+
+
+def test_upsert_refreshes_video_but_keeps_caches(session):
+    from app.ingest import upsert_article
+
+    base = dict(guid="v-5", url="https://tv3.lv/v5", canonical_url="https://tv3.lv/v5",
+                title="T", lead="L", categories=[], term_ids=[], images=[],
+                published_at=None, editor_status="can", editor_timeframe="",
+                section="news", feed_name="f", raw_json={})
+    article, created, _ = upsert_article(session, dict(base))
+    assert created
+    article.raw_json = {"_img_wh": [100, 200]}
+    session.flush()
+    updated = dict(base, raw_json={"video_url": "https://cdn/k.mp4"})
+    article, created, _ = upsert_article(session, updated)
+    assert not created
+    assert article.raw_json["video_url"] == "https://cdn/k.mp4"
+    assert article.raw_json["_img_wh"] == [100, 200]
+
+
+def _synthetic_video(path, ffmpeg, with_audio=True):
+    import subprocess
+
+    args = [ffmpeg, "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=duration=3:size=540x960:rate=25"]
+    if with_audio:
+        args += ["-f", "lavfi", "-i", "sine=frequency=440:duration=3"]
+    args += ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    if with_audio:
+        args += ["-c:a", "aac", "-shortest"]
+    subprocess.run(args + [str(path)], check=True, capture_output=True)
+
+
+def test_build_video_reel_end_to_end(monkeypatch, tmp_path):
+    import os
+
+    from app import reels
+
+    try:
+        import imageio_ffmpeg
+
+        monkeypatch.setenv("FFMPEG_BIN", imageio_ffmpeg.get_ffmpeg_exe())
+    except ImportError:
+        pass
+    if not os.environ.get("PLAYWRIGHT_CHROMIUM") and os.path.exists("/opt/pw-browsers/chromium"):
+        monkeypatch.setenv("PLAYWRIGHT_CHROMIUM", "/opt/pw-browsers/chromium")
+    if not reels.available():
+        pytest.skip("ffmpeg or Chromium unavailable")
+    src = tmp_path / "src.mp4"
+    _synthetic_video(src, reels.ffmpeg_bin(), with_audio=True)
+    out = reels.build_video_reel(str(src), out_dir=tmp_path)
+    path = tmp_path / out.split("/")[-1]
+    assert path.exists() and path.stat().st_size > 10000
+    # klusa avota video arī iziet cauri (CTA kadram vajag saskanīgu audio)
+    src2 = tmp_path / "src2.mp4"
+    _synthetic_video(src2, reels.ffmpeg_bin(), with_audio=False)
+    out2 = reels.build_video_reel(str(src2), out_dir=tmp_path)
+    assert (tmp_path / out2.split("/")[-1]).exists()
+
+
 def test_build_reel_end_to_end(monkeypatch, tmp_path):
     import os
 

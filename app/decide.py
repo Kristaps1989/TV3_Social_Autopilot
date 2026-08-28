@@ -108,6 +108,7 @@ Virsraksts: {article.title}
 Ievads: {article.lead[:600]}
 Sadaļa: {article.section}
 Attēli: {len(article.images or [])}
+Video: {"ir 9:16 videoklips" if (article.raw_json or {}).get("_video_url") or any((article.raw_json or {}).get(k) for k in ("video", "video_url", "videoUrl")) else "nav"}
 Redaktora statuss: {article.editor_status}
 Publicēts: {article.published_at}
 
@@ -125,10 +126,11 @@ skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. Tad aizpildi
 card_points (3-5 īsi punkti, kas ieintriģē, bet neatklāj atrisinājumu) un
 card_end_question. Ātrām īsziņām labāks parasts saites ieraksts.
 
-Formāts reel (ja kanāls to atbalsta): 10-15 s vertikāls slideshow video
-(vāks ar virsrakstu → 2-3 punkti → CTA kadrs "lasi tv3.lv"). Izvēlies to
-stāstiem ar spēcīgu āķi vai skaidrojumiem — ne biežāk kā ~2x dienā kanālā.
-Tad aizpildi card_points (2-3 punkti).
+Formāts reel (ja kanāls to atbalsta): vertikāls video ar CTA beigu kadru
+"lasi tv3.lv". Ja rakstam IR videoklips, reel izmanto īsto video — dod tam
+priekšroku vizuāliem stāstiem, tas ir spēcīgākais formāts. Ja video nav,
+reel ir 10-15 s slideshow (vāks → 2-3 punkti → CTA); tad aizpildi
+card_points (2-3 punkti). Ne biežāk kā ~2x dienā kanālā.
 
 Pieņem lēmumu ar record_decision. Ja raksts nav pietiekami interesants
 ('can' statuss ļauj izlaist), atzīmē publish=false ar īsu iemeslu latviski."""

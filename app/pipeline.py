@@ -232,6 +232,14 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     if ai_fmt == "reel" and "reel" in (cfg.get("formats") or []):
         from app import reels
 
+        # Real article clip beats a slideshow every time; the tv3.lv/video
+        # 9:16 clips come through the feed as a video URL on the item.
+        video = reels.article_video(article)
+        if video and reels.available():
+            try:
+                return "reel", [reels.build_video_reel(video)]
+            except Exception as e:  # noqa: BLE001
+                log.warning("video reel failed for article %s: %s", article.id, e)
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
                   if isinstance(p, str) and p.strip()][:3]
         image = photo_base_image(article)
