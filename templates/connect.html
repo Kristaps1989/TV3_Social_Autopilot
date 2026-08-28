@@ -229,6 +229,8 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <label class="muted" style="display:block;margin-top:.4rem">Service account atslēga (JSON)</label>
       <textarea name="service_account" rows="4" style="width:100%;font-family:monospace"
         placeholder="{{ 'saglabāta — atstāj tukšu, ja nemaina' if ga4_sa_label else 'ielīmē visu lejupielādēto .json failu' }}"></textarea>
+      <label class="muted" style="display:block;margin-top:.4rem">Autora dimensija (nav obligāti)</label>
+      <input type="text" name="author_dimension" placeholder="piem. customEvent:author">
       <div style="margin-top:.5rem"><button class="primary">Saglabāt GA4</button></div>
     </form>
     {% if ga4_connected %}

@@ -355,3 +355,307 @@ def dashboard(session) -> dict:
         "sections": _cached("sections", lambda: _safe(section_breakdown, [])),
         "autopilot": _safe(lambda: autopilot_contribution(session), []),
     }
+
+
+# --- Explore: filterable, period-driven analytics (merged Statistika) ------
+#
+# Newsroom-dashboard core per industry practice (Chartbeat/Parse.ly):
+# engaged time + recirculation up front, then sources, sections, authors,
+# geo/devices — all under one period + section filter.
+
+PERIODS = {
+    "today": ("Šodiena", 1), "yesterday": ("Vakardiena", 1),
+    "7d": ("7 dienas", 7), "30d": ("30 dienas", 30), "90d": ("90 dienas", 90),
+}
+
+
+def resolve_period(period: str, date_from: str = "", date_to: str = "") -> dict:
+    """Normalise UI input into GA4 date strings + an equal previous window."""
+    from datetime import date, timedelta
+
+    if period == "custom" and date_from and date_to:
+        try:
+            f, t = date.fromisoformat(date_from), date.fromisoformat(date_to)
+        except ValueError:
+            return resolve_period("7d")
+        if t < f:
+            f, t = t, f
+        span = (t - f).days + 1
+        return {"key": "custom", "label": f"{f:%d.%m.} – {t:%d.%m.%Y}",
+                "start": f.isoformat(), "end": t.isoformat(),
+                "prev_start": (f - timedelta(days=span)).isoformat(),
+                "prev_end": (f - timedelta(days=1)).isoformat(),
+                "granularity": "date" if span > 1 else "hour"}
+    if period == "today":
+        return {"key": "today", "label": "Šodiena", "start": "today", "end": "today",
+                "prev_start": "yesterday", "prev_end": "yesterday",
+                "granularity": "hour"}
+    if period == "yesterday":
+        return {"key": "yesterday", "label": "Vakardiena",
+                "start": "yesterday", "end": "yesterday",
+                "prev_start": "2daysAgo", "prev_end": "2daysAgo",
+                "granularity": "hour"}
+    days = {"7d": 7, "30d": 30, "90d": 90}.get(period, 7)
+    key = f"{days}d"
+    return {"key": key, "label": PERIODS[key][0],
+            "start": f"{days}daysAgo", "end": "yesterday",
+            "prev_start": f"{days * 2}daysAgo", "prev_end": f"{days + 1}daysAgo",
+            "granularity": "date"}
+
+
+def _section_filter(section: str) -> dict | None:
+    """GA4 pagePath filter for one CMS section. Nested paths are handled by
+    exclusion: news = /zinas/ minus the segments of every other section."""
+    from app import config
+
+    url_sections = config.load_feeds().get("url_sections") or {}
+    include = [seg for seg, sec in url_sections.items() if sec == section]
+    if not include:
+        return None
+    exclude = [seg for seg, sec in url_sections.items() if sec != section]
+
+    def _contains(seg: str) -> dict:
+        return {"filter": {"fieldName": "pagePath",
+                           "stringFilter": {"matchType": "CONTAINS",
+                                            "value": f"/{seg}/"}}}
+
+    expr: dict = {"orGroup": {"expressions": [_contains(s) for s in include]}}
+    if exclude:
+        expr = {"andGroup": {"expressions": [
+            expr, {"notExpression": {"orGroup": {
+                "expressions": [_contains(s) for s in exclude]}}}]}}
+    return expr
+
+
+def _dim_report(prop: str, start: str, end: str, dimension: str,
+                metrics: list[str], dim_filter: dict | None, limit: int) -> list[dict]:
+    body: dict = {
+        "dateRanges": [{"startDate": start, "endDate": end}],
+        "dimensions": [{"name": dimension}],
+        "metrics": [{"name": m} for m in metrics],
+        "orderBys": [{"metric": {"metricName": metrics[0]}, "desc": True}],
+        "limit": limit,
+    }
+    if dim_filter:
+        body["dimensionFilter"] = dim_filter
+    data = _report(prop, body)
+    if data is None:
+        return []
+    return [{"name": r["dimensionValues"][0]["value"],
+             **{m: float(r["metricValues"][i]["value"] or 0)
+                for i, m in enumerate(metrics)}}
+            for r in data.get("rows") or []]
+
+
+def _kpis(prop: str, p: dict, dim_filter: dict | None) -> dict:
+    metrics = ["sessions", "activeUsers", "screenPageViews",
+               "userEngagementDuration", "engagementRate"]
+
+    def totals(start: str, end: str) -> dict[str, float] | None:
+        body: dict = {"dateRanges": [{"startDate": start, "endDate": end}],
+                      "metrics": [{"name": m} for m in metrics]}
+        if dim_filter:
+            body["dimensionFilter"] = dim_filter
+        data = _report(prop, body)
+        if data is None:
+            return None
+        rows = data.get("rows") or []
+        if not rows:
+            return {m: 0.0 for m in metrics}
+        vals = rows[0]["metricValues"]
+        return {m: float(vals[i]["value"] or 0) for i, m in enumerate(metrics)}
+
+    cur = totals(p["start"], p["end"])
+    prev = totals(p["prev_start"], p["prev_end"])
+    if cur is None:
+        return {}
+    prev = prev or {m: 0.0 for m in metrics}
+
+    def kpi(name, cur_v, prev_v):
+        return {"name": name, **_delta(cur_v, prev_v)}
+
+    out = {
+        "sessions": kpi("Sesijas", cur["sessions"], prev["sessions"]),
+        "users": kpi("Aktīvie lietotāji", cur["activeUsers"], prev["activeUsers"]),
+        "pageviews": kpi("Lapu skatījumi", cur["screenPageViews"],
+                         prev["screenPageViews"]),
+        # Chartbeat-style core: engaged time per session + recirculation proxy
+        "engaged": kpi("Iesaistes laiks / sesija",
+                       cur["userEngagementDuration"] / cur["sessions"]
+                       if cur["sessions"] else 0,
+                       prev["userEngagementDuration"] / prev["sessions"]
+                       if prev["sessions"] else 0),
+        "recirculation": kpi("Lapas / sesija (recirkulācija)",
+                             cur["screenPageViews"] / cur["sessions"]
+                             if cur["sessions"] else 0,
+                             prev["screenPageViews"] / prev["sessions"]
+                             if prev["sessions"] else 0),
+        "engagement_rate": kpi("Iesaistes līmenis",
+                               cur["engagementRate"] * 100,
+                               prev["engagementRate"] * 100),
+    }
+    return out
+
+
+def _timeseries(prop: str, p: dict, dim_filter: dict | None) -> list[dict]:
+    dim = "dateHour" if p["granularity"] == "hour" else "date"
+    rows = _dim_report(prop, p["start"], p["end"], dim, ["sessions"],
+                       dim_filter, limit=400)
+    rows.sort(key=lambda r: r["name"])
+    out = []
+    for r in rows:
+        raw = r["name"]
+        label = (f"{raw[8:10]}:00" if dim == "dateHour" and len(raw) >= 10
+                 else f"{raw[6:8]}.{raw[4:6]}." if len(raw) == 8 else raw)
+        out.append({"label": label, "value": r["sessions"]})
+    return out
+
+
+def _authors(prop: str, p: dict, dim_filter: dict | None, limit: int = 12) -> list[dict] | None:
+    """Author breakdown via a GA4 custom dimension. Returns None when the
+    property has no such dimension registered (UI shows setup guidance)."""
+    from app import credentials
+
+    dim = credentials.get("ga4_author_dimension") or "customEvent:author"
+    rows = _dim_report(prop, p["start"], p["end"], dim,
+                       ["screenPageViews", "sessions", "userEngagementDuration"],
+                       dim_filter, limit)
+    if not rows and last_error():
+        return None
+    out = [{"author": r["name"], "pageviews": r["screenPageViews"],
+            "sessions": r["sessions"],
+            "avg_engagement_s": (r["userEngagementDuration"] / r["screenPageViews"]
+                                 if r["screenPageViews"] else 0)}
+           for r in rows if r["name"] not in ("", "(not set)")]
+    return out
+
+
+def explore(session, period: str, section: str = "",
+            date_from: str = "", date_to: str = "") -> dict:
+    """Everything the merged Statistika page needs for one period+filter."""
+    if not configured():
+        return {"configured": False}
+    prop = property_id()
+    p = resolve_period(period, date_from, date_to)
+    dim_filter = _section_filter(section) if section else None
+    key = f"explore:{p['start']}:{p['end']}:{section}"
+
+    def build() -> dict:
+        pages = _page_metrics_filtered(prop, p, dim_filter, limit=200)
+        from app import config
+
+        url_sections = config.load_feeds().get("url_sections") or {}
+        for pg in pages:
+            pg["section"] = _section_for_path(pg["path"], url_sections)
+        return {
+            "configured": True,
+            "period": p,
+            "section": section,
+            "kpis": _kpis(prop, p, dim_filter),
+            "timeseries": _timeseries(prop, p, dim_filter),
+            "channels": _channels_delta(prop, p, dim_filter),
+            "sections": ([] if section else _sections_from_pages(
+                pages, _page_metrics_filtered(
+                    prop, {**p, "start": p["prev_start"], "end": p["prev_end"]},
+                    None, limit=200), url_sections)),
+            "top_content": pages[:15],
+            "authors": _authors(prop, p, dim_filter),
+            "countries": _dim_report(prop, p["start"], p["end"], "country",
+                                     ["sessions"], dim_filter, 8),
+            "cities": _dim_report(prop, p["start"], p["end"], "city",
+                                  ["sessions"], dim_filter, 8),
+            "devices": _dim_report(prop, p["start"], p["end"], "deviceCategory",
+                                   ["sessions"], dim_filter, 4),
+            "browsers": _dim_report(prop, p["start"], p["end"], "browser",
+                                    ["sessions"], dim_filter, 6),
+            "error": last_error(),
+        }
+
+    return _cached(key, build)
+
+
+def _sections_from_pages(cur_pages: list[dict], prev_pages: list[dict],
+                         url_sections: dict) -> list[dict]:
+    def bucket(pages: list[dict]) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for pg in pages:
+            sec = pg.get("section") or _section_for_path(pg["path"], url_sections)
+            out[sec] = out.get(sec, 0.0) + pg["sessions"]
+        return out
+
+    cur, prev = bucket(cur_pages), bucket(prev_pages)
+    total = sum(cur.values()) or 1.0
+    rows = [{"section": sec, "sessions": v, "pct": v / total * 100,
+             **_delta(v, prev.get(sec, 0.0))} for sec, v in cur.items()]
+    rows.sort(key=lambda r: -r["sessions"])
+    return rows
+
+
+def _channels_delta(prop: str, p: dict, dim_filter: dict | None) -> list[dict]:
+    def by_channel(start: str, end: str) -> dict[str, float]:
+        rows = _dim_report(prop, start, end, "sessionDefaultChannelGroup",
+                           ["sessions"], dim_filter, 10)
+        return {r["name"]: r["sessions"] for r in rows}
+
+    cur = by_channel(p["start"], p["end"])
+    prev = by_channel(p["prev_start"], p["prev_end"])
+    total = sum(cur.values()) or 1.0
+    rows = [{"channel": ch, "sessions": s, "pct": s / total * 100,
+             **_delta(s, prev.get(ch, 0.0))} for ch, s in cur.items()]
+    rows.sort(key=lambda r: -r["sessions"])
+    return rows
+
+
+def _page_metrics_filtered(prop: str, p: dict, dim_filter: dict | None,
+                           limit: int) -> list[dict]:
+    body: dict = {
+        "dateRanges": [{"startDate": p["start"], "endDate": p["end"]}],
+        "dimensions": [{"name": "pagePath"}, {"name": "pageTitle"}],
+        "metrics": [{"name": "screenPageViews"}, {"name": "sessions"},
+                    {"name": "userEngagementDuration"}],
+        "orderBys": [{"metric": {"metricName": "screenPageViews"}, "desc": True}],
+        "limit": limit,
+    }
+    if dim_filter:
+        body["dimensionFilter"] = dim_filter
+    data = _report(prop, body)
+    out = []
+    for r in (data or {}).get("rows") or []:
+        views = float(r["metricValues"][0]["value"] or 0)
+        out.append({"path": r["dimensionValues"][0]["value"],
+                    "title": r["dimensionValues"][1]["value"],
+                    "pageviews": views,
+                    "sessions": float(r["metricValues"][1]["value"] or 0),
+                    "avg_engagement_s": (float(r["metricValues"][2]["value"] or 0)
+                                         / views if views else 0)})
+    return out
+
+
+def sparkline(series: list[dict], width: int = 860, height: int = 120) -> dict:
+    """Precomputed SVG geometry for the sessions trend (server-rendered)."""
+    if not series:
+        return {}
+    values = [s["value"] for s in series]
+    peak = max(values) or 1.0
+    n = len(values)
+    pad = 4
+    step = (width - 2 * pad) / max(n - 1, 1)
+
+    def xy(i: int, v: float) -> tuple[float, float]:
+        return (pad + i * step, pad + (height - 2 * pad) * (1 - v / peak))
+
+    pts = [xy(i, v) for i, v in enumerate(values)]
+    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = (f"{pts[0][0]:.1f},{height - pad} " + line
+            + f" {pts[-1][0]:.1f},{height - pad}")
+    peak_i = values.index(max(values))
+    ticks = [series[0]["label"], series[n // 2]["label"], series[-1]["label"]] \
+        if n >= 3 else [s["label"] for s in series]
+    return {"line": line, "area": area, "width": width, "height": height,
+            "last": {"x": pts[-1][0], "y": pts[-1][1], "value": values[-1],
+                     "label": series[-1]["label"]},
+            "peak": {"x": pts[peak_i][0], "y": pts[peak_i][1],
+                     "value": values[peak_i], "label": series[peak_i]["label"]},
+            "points": [{"x": x, "y": y, "label": s["label"], "value": s["value"]}
+                       for (x, y), s in zip(pts, series)],
+            "ticks": ticks}

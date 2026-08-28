@@ -1,54 +1,264 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Statistika un mācīšanās</h1>
-<p class="muted">Sistēma vāc platformu rādītājus un GA4 sesijas (pēc <code>utm_content</code>)
-un automātiski izmanto tos: izmērītā stundu līkne aizstāj noklusēto publicēšanas laiku
-izvēli, formātu svari pielāgojas izmērītajām sesijām-uz-ierakstu, un AI redz veiktspējas
-kopsavilkumu katrā lēmumā. Sliekšņi maināmi <a href="/settings">noteikumos</a> (priors).</p>
+<h1>Statistika</h1>
 
-{% if dry_run %}
-<div class="notice err" style="background:#fef3c7;color:#92400e">
-DRY RUN režīmā nekas netiek publicēts, tāpēc statistika vēl nekrājas — dati sāks
-plūst, kad pirmais kanāls būs pārslēgts uz LIVE.</div>
+{% if not d.configured %}
+<div class="notice err">GA4 nav pieslēgts — savieno to sadaļā <a href="/connect">Konti</a>,
+un šeit parādīsies visa portāla auditorijas dati.</div>
+{% else %}
+
+{% if ga4_error %}
+<div class="notice err">GA4 API kļūda: <code>{{ ga4_error }}</code></div>
 {% endif %}
-{% if not ga4_on %}
-<div class="notice err" style="background:#eef2ff;color:#3730a3">
-GA4 vēl nav pieslēgts (nav <code>GA4_PROPERTY_ID</code> / servisa konta) — pagaidām
-tiek izmantoti platformu klikšķi. GA4 sesijas ir precīzākais mērs klikšķiem uz tv3.lv.</div>
+
+<form method="get" action="/stats" class="killbar" style="gap:.6rem;flex-wrap:wrap">
+  <label class="muted">Periods</label>
+  <select name="period" onchange="this.form.submit()">
+    {% for key, label in [('today','Šodiena'),('yesterday','Vakardiena'),
+                          ('7d','7 dienas'),('30d','30 dienas'),('90d','90 dienas'),
+                          ('custom','Pielāgots')] %}
+    <option value="{{ key }}" {{ 'selected' if sel_period == key }}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input type="date" name="date_from" value="{{ sel_from }}" style="width:auto">
+  <span class="muted">–</span>
+  <input type="date" name="date_to" value="{{ sel_to }}" style="width:auto">
+  <label class="muted" style="margin-left:.6rem">Sadaļa</label>
+  <select name="section" onchange="this.form.submit()">
+    <option value="">Visas sadaļas</option>
+    {% for sec in sections_available %}
+    <option value="{{ sec }}" {{ 'selected' if sel_section == sec }}>{{ sec }}</option>
+    {% endfor %}
+  </select>
+  <button class="primary">Rādīt</button>
+  <span class="muted" style="margin-left:auto">{{ d.period.label }}
+    {%- if sel_section %} · {{ sel_section }}{% endif %} · pret iepriekšējo tikpat garu periodu</span>
+</form>
+
+<style>
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.8rem; margin-bottom:1rem; }
+.kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.8rem .9rem; }
+.kpi .lab { color:var(--muted); font-size:.74rem; letter-spacing:.02em; }
+.kpi .val { font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums; margin:.1rem 0; }
+.kpi .dlt { font-size:.76rem; font-weight:600; font-variant-numeric:tabular-nums; }
+.dlt.up { color:var(--ok); } .dlt.down { color:var(--bad); } .dlt.flat { color:var(--muted); }
+.pctbar { position:relative; }
+.pctbar i { position:absolute; left:0; top:0; bottom:0; background:#7a1fa218; border-radius:3px; }
+.pctbar span { position:relative; font-variant-numeric:tabular-nums; }
+.grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:1rem; margin-top:1rem; }
+td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+</style>
+
+{% macro delta(k) -%}
+  {%- if k.change_pct is none -%}<span class="dlt flat">jauns</span>
+  {%- elif k.change_pct > 0.05 -%}<span class="dlt up">▲ {{ '%.1f' % k.change_pct }}%</span>
+  {%- elif k.change_pct < -0.05 -%}<span class="dlt down">▼ {{ '%.1f' % (k.change_pct|abs) }}%</span>
+  {%- else -%}<span class="dlt flat">±0%</span>{%- endif -%}
+{%- endmacro %}
+
+{% if d.kpis %}
+<div class="kpis">
+  {% for key in ['sessions','users','pageviews','engaged','recirculation','engagement_rate'] %}
+  {% set k = d.kpis[key] %}
+  <div class="kpi">
+    <div class="lab">{{ k.name }}</div>
+    <div class="val">
+      {%- if key == 'engaged' %}{{ k.current | dur }}
+      {%- elif key == 'recirculation' %}{{ '%.2f' % k.current }}
+      {%- elif key == 'engagement_rate' %}{{ '%.1f' % k.current }}%
+      {%- else %}{{ k.current | num }}{% endif -%}
+    </div>
+    {{ delta(k) }}
+    <span class="muted" style="font-size:.72rem"> pret
+      {%- if key == 'engaged' %} {{ k.previous | dur }}
+      {%- elif key == 'recirculation' %} {{ '%.2f' % k.previous }}
+      {%- elif key == 'engagement_rate' %} {{ '%.1f' % k.previous }}%
+      {%- else %} {{ k.previous | num }}{% endif %}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if spark and spark.line %}
+<div class="card">
+  <h2>Sesiju dinamika</h2>
+  <p class="meta">{{ 'Pa stundām' if d.period.granularity == 'hour' else 'Pa dienām' }} ·
+  virsotne {{ spark.peak.value | num }} ({{ spark.peak.label }})</p>
+  <div style="overflow-x:auto">
+  <svg viewBox="0 0 {{ spark.width + 70 }} {{ spark.height + 26 }}" style="width:100%;max-width:960px">
+    {% for frac in [0.25, 0.5, 0.75] %}
+    <line x1="4" y1="{{ (spark.height * frac) | round(1) }}" x2="{{ spark.width - 4 }}"
+          y2="{{ (spark.height * frac) | round(1) }}" stroke="var(--line)" stroke-width="1"/>
+    {% endfor %}
+    <polygon points="{{ spark.area }}" fill="#7a1fa2" opacity="0.09"/>
+    <polyline points="{{ spark.line }}" fill="none" stroke="#7a1fa2" stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round"/>
+    {% for pt in spark.points %}
+    <circle cx="{{ pt.x }}" cy="{{ pt.y }}" r="7" fill="transparent">
+      <title>{{ pt.label }}: {{ pt.value | num }} sesijas</title>
+    </circle>
+    {% endfor %}
+    <circle cx="{{ spark.last.x }}" cy="{{ spark.last.y }}" r="4" fill="#7a1fa2"/>
+    <text x="{{ spark.last.x + 8 }}" y="{{ spark.last.y + 4 }}"
+          font-size="13" font-weight="700" fill="var(--ink)">{{ spark.last.value | num }}</text>
+    <text x="4" y="{{ spark.height + 18 }}" font-size="11" fill="var(--muted)">{{ spark.ticks[0] }}</text>
+    {% if spark.ticks | length > 2 %}
+    <text x="{{ spark.width // 2 }}" y="{{ spark.height + 18 }}" font-size="11"
+          fill="var(--muted)" text-anchor="middle">{{ spark.ticks[1] }}</text>
+    {% endif %}
+    <text x="{{ spark.width - 4 }}" y="{{ spark.height + 18 }}" font-size="11"
+          fill="var(--muted)" text-anchor="end">{{ spark.ticks[-1] }}</text>
+  </svg>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid2">
+  <div class="card">
+    <h2>No kurienes nāk lasītāji</h2>
+    <table>
+      <tr><th>Kanāls</th><th class="n">Sesijas</th><th class="n">Daļa</th><th class="n">Δ</th></tr>
+      {% for r in d.channels %}
+      <tr><td class="pctbar"><i style="width:{{ '%.0f' % r.pct }}%"></i><span>{{ r.channel }}</span></td>
+          <td class="n">{{ r.sessions | num }}</td>
+          <td class="n">{{ '%.0f' % r.pct }}%</td><td class="n">{{ delta(r) }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">Nav datu.</td></tr>{% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>{{ 'Sadaļas' if not sel_section else 'Ierīces un pārlūki' }}</h2>
+    {% if not sel_section %}
+    <table>
+      <tr><th>Sadaļa</th><th class="n">Sesijas</th><th class="n">Daļa</th><th class="n">Δ</th></tr>
+      {% for r in d.sections %}
+      <tr><td class="pctbar"><i style="width:{{ '%.0f' % r.pct }}%"></i><span>{{ r.section }}</span></td>
+          <td class="n">{{ r.sessions | num }}</td>
+          <td class="n">{{ '%.0f' % r.pct }}%</td><td class="n">{{ delta(r) }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">Nav datu.</td></tr>{% endfor %}
+    </table>
+    {% else %}
+    <table>
+      <tr><th>Ierīce</th><th class="n">Sesijas</th></tr>
+      {% for r in d.devices %}<tr><td>{{ r.name }}</td><td class="n">{{ r.sessions | num }}</td></tr>{% endfor %}
+    </table>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Ģeogrāfija</h2>
+    <table>
+      <tr><th>Valsts</th><th class="n">Sesijas</th><th style="width:1rem"></th>
+          <th>Pilsēta</th><th class="n">Sesijas</th></tr>
+      {% for i in range(8) %}
+      {% set c = d.countries[i] if i < d.countries|length else none %}
+      {% set ci = d.cities[i] if i < d.cities|length else none %}
+      {% if c or ci %}
+      <tr><td>{{ c.name if c }}</td><td class="n">{{ c.sessions | num if c }}</td><td></td>
+          <td>{{ ci.name if ci }}</td><td class="n">{{ ci.sessions | num if ci }}</td></tr>
+      {% endif %}
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Ierīces un pārlūki</h2>
+    <table>
+      <tr><th>Ierīce</th><th class="n">Sesijas</th><th style="width:1rem"></th>
+          <th>Pārlūks</th><th class="n">Sesijas</th></tr>
+      {% for i in range(6) %}
+      {% set dv = d.devices[i] if i < d.devices|length else none %}
+      {% set b = d.browsers[i] if i < d.browsers|length else none %}
+      {% if dv or b %}
+      <tr><td>{{ dv.name if dv }}</td><td class="n">{{ dv.sessions | num if dv }}</td><td></td>
+          <td>{{ b.name if b }}</td><td class="n">{{ b.sessions | num if b }}</td></tr>
+      {% endif %}
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Lasītākais saturs</h2>
+  <table>
+    <tr><th>Virsraksts</th><th>Sadaļa</th><th class="n">Skatījumi</th>
+        <th class="n">Sesijas</th><th class="n">Vid. lasīšanas laiks</th></tr>
+    {% for r in d.top_content %}
+    <tr><td class="copytext"><a href="https://tv3.lv{{ r.path }}" target="_blank" rel="noopener">
+          {{ (r.title or r.path)[:85] }}</a></td>
+        <td>{{ r.section }}</td><td class="n">{{ r.pageviews | num }}</td>
+        <td class="n">{{ r.sessions | num }}</td>
+        <td class="n">{{ r.avg_engagement_s | dur }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">Nav datu.</td></tr>{% endfor %}
+  </table>
+  <p class="muted">Vid. lasīšanas laiks = iesaistes laiks / skatījumi. Zem ~0:30 ziņu
+  rakstam parasti nozīmē, ka virsraksts sola vairāk, nekā teksts dod.</p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Autori</h2>
+  {% if d.authors %}
+  <table>
+    <tr><th>Autors</th><th class="n">Skatījumi</th><th class="n">Sesijas</th>
+        <th class="n">Vid. lasīšanas laiks</th></tr>
+    {% for r in d.authors %}
+    <tr><td>{{ r.author }}</td><td class="n">{{ r.pageviews | num }}</td>
+        <td class="n">{{ r.sessions | num }}</td>
+        <td class="n">{{ r.avg_engagement_s | dur }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Autoru griezumam GA4 īpašumā jābūt reģistrētai autora
+  custom dimensijai (vietnei jāsūta autora vārds līdzi katram skatījumam —
+  parasti caur dataLayer). Ja tv3.lv GA4 tāda jau ir, ieraksti tās API
+  nosaukumu (piem. <code>customEvent:author</code>) Konti → GA4 kartē; ja nav,
+  tas ir neliels uzdevums portāla web komandai.</p>
+  {% endif %}
+</div>
+
+{% endif %}{# configured #}
+
+<h2 style="margin-top:2rem">Autopilota veiktspēja</h2>
+<p class="muted">Sociālo kanālu pienesums portālam: sesijas pēc <code>utm_content</code>,
+formātu un āķu mācīšanās.</p>
+
+{% if autopilot %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Autopilota atvestās sesijas ({{ d.period.label if d.configured else '30 dienas' }})</h2>
+  <table style="max-width:420px">
+    <tr><th>Kanāls</th><th class="n">Sesijas</th></tr>
+    {% for r in autopilot %}<tr><td>{{ r.channel }}</td><td class="n">{{ r.sessions | num }}</td></tr>{% endfor %}
+  </table>
+</div>
 {% endif %}
 
 <div class="cards">
-{% for s in summaries %}
+  {% for s in summaries %}
   <div class="card">
     <h2>{{ s.channel }}</h2>
-    <div class="meta">Pēdējās 30 dienās: {{ s.posts }} ieraksti ·
-      {{ s.sessions }} GA sesijas · {{ s.clicks }} klikšķi
-      {% if s.measured_curve %} · <span class="badge live">stundu līkne izmērīta</span>
-      {% else %} · <span class="badge dry">stundu līkne: noklusētā</span>{% endif %}
-    </div>
+    <div class="meta">Pēdējās 30 dienās: {{ s.posts }} ieraksti · {{ s.sessions }} GA sesijas ·
+      {{ s.clicks }} klikšķi ·
+      {% if s.measured_curve %}<span class="badge live">stundu līkne: izmērītā</span>
+      {% else %}<span class="badge dry">stundu līkne: noklusētā</span>{% endif %}</div>
     <table>
-      <tr><th>Formāts</th><th>Ieraksti</th><th>Vid. sesijas/klikšķi</th></tr>
+      <tr><th>Formāts</th><th class="n">Ieraksti</th><th class="n">Vid. sesijas/klikšķi</th></tr>
       {% for f in s.formats %}
-      <tr><td>{{ f.format }}</td><td>{{ f.n }}</td><td>{{ '%.1f' % f.avg }}</td></tr>
-      {% else %}
-      <tr><td colspan="3" class="muted">Vēl nav publicētu ierakstu</td></tr>
+      <tr><td>{{ f.format }}</td><td class="n">{{ f.n }}</td><td class="n">{{ '%.1f' % f.avg }}</td></tr>
       {% endfor %}
     </table>
-    {% if s.best_hours %}
-    <div class="meta" style="margin-top:.5rem">Stiprākās stundas:
-      {% for h in s.best_hours %}{{ h }}:00{% if not loop.last %}, {% endif %}{% endfor %}</div>
-    {% endif %}
   </div>
-{% endfor %}
+  {% endfor %}
 </div>
 
 <div class="card" style="margin-top:1rem">
   <h2>Top ieraksti (30 dienas)</h2>
   <table>
-    <tr><th>Rezultāts</th><th>Kanāls</th><th>Formāts</th><th>Virsraksts</th><th></th></tr>
+    <tr><th class="n">Rezultāts</th><th>Kanāls</th><th>Formāts</th><th>Virsraksts</th><th></th></tr>
     {% for r in top %}
     <tr>
-      <td><strong>{{ '%.0f' % r.score }}</strong></td>
+      <td class="n"><strong>{{ '%.0f' % r.score }}</strong></td>
       <td>{{ r.channel }}</td>
       <td>{{ r.format }}</td>
       <td class="copytext">{{ r.post.article.title[:90] if r.post.article }}</td>
@@ -58,21 +268,19 @@ tiek izmantoti platformu klikšķi. GA4 sesijas ir precīzākais mērs klikšķi
     <tr><td colspan="5" class="muted">Vēl nav datu — parādīsies pēc pirmajiem publicētajiem ierakstiem.</td></tr>
     {% endfor %}
   </table>
-  <p class="muted">Rezultāts = GA4 sesijas (ja pieejamas), citādi platformas klikšķi.
-  Katru pirmdienas rītu kopsavilkums tiek nosūtīts arī uz Slack (ja konfigurēts).</p>
+  <p class="muted">Rezultāts = GA4 sesijas (ja pieejamas), citādi platformas klikšķi.</p>
 </div>
 
 <div class="card" style="margin-top:1rem">
   <h2>Āķu A/B testi (starpplatformu)</h2>
-  <p class="muted">AI katram rakstam dažādās platformās apzināti lieto atšķirīgus
-  copy āķu stilus (fakts, skaitlis, jautājums, citāts, steidzamība, ziņkāre);
-  saites nes <code>utm_term</code>, tāpēc rezultātu mēra reālās tv3.lv sesijas.
+  <p class="muted">AI katram rakstam dažādās platformās apzināti lieto atšķirīgus copy āķu
+  stilus; saites nes <code>utm_term</code>, tāpēc rezultātu mēra reālās tv3.lv sesijas.
   Uzvarētāji automātiski nonāk atpakaļ AI lēmumu kontekstā.</p>
   <table>
-    <tr><th>Sadaļa</th><th>Āķa stils</th><th>Vid. rezultāts</th><th>Ieraksti</th></tr>
+    <tr><th>Sadaļa</th><th>Āķa stils</th><th class="n">Vid. rezultāts</th><th class="n">Ieraksti</th></tr>
     {% for h in hooks %}
     <tr><td>{{ h.section }}</td><td>{{ h.hook }}</td>
-        <td><strong>{{ '%.0f' % h.avg }}</strong></td><td>{{ h.n }}</td></tr>
+        <td class="n"><strong>{{ '%.0f' % h.avg }}</strong></td><td class="n">{{ h.n }}</td></tr>
     {% else %}
     <tr><td colspan="4" class="muted">Vēl nav pietiekami datu — katram āķa stilam
     vajag vismaz 4 izmērītus ierakstus.</td></tr>

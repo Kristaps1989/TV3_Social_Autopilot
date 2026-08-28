@@ -370,38 +370,40 @@ def post_preview(request: Request, post_id: int):
 
 
 @app.get("/stats", response_class=HTMLResponse)
-def stats(request: Request):
+def stats(request: Request, period: str = "7d", section: str = "",
+          date_from: str = "", date_to: str = ""):
+    """Merged analytics: site-wide GA4 explore (periods + filters) and the
+    autopilot's own performance, one page."""
     from app import ga4, priors
 
     session = get_session()
     try:
         channels = config.load_channels()
         summaries = [priors.channel_summary(session, ch) for ch in channels]
+        d = ga4.explore(session, period, section, date_from, date_to)
+        sections_available = sorted(set(
+            (config.load_feeds().get("url_sections") or {}).values()))
         return templates.TemplateResponse(request, "stats.html", {
+            "d": d,
+            "spark": ga4.sparkline(d.get("timeseries") or []),
+            "sections_available": sections_available,
+            "sel_period": period, "sel_section": section,
+            "sel_from": date_from, "sel_to": date_to,
+            "autopilot": ga4.autopilot_contribution(session) if d.get("configured") else [],
             "summaries": summaries,
             "top": priors.top_posts(session, 10),
             "hooks": priors.hook_summary(session),
             "ga4_on": ga4.configured(),
-            "dry_run": runtime.is_dry_run(session),
-        })
-    finally:
-        session.close()
-
-
-@app.get("/portal", response_class=HTMLResponse)
-def portal(request: Request):
-    """Site-wide GA4 dashboard: the whole tv3.lv property (not just
-    autopilot posts) for editorial/strategic decisions."""
-    session = get_session()
-    try:
-        d = ga4.dashboard(session)
-        return templates.TemplateResponse(request, "portal.html", {
-            "d": d,
             "ga4_error": ga4.last_error(),
             "dry_run": runtime.is_dry_run(session),
         })
     finally:
         session.close()
+
+
+@app.get("/portal")
+def portal_redirect():
+    return RedirectResponse("/stats", status_code=308)
 
 
 @app.get("/media/{name}")
@@ -632,7 +634,8 @@ def disconnect_x():
 
 
 @app.post("/connect/ga4")
-def connect_ga4(property_id: str = Form(""), service_account: str = Form("")):
+def connect_ga4(property_id: str = Form(""), service_account: str = Form(""),
+                author_dimension: str = Form("")):
     """Save GA4 settings from the UI. Empty fields keep their current value."""
     import json as _json
     from urllib.parse import quote
@@ -641,6 +644,8 @@ def connect_ga4(property_id: str = Form(""), service_account: str = Form("")):
     try:
         if property_id.strip():
             credentials.put(session, "ga4_property_id", property_id.strip())
+        if author_dimension.strip():
+            credentials.put(session, "ga4_author_dimension", author_dimension.strip())
         sa = service_account.strip()
         if sa:
             try:

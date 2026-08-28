@@ -101,3 +101,34 @@ def test_hook_summary_and_prompt_context(session):
 
     text = priors.prompt_context(session, ["fb_tv3lv"])
     assert "āķu A/B" in text and "question" in text
+
+
+def test_ga4_explore_helpers():
+    from app import ga4
+
+    p = ga4.resolve_period("today")
+    assert p["granularity"] == "hour" and p["prev_start"] == "yesterday"
+    p = ga4.resolve_period("custom", "2026-08-10", "2026-08-01")  # apgriezti datumi
+    assert p["start"] == "2026-08-01" and p["end"] == "2026-08-10"
+    assert p["prev_end"] == "2026-07-31"
+    p = ga4.resolve_period("nezinams")
+    assert p["key"] == "7d"
+
+    spark = ga4.sparkline([{"label": "26.08.", "value": 10},
+                           {"label": "27.08.", "value": 30},
+                           {"label": "28.08.", "value": 20}])
+    assert spark["peak"]["value"] == 30 and spark["last"]["value"] == 20
+    assert len(spark["points"]) == 3
+    assert ga4.sparkline([]) == {}
+
+
+def test_ga4_section_filter_excludes_nested(monkeypatch):
+    from app import config, ga4
+
+    monkeypatch.setattr(config, "load_feeds", lambda: {"url_sections": {
+        "zinas": "news", "sports": "sport", "izklaide": "entertainment"}})
+    f = ga4._section_filter("news")
+    # iekļauj /zinas/ un izslēdz citu sadaļu segmentus (piem. /zinas/sports/)
+    text = str(f)
+    assert "/zinas/" in text and "notExpression" in text and "/sports/" in text
+    assert ga4._section_filter("nezinama") is None
