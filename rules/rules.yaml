@@ -66,6 +66,13 @@ photo_prefer_landscape: true
 # the caption clean — better reach, link still one tap away.
 link_in_first_comment: true
 
+# Dienas limits (channels.yaml daily_cap) ir mīksts: saturs ar AI score
+# >= min_score drīkst to pārsniegt līdz max_factor reizēm. Īstā aizsardzība
+# pret plūsmas pārpludināšanu paliek min_gap_minutes.
+daily_cap_flex:
+  min_score: 0.75
+  max_factor: 1.5
+
 # Learning thresholds: how many measured posts are needed before the
 # system replaces default assumptions with measured behaviour.
 priors:

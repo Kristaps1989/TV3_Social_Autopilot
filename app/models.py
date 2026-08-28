@@ -63,6 +63,9 @@ class Post(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     platform_post_id: Mapped[str] = mapped_column(String(256), default="")
     error: Mapped[str] = mapped_column(Text, default="")
+    # hook style of the copy (question/number/quote/...) — the cross-platform
+    # A/B dimension: same article, different hooks, measured via utm_term
+    hook_type: Mapped[str] = mapped_column(String(16), default="")
     dry_run: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

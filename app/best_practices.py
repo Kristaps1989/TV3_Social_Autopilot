@@ -62,8 +62,9 @@ EMOJI_RE = re.compile(
 SOBER_SENSITIVITIES = {"tragedy", "crime"}
 
 
-def add_utm(url: str, platform: str, post_id: int | str) -> str:
-    """Every outbound link is measurable: utm_content carries the post id."""
+def add_utm(url: str, platform: str, post_id: int | str, hook: str = "") -> str:
+    """Every outbound link is measurable: utm_content carries the post id,
+    utm_term the hook style (the cross-platform A/B dimension)."""
     parsed = urlparse(url)
     query = dict(parse_qsl(parsed.query))
     query.update({
@@ -72,6 +73,8 @@ def add_utm(url: str, platform: str, post_id: int | str) -> str:
         "utm_campaign": "autopilot",
         "utm_content": str(post_id),
     })
+    if hook:
+        query["utm_term"] = hook
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 

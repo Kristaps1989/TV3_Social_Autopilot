@@ -51,3 +51,18 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     models.Base.metadata.create_all(engine)
+    _migrate()
+
+
+def _migrate() -> None:
+    """Additive column migrations — create_all never alters existing tables."""
+    from sqlalchemy import text
+
+    for ddl in (
+        "ALTER TABLE posts ADD COLUMN hook_type VARCHAR(16) DEFAULT ''",
+    ):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+        except Exception:  # noqa: BLE001 — column already exists
+            pass

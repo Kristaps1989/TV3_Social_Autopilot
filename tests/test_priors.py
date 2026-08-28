@@ -74,3 +74,30 @@ def test_prompt_context_mentions_formats(session):
     seed(session, channel="fb_t", n=40, score=25)
     text = priors.prompt_context(session, ["fb_t"])
     assert "fb_t" in text and "link" in text
+
+
+def test_hook_summary_and_prompt_context(session):
+    from datetime import timedelta
+
+    from app import priors
+    from app.models import Article, Post, PostMetrics, utcnow
+
+    a = Article(guid="hk-1", url="u", canonical_url="u", title="T", section="news")
+    session.add(a)
+    session.flush()
+    for hook, score in (("question", 40), ("fact", 10)):
+        for i in range(4):
+            p = Post(article_id=a.id, channel="fb_tv3lv", format="photo",
+                     state="published", hook_type=hook,
+                     published_at=utcnow() - timedelta(days=1, hours=i))
+            session.add(p)
+            session.flush()
+            session.add(PostMetrics(post_id=p.id, ga_sessions=score + i))
+    session.commit()
+
+    hooks = priors.hook_summary(session)
+    assert [h["hook"] for h in hooks] == ["question", "fact"]  # sorted by avg
+    assert hooks[0]["n"] == 4
+
+    text = priors.prompt_context(session, ["fb_tv3lv"])
+    assert "āķu A/B" in text and "question" in text

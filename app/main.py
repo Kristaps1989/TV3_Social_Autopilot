@@ -356,6 +356,7 @@ def stats(request: Request):
         return templates.TemplateResponse(request, "stats.html", {
             "summaries": summaries,
             "top": priors.top_posts(session, 10),
+            "hooks": priors.hook_summary(session),
             "ga4_on": ga4.configured(),
             "dry_run": runtime.is_dry_run(session),
         })

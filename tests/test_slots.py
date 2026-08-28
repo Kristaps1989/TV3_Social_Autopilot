@@ -121,3 +121,45 @@ def test_quiet_hours_avoided(session):
 
     local = slot.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Riga"))
     assert not (1 <= local.hour < 6)
+
+
+def test_daily_cap_flex_for_strong_content(session, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from app import config as cfg_mod
+    from app.models import Article, Post
+    from app.rules_engine import Verdict
+    from app.slots import find_slot
+
+    monkeypatch.setattr(cfg_mod, "load_rules", lambda: {
+        "daily_cap_flex": {"min_score": 0.75, "max_factor": 1.5},
+        "similarity_guard": {"window": 0, "threshold": 1.1},
+    })
+    a = Article(guid="cap-1", url="u", canonical_url="u", title="Cits virsraksts",
+                section="news")
+    session.add(a)
+    session.flush()
+    now = datetime(2026, 8, 28, 8, 0)
+    # channel already at its cap of 2 today
+    for i in range(2):
+        session.add(Post(article_id=a.id, channel="fb_c", state="scheduled",
+                         format="photo", scheduled_at=now + timedelta(hours=1 + 3 * i)))
+    session.commit()
+    ch_cfg = {"min_gap_minutes": 30, "daily_cap": 2, "quiet_hours": []}
+    verdict = Verdict(outcome="eligible", reason="", earliest=now, latest=None,
+                      allowed_windows=None)
+
+    weak = find_slot(session, "fb_c", ch_cfg, verdict, "news", "photo",
+                     "Pavisam cits teksts", now, score=0.4)
+    strong = find_slot(session, "fb_c", ch_cfg, verdict, "news", "photo",
+                       "Pavisam cits teksts", now, score=0.9)
+    from zoneinfo import ZoneInfo
+
+    def local_date(dt):
+        return (dt.replace(tzinfo=ZoneInfo("UTC"))
+                .astimezone(ZoneInfo("Europe/Riga")).date())
+
+    assert strong is not None
+    assert local_date(strong) == local_date(now)  # flex cap (3) has room today
+    # normal cap is full for today -> weak content waits for tomorrow
+    assert weak is None or local_date(weak) > local_date(now)

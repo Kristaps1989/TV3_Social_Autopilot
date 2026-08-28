@@ -106,8 +106,21 @@ def run_decisions(session, limit: int = 20) -> int:
                         break
                     candidate += timedelta(hours=1)
 
+            score = float(article.ai_score or 0)
             slot = find_slot(session, channel, cfg, verdict,
-                             article.section, fmt, article.title, now, preferred)
+                             article.section, fmt, article.title, now, preferred,
+                             score=score)
+            late = False
+            if slot is None and verdict.latest is not None:
+                # queue was full inside the status window — a later slot still
+                # beats dropping content the AI decided to publish
+                import dataclasses
+
+                slot = find_slot(session, channel, cfg,
+                                 dataclasses.replace(verdict, latest=None),
+                                 article.section, fmt, article.title, now, preferred,
+                                 score=score)
+                late = slot is not None
             if slot is None:
                 session.add(Evaluation(article_id=article.id, channel=channel,
                                        outcome="blocked",
@@ -136,6 +149,7 @@ def run_decisions(session, limit: int = 20) -> int:
             post = Post(
                 article_id=article.id, channel=channel, format=fmt,
                 copy=copy, hashtags=hashtags, media=media,
+                hook_type=str(ch_dec.get("hook_type") or ""),
                 link_url=article.canonical_url or article.url,
                 scheduled_at=slot, state="scheduled", dry_run=runtime.is_dry_run(session),
             )
@@ -144,6 +158,7 @@ def run_decisions(session, limit: int = 20) -> int:
             session.add(Evaluation(article_id=article.id, channel=channel,
                                    outcome="posted",
                                    reason=f"scheduled {slot:%Y-%m-%d %H:%M} UTC as {fmt}"
+                                          + (" (vēlāk — rinda bija pilna)" if late else "")
                                           + (f" (fixes: {', '.join(fixes)})" if fixes else "")))
             created += 1
         session.commit()
@@ -333,7 +348,8 @@ def publish_due(session) -> int:
         post.attempts += 1
         session.commit()
         try:
-            link = add_utm(post.link_url, platform, post.id) if post.link_url else ""
+            link = (add_utm(post.link_url, platform, post.id, hook=post.hook_type or "")
+                    if post.link_url else "")
             # SocialFlow-style tactic: on FB/IG image posts the link goes into
             # the first comment, keeping the caption clean for reach (on IG
             # caption links aren't clickable at all)

@@ -118,6 +118,21 @@ def channel_summary(session, channel: str) -> dict:
             "measured_curve": hours is not None}
 
 
+def hook_summary(session, min_n: int = 4) -> list[dict]:
+    """Cross-platform A/B result: avg score per hook style (per section),
+    for hooks with at least min_n measured posts."""
+    rows = post_scores(session)
+    by_hook: dict[tuple[str, str], list[float]] = {}
+    for r in rows:
+        hook = (r["post"].hook_type or "").strip()
+        if hook:
+            by_hook.setdefault((r["section"] or "?", hook), []).append(r["score"])
+    out = [{"section": sec, "hook": hook, "n": len(v), "avg": sum(v) / len(v)}
+           for (sec, hook), v in by_hook.items() if len(v) >= min_n]
+    out.sort(key=lambda x: (x["section"], -x["avg"]))
+    return out
+
+
 def top_posts(session, limit: int = 10) -> list[dict]:
     rows = post_scores(session)
     rows.sort(key=lambda r: -r["score"])
@@ -137,4 +152,10 @@ def prompt_context(session, channels: list[str]) -> str:
                     if s["best_hours"] else "")
         if fmt_bits or hour_bit:
             lines.append(f"- {ch}: {fmt_bits}{hour_bit}")
+    hooks = hook_summary(session)
+    if hooks:
+        bits = ", ".join(f"{h['section']}/{h['hook']} vid. {h['avg']:.0f} (n={h['n']})"
+                         for h in hooks[:6])
+        lines.append(f"- āķu A/B rezultāti: {bits} — dod priekšroku uzvarētājiem,"
+                     " bet turpini testēt pārējos")
     return "\n".join(lines)

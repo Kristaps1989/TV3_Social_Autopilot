@@ -61,4 +61,22 @@ tiek izmantoti platformu klikšķi. GA4 sesijas ir precīzākais mērs klikšķi
   <p class="muted">Rezultāts = GA4 sesijas (ja pieejamas), citādi platformas klikšķi.
   Katru pirmdienas rītu kopsavilkums tiek nosūtīts arī uz Slack (ja konfigurēts).</p>
 </div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Āķu A/B testi (starpplatformu)</h2>
+  <p class="muted">AI katram rakstam dažādās platformās apzināti lieto atšķirīgus
+  copy āķu stilus (fakts, skaitlis, jautājums, citāts, steidzamība, ziņkāre);
+  saites nes <code>utm_term</code>, tāpēc rezultātu mēra reālās tv3.lv sesijas.
+  Uzvarētāji automātiski nonāk atpakaļ AI lēmumu kontekstā.</p>
+  <table>
+    <tr><th>Sadaļa</th><th>Āķa stils</th><th>Vid. rezultāts</th><th>Ieraksti</th></tr>
+    {% for h in hooks %}
+    <tr><td>{{ h.section }}</td><td>{{ h.hook }}</td>
+        <td><strong>{{ '%.0f' % h.avg }}</strong></td><td>{{ h.n }}</td></tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">Vēl nav pietiekami datu — katram āķa stilam
+    vajag vismaz 4 izmērītus ierakstus.</td></tr>
+    {% endfor %}
+  </table>
+</div>
 {% endblock %}

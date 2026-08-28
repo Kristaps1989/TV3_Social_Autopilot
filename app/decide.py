@@ -65,6 +65,15 @@ DECISION_TOOL = {
                             "description": "Only for card_carousel: jautājums pēdējai "
                                            "kartītei, kas liek atvērt rakstu.",
                         },
+                        "hook_type": {
+                            "type": "string",
+                            "enum": ["fact", "number", "question", "quote",
+                                     "urgency", "curiosity"],
+                            "description": "Copy āķa stils. Vienam rakstam uz "
+                                           "dažādām platformām lieto ATŠĶIRĪGUS "
+                                           "stilus — tas ir starpplatformu A/B "
+                                           "tests, ko sistēma mēra.",
+                        },
                         "hashtags": {"type": "array", "items": {"type": "string"}},
                         "image_index": {"type": "integer"},
                         "preferred_hour": {"type": "integer", "minimum": 0, "maximum": 23},
@@ -140,6 +149,16 @@ card_points (2-3 punkti). Ne biežāk kā ~2x dienā kanālā.
 
 Formātu mērķis dienā (kopumā, kur saturs tam der): ~1-2 card_carousel un
 ~1-2 reel — neizvēlies visiem rakstiem photo tikai tāpēc, ka tas ir drošākais.
+
+Satura izmantošana: lēmums vienmēr ir tavs (redaktora statuss ir signāls,
+ne pavēle), bet noklusējums ir PUBLICĒT — nepublicēts raksts ir izniekots
+redakcijas darbs. publish=false lieto tikai tiešām nederīgam saturam
+(dublikāts, servisa paziņojums, tukša ziņa) un vienmēr ar konkrētu iemeslu.
+
+Āķu A/B: katram kanālam norādi hook_type un vienam rakstam uz dažādām
+platformām apzināti izmanto dažādus āķu stilus — sistēma mēra, kurš stils
+kurā sadaļā atved vairāk lasītāju, un tu redzēsi rezultātus veiktspējas
+sadaļā zemāk.
 
 Pieņem lēmumu ar record_decision. Ja raksts nav pietiekami interesants
 ('can' statuss ļauj izlaist), atzīmē publish=false ar īsu iemeslu latviski."""

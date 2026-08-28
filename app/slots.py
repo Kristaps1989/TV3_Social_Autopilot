@@ -99,7 +99,8 @@ def violates_diversity(queue: list[Post], candidate_section: str, candidate_form
 
 def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
               section: str, fmt: str, title: str,
-              now: datetime, preferred: datetime | None = None) -> datetime | None:
+              now: datetime, preferred: datetime | None = None,
+              score: float = 0.0) -> datetime | None:
     """Earliest valid slot honouring all constraints; None if nothing fits.
 
     Among the first valid candidates we bias toward high-engagement hours:
@@ -121,6 +122,11 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
 
     min_gap = timedelta(minutes=int(channel_cfg.get("min_gap_minutes", 30)))
     daily_cap = int(channel_cfg.get("daily_cap", 24))
+    # the cap is soft: strong content may exceed it (min_gap remains the
+    # real anti-flood guard) — rules.yaml daily_cap_flex
+    flex = rules.get("daily_cap_flex") or {}
+    if score >= float(flex.get("min_score", 1.01)):
+        daily_cap = int(daily_cap * float(flex.get("max_factor", 1.0)))
     quiet_hours = channel_cfg.get("quiet_hours") or []
 
     start = max(now, verdict.earliest or now, preferred or now)
