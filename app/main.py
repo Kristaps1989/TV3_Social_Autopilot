@@ -358,8 +358,13 @@ def post_preview(request: Request, post_id: int):
                 session.commit()  # keep the probed size cached
             except Exception:  # noqa: BLE001
                 img_portrait = False
+        from app.pipeline import prebranded
+
+        media_prebranded = bool((post.media or [""])[0]
+                                and prebranded(str(post.media[0])))
         return templates.TemplateResponse(request, "preview.html", {
             "post": post, "article": article, "platform": platform,
+            "media_prebranded": media_prebranded,
             "channel_name": cfg.get("display_name", post.channel),
             "full_text": full_text, "link": link,
             "og_image": (article.images or [""])[0] if article else "",

@@ -99,11 +99,17 @@ uzlīmi stāstos, tāpēc attēlā ir redzams tv3.lv aicinājums — šis formā
 zīmolam un sasniedzamībai, ne tiešiem klikšķiem.</p>
 {% endif %}
 {% if post.format in ('photo', 'story') and post.media and post.media[0].startswith('http') %}
+{% if media_prebranded %}
+<p class="muted" style="max-width:520px">Attēls ir gatava photopost grafika ar
+jau iestrādātu virsrakstu — tā apzināti tiek publicēta bez papildu plāksnes
+(noteikums <code>prebranded_image_patterns</code>).</p>
+{% else %}
 <div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">
 ⚠️ Šim ierakstam tiek izmantots <strong>oriģinālais raksta attēls</strong>, nevis
 renderētais tv3.lv noformējums (bez virsraksta plāksnes un CTA). Tā notiek, kad
 attēlu renderētājs (Chromium) nenostrādā — pārbaudi rindu
 «Attēlu renderētājs» lapā <a href="/connect">Konti</a>.</div>
+{% endif %}
 {% endif %}
 {% if post.format == 'link' and img_portrait %}
 <div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">

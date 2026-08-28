@@ -156,3 +156,29 @@ def test_plan_slot_reports_the_blocking_guard(session):
     assert slot is None or isinstance(slot, datetime)
     if slot is None:
         assert "atstarpe" in why or "daudzveidība" in why
+
+
+def test_asap_ignores_ai_preferred_hour(session, monkeypatch):
+    from datetime import timedelta
+
+    from app import config as cfg_mod
+    from app import pipeline
+    from app.models import Article, Post, utcnow
+    from sqlalchemy import select
+
+    monkeypatch.setattr(pipeline, "decide", lambda article, verdicts, s: {
+        "publish": True, "score": {"must": 0.8}, "reason": "t", "labels": [],
+        "sensitivity": [],
+        "channels": [{"channel": "x_tv3zinas", "format": "text_only",
+                      "copy": "Teksts", "preferred_hour": 12}],
+    })
+    a = Article(guid="ph-1", url="https://tv3.lv/ph", canonical_url="https://tv3.lv/ph",
+                title="Ātra ziņa bez attēla", section="news", editor_status="must",
+                published_at=utcnow() - timedelta(minutes=5))
+    session.add(a)
+    session.commit()
+    pipeline.run_decisions(session)
+    p = session.execute(select(Post).where(Post.article_id == a.id)).scalars().first()
+    assert p is not None
+    # asap: iet ārā tūlīt, nevis gaida AI ieteikto 12:00
+    assert p.scheduled_at - utcnow() < timedelta(minutes=30)

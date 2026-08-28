@@ -97,7 +97,12 @@ def run_decisions(session, limit: int = 20) -> int:
             )
 
             preferred = None
-            if isinstance(ch_dec.get("preferred_hour"), int):
+            # asap režīmā AI ieteiktā stunda NEDRĪKST aizkavēt saturu (tā
+            # pārcēla postus uz nākamās dienas pusdienlaiku); to izmanto
+            # tikai optimize režīms
+            asap_mode = str(config.load_rules().get(
+                "scheduling_mode", "asap")).lower() != "optimize"
+            if not asap_mode and isinstance(ch_dec.get("preferred_hour"), int):
                 ph = ch_dec["preferred_hour"]
                 candidate = now.replace(minute=0, second=0, microsecond=0)
                 for _ in range(30):
