@@ -156,6 +156,12 @@ formāts tad automātiski iznāk kā video stāsts ar CTA beigu kadru. Ja video 
 reel ir 10-15 s slideshow (vāks → 2-3 punkti → CTA); tad aizpildi
 card_points (2-3 punkti). Ne biežāk kā ~2x dienā kanālā.
 
+link pret photo: link posts ir galvenais klikšķu formāts (saites kartīte ar
+CTA, un tikai to Facebook var pastiprināt kā maksas traffic reklāmu) —
+izvēlies to ikdienas ziņām. photo lieto, kad attēls pats ir stāsts (spēcīgs
+foto, gatava photopost grafika, emocionāls kadrs); tad saite aiziet
+komentārā.
+
 Formātu mērķis dienā (kopumā, kur saturs tam der): ~1-2 card_carousel un
 ~1-2 reel — neizvēlies visiem rakstiem photo tikai tāpēc, ka tas ir drošākais.
 

@@ -14,7 +14,7 @@ from adapters.base import PublishError
 from app import config, shortlinks
 from app.best_practices import add_utm, assemble_post_text, sanitize_copy
 from app.decide import decide
-from app.formats import choose_format
+from app.formats import choose_format, mix_deficit, recent_format_shares
 from app.models import Article, Evaluation, Post, get_setting, utcnow
 from app.rules_engine import evaluate_all
 from app.slots import plan_slot
@@ -367,10 +367,15 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     fmt = choose_format(session, channel, cfg, article, ai_fmt)
     # A portrait og-image gets butchered by Facebook's 1.91:1 link-card
     # crop (baked-in title plate cut off). Switch to photo: we render our
-    # own correctly sized branded image there.
+    # own correctly sized branded image there. But not when link posts are
+    # below their configured floor — that conversion is what silently turned
+    # the whole feed into photo posts, since most tv3.lv og images are the
+    # portrait photopost graphic.
     if (fmt == "link" and (article.images or [])
             and "photo" in (cfg.get("formats") or [])
-            and config.load_rules().get("portrait_link_to_photo", True)):
+            and config.load_rules().get("portrait_link_to_photo", True)
+            and not mix_deficit(recent_format_shares(session, channel),
+                                cfg.get("format_mix") or {}, ["link"])):
         from app import imageinfo
 
         if imageinfo.orientation(article) == "portrait":

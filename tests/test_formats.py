@@ -65,3 +65,69 @@ def test_entertainment_with_gallery_prefers_album(session):
 def test_no_images_stays_link(session):
     a = art(session, guid="new5")
     assert choose_format(session, "fb_t5", CFG, a) == "link"
+
+
+def test_mix_deficit_picks_the_starved_format():
+    from app.formats import mix_deficit
+
+    # link ir 0% no loga, grīda 0.4 -> tas ir badā
+    assert mix_deficit({"photo": 1.0}, {"link": 0.4}, ["link", "photo"]) == "link"
+    # kad grīda ir sasniegta, izvēli atkal izlemj svari
+    assert mix_deficit({"link": 0.5, "photo": 0.5}, {"link": 0.4},
+                       ["link", "photo"]) is None
+    # formāts, kas šim rakstam neder, netiek piespiests
+    assert mix_deficit({"photo": 1.0}, {"link": 0.4}, ["photo"]) is None
+    # bez konfigurētas grīdas nekas nemainās
+    assert mix_deficit({"photo": 1.0}, {}, ["link", "photo"]) is None
+
+
+def test_photo_saturated_feed_gets_a_link_post(session):
+    """Regresija: photo uzvarēja katrā neizšķirtā un aizņēma visu plūsmu."""
+    from app.formats import choose_format
+    from app.models import Article, Post
+
+    a = Article(guid="mix-1", url="https://tv3.lv/a", canonical_url="https://tv3.lv/a",
+                title="Parasta ziņa", section="news", images=["https://cdn/i.jpg"])
+    session.add(a)
+    session.flush()
+    for fmt in ("photo", "photo", "photo", "link", "link", "link"):
+        session.add(Post(article_id=a.id, channel="fb_mix", format=fmt,
+                         state="published"))
+    session.commit()
+    # photo ir smagāks un to grib arī AI -> bez grīdas tas uzvar
+    cfg = {"formats": ["link", "photo"], "format_weights": {"link": 1.0, "photo": 1.5}}
+    assert choose_format(session, "fb_mix", cfg, a, ai_choice="photo") == "photo"
+    # grīda 0.7 (link šobrīd 0.5) atgriež link postu plūsmā
+    cfg_mix = dict(cfg, format_mix={"link": 0.7})
+    assert choose_format(session, "fb_mix", cfg_mix, a, ai_choice="photo") == "link"
+
+
+def test_portrait_conversion_does_not_eat_the_link_quota(session, monkeypatch):
+    """Portreta og attēls parasti pārslēdz link -> photo, bet ne tad, kad
+    link posti jau ir zem savas grīdas (tieši šī ķēde deva 99% photo)."""
+    from app import imageinfo, pipeline
+    from app.models import Article, Post
+
+    monkeypatch.setattr(imageinfo, "orientation", lambda article: "portrait")
+    a = Article(guid="mix-2", url="https://tv3.lv/b", canonical_url="https://tv3.lv/b",
+                title="Ziņa ar photopost grafiku", section="news",
+                images=["https://cdn/photopost/x.jpg"])
+    session.add(a)
+    session.flush()
+    for _ in range(6):
+        session.add(Post(article_id=a.id, channel="fb_mix2", format="photo",
+                         state="published"))
+    session.commit()
+    cfg = {"formats": ["link", "photo"], "platform": "facebook_page",
+           "format_mix": {"link": 0.4}}
+    fmt, _media = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
+    assert fmt == "link"
+
+    # kad link kvota ir izpildīta, portreta noteikums atkal strādā
+    session.query(Post).delete()
+    for fmt_name in ("link", "link", "link", "photo", "photo", "photo"):
+        session.add(Post(article_id=a.id, channel="fb_mix2", format=fmt_name,
+                         state="published"))
+    session.commit()
+    fmt, _media = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
+    assert fmt == "photo"

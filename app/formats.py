@@ -26,6 +26,13 @@ DEFAULT_FORMAT_WEIGHTS = {
 DIVERSITY_WINDOW = 6
 AI_CHOICE_BONUS = 1.25
 
+# Minimum share of the recent window a format must keep when the channel
+# doesn't configure format_mix. Link posts are the only unit Facebook can
+# amplify as a traffic ad (destination + CTA button live in the post), and
+# they are also the only way the measured-performance loop ever learns what
+# a link post is worth — weights alone let one format crowd the feed out.
+DEFAULT_FORMAT_MIX: dict[str, float] = {}
+
 
 def suitable_formats(article: Article, allowed: list[str]) -> list[str]:
     images = article.images or []
@@ -67,6 +74,22 @@ def recent_format_shares(session, channel: str) -> dict[str, float]:
     return {f: rows.count(f) / len(rows) for f in set(rows)}
 
 
+def mix_deficit(shares: dict[str, float], targets: dict, candidates: list[str]) -> str | None:
+    """The candidate furthest below its configured minimum share, if any.
+
+    A floor beats scoring: without it a format that starts slightly ahead
+    wins every tie, takes the whole feed, and is then the only format with
+    measured data — so it keeps winning.
+    """
+    worst, gap = None, 0.0
+    for fmt in candidates:
+        target = float(targets.get(fmt) or 0)
+        deficit = target - shares.get(fmt, 0.0)
+        if target > 0 and deficit > gap:
+            worst, gap = fmt, deficit
+    return worst
+
+
 def choose_format(session, channel: str, channel_cfg: dict, article: Article,
                   ai_choice: str | None = None) -> str:
     allowed = list(channel_cfg.get("formats") or ["link"])
@@ -76,6 +99,11 @@ def choose_format(session, channel: str, channel_cfg: dict, article: Article,
 
     weights = {**DEFAULT_FORMAT_WEIGHTS, **(channel_cfg.get("format_weights") or {})}
     shares = recent_format_shares(session, channel)
+
+    starved = mix_deficit(shares, {**DEFAULT_FORMAT_MIX,
+                                   **(channel_cfg.get("format_mix") or {})}, candidates)
+    if starved:
+        return starved
 
     # measured sessions-per-post adjusts the configured weights (priors.py)
     from app import priors
