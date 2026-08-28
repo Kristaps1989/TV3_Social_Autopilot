@@ -266,28 +266,33 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
 
 
 def refresh_missing_media(session, post, platform: str) -> None:
-    """Rendered images live on disk; a restart before the volume existed (or
-    a wiped deploy) can orphan the stored paths. Re-render what we can just
-    before publishing so the post still goes out."""
+    """Re-render photo/story media just before publishing when needed:
+    the rendered file was wiped (deploy without the volume), or the stored
+    media is the raw article URL because rendering failed at decision time —
+    a later-recovered renderer then still gets the branded version out."""
     from pathlib import Path
 
-    media = post.media or []
-    missing = [m for m in media
-               if m and not str(m).startswith("http") and not Path(m).exists()]
-    if not missing or post.article is None:
+    if post.article is None or post.format not in ("photo", "story"):
+        # card_carousel and reel can't be regenerated here (the AI's card
+        # points aren't stored on the post) — the adapter fails with a clear
+        # message and the editor can cancel or let the article be re-decided
         return
     article = post.article
+    media = post.media or []
+    current = str(media[0]) if media else ""
+    local_gone = bool(current) and not current.startswith("http") and not Path(current).exists()
+    raw_fallback = current.startswith("http")
+    if not (local_gone or raw_fallback or not media):
+        return
     if post.format == "photo":
         image = photo_base_image(article)
-        if image:
-            post.media = [branded_photo(article, image, platform)]
-    elif post.format == "story":
+        new = [branded_photo(article, image, platform)] if image else []
+    else:
         image = (article.images or [""])[0]
-        post.media = story_media(article, image)
-    # card_carousel and reel can't be regenerated here (the AI's card points
-    # aren't stored on the post) — the adapter will fail with a clear message
-    # and the editor can cancel or let the article be re-decided
-    session.commit()
+        new = story_media(article, image)
+    if new and new != media:
+        post.media = new
+        session.commit()
 
 
 def publish_due(session) -> int:

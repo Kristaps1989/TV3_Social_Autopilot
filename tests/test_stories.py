@@ -161,10 +161,30 @@ def test_refresh_missing_media_regenerates_photo(session, monkeypatch):
     pipeline.refresh_missing_media(session, p, "facebook_page")
     assert p.media == ["data/cards/new.png"]
 
-    # http media is never touched
+    # raw article URL stored as fallback -> re-rendered once the renderer works
     p2 = Post(article_id=a.id, channel="x_tv3zinas", format="photo", copy="x",
               media=["https://tv3.lv/i.jpg"], state="scheduled")
     session.add(p2)
     session.commit()
     pipeline.refresh_missing_media(session, p2, "x")
-    assert p2.media == ["https://tv3.lv/i.jpg"]
+    assert p2.media == ["data/cards/new.png"]
+
+    # story with a raw fallback is re-rendered the same way
+    monkeypatch.setattr(pipeline, "story_media",
+                        lambda article, img: ["data/cards/story_new.png"])
+    p3 = Post(article_id=a.id, channel="fb_stories", format="story", copy="",
+              media=["https://tv3.lv/i.jpg"], state="scheduled")
+    session.add(p3)
+    session.commit()
+    pipeline.refresh_missing_media(session, p3, "facebook_page")
+    assert p3.media == ["data/cards/story_new.png"]
+
+    # renderer still down -> branded_photo returns the same raw URL, unchanged
+    monkeypatch.setattr(pipeline, "branded_photo",
+                        lambda article, img, platform="": "https://tv3.lv/i.jpg")
+    p4 = Post(article_id=a.id, channel="fb_tv3lv", format="photo", copy="x",
+              media=["https://tv3.lv/i.jpg"], state="scheduled")
+    session.add(p4)
+    session.commit()
+    pipeline.refresh_missing_media(session, p4, "facebook_page")
+    assert p4.media == ["https://tv3.lv/i.jpg"]
