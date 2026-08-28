@@ -24,6 +24,7 @@ FPS = 25
 FRAME_SECONDS = 2.8
 MAX_POINTS = 3
 MAX_VIDEO_SECONDS = 45      # reels teaser: pietiek āķim, pārējais rakstā
+STORY_MAX_SECONDS = 30      # video stories: API limits 60 s, labā prakse īsāk
 MAX_VIDEO_BYTES = 300 * 1024 * 1024
 
 # Feed lauki, kuros meklēt raksta videoklipu (tv3.lv/video 9:16 klipi)
@@ -186,10 +187,12 @@ def _has_audio(path: Path) -> bool:
     return "Audio:" in proc.stderr
 
 
-def build_video_reel(video_url: str, out_dir: Path | None = None) -> str:
-    """Real video reel: the article's 9:16 clip, capped at MAX_VIDEO_SECONDS,
+def build_video_reel(video_url: str, out_dir: Path | None = None,
+                     max_seconds: int = MAX_VIDEO_SECONDS) -> str:
+    """Real video reel: the article's 9:16 clip, capped at max_seconds,
     normalised to 1080x1920 H.264/AAC, with the branded CTA end card appended
-    so every reel closes on 'lasi tv3.lv'. Returns the local file path."""
+    so every reel closes on 'lasi tv3.lv'. Returns the local file path.
+    Video stories reuse this with the shorter STORY_MAX_SECONDS cap."""
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"reel_{secrets.token_hex(6)}.mp4"
@@ -200,7 +203,7 @@ def build_video_reel(video_url: str, out_dir: Path | None = None) -> str:
         src = _fetch_video(video_url, workdir / "src.mp4")
         seg0 = workdir / "seg0.mp4"
         _run_ffmpeg([
-            "-i", src, "-t", str(MAX_VIDEO_SECONDS),
+            "-i", src, "-t", str(max_seconds),
             "-vf", ("scale=1080:1920:force_original_aspect_ratio=decrease,"
                     "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,"
                     f"fps={FPS},format=yuv420p"),

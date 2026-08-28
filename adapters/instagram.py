@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import httpx
 
-from adapters.base import Adapter, PublishError, public_image_url
+from adapters.base import Adapter, PublishError, is_video, public_image_url
 from app import credentials
 
 GRAPH = "https://graph.facebook.com/v21.0"
@@ -52,8 +52,13 @@ class InstagramAdapter(Adapter):
                                          "share_to_feed": "true"})
             self._wait_processed(container)
         elif fmt == "story":
-            container = self._container({"media_type": "STORIES",
-                                         "image_url": urls[0]})
+            if is_video(urls[0]):
+                container = self._container({"media_type": "STORIES",
+                                             "video_url": urls[0]})
+                self._wait_processed(container)
+            else:
+                container = self._container({"media_type": "STORIES",
+                                             "image_url": urls[0]})
         elif fmt in ("photo_album", "card_carousel") and len(urls) > 1:
             children = [self._container({"image_url": u, "is_carousel_item": "true"})
                         for u in urls[:10]]

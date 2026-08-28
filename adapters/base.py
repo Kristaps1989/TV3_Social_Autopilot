@@ -14,6 +14,12 @@ class PublishError(Exception):
         self.retryable = retryable
 
 
+def is_video(media: str) -> bool:
+    """Media entries are image paths/URLs except the pipeline's rendered
+    clips (reels, video stories), which are always video files."""
+    return media.split("?")[0].lower().endswith((".mp4", ".mov", ".m4v"))
+
+
 def public_image_url(image: str) -> str:
     """Meta's URL-based upload APIs (Threads, Instagram) only accept public
     URLs — locally rendered images are served by the app's own /media

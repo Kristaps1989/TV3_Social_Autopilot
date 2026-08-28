@@ -151,7 +151,8 @@ saites/foto ieraksts.
 
 Formāts reel (ja kanāls to atbalsta): vertikāls video ar CTA beigu kadru
 "lasi tv3.lv". Ja rakstam IR videoklips, reel izmanto īsto video — dod tam
-priekšroku vizuāliem stāstiem, tas ir spēcīgākais formāts. Ja video nav,
+priekšroku vizuāliem stāstiem, tas ir spēcīgākais formāts; arī story
+formāts tad automātiski iznāk kā video stāsts ar CTA beigu kadru. Ja video nav,
 reel ir 10-15 s slideshow (vāks → 2-3 punkti → CTA); tad aizpildi
 card_points (2-3 punkti). Ne biežāk kā ~2x dienā kanālā.
 

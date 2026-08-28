@@ -281,10 +281,19 @@ def branded_photo(article, image_url: str, platform: str = "") -> str:
 
 
 def story_media(article, image_url: str) -> list[str]:
-    """Vertical branded story image; falls back to the raw article image;
-    empty when there is nothing visual to post."""
-    from app import cards
+    """Vertical story media. An article with a real 9:16 clip becomes a
+    VIDEO story (clip + CTA end card); otherwise the branded story image;
+    falls back to the raw article image; empty when nothing visual exists."""
+    from app import cards, reels
 
+    video = reels.article_video(article)
+    if video and reels.available():
+        try:
+            return [reels.build_video_reel(video,
+                                           max_seconds=reels.STORY_MAX_SECONDS)]
+        except Exception as e:  # noqa: BLE001
+            log.warning("video story failed for article %s: %s", article.id, e)
+            cards.record_render_failure("story", e)
     if cards.renderer_available():
         try:
             # a pre-branded source keeps its own headline; we add only the

@@ -55,11 +55,12 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
 {{ post.hashtags | join(' ') }}{% endif %}{% if platform != 'facebook_page' and link %}
 <a href="{{ link }}">{{ link[:60] }}…</a>{% endif %}</div>
 
+  {% set media_is_video = post.media and post.media[0].split('?')[0].lower().endswith(('.mp4', '.mov', '.m4v')) %}
   {% if post.format == 'card_carousel' and post.media %}
   <div class="carousel">
     {% for m in post.media %}<img src="/media/{{ m | basename }}">{% endfor %}
   </div>
-  {% elif post.format == 'reel' and post.media %}
+  {% elif post.media and (post.format == 'reel' or (post.format == 'story' and media_is_video)) %}
   <video class="story-img" controls muted
          src="{{ post.media[0] if post.media[0].startswith('http') else '/media/' + (post.media[0] | basename) }}"></video>
   {% elif post.format == 'story' and post.media %}
@@ -94,9 +95,10 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
 <strong>pirmais komentārs</strong> (SocialFlow taktika — tīrs apraksts, labāks sasniegs).</p>
 {% endif %}
 {% if post.format == 'story' %}
-<p class="muted" style="max-width:520px">Stāsts (24 h). Meta API neatbalsta saites
-uzlīmi stāstos, tāpēc attēlā ir redzams tv3.lv aicinājums — šis formāts strādā
-zīmolam un sasniedzamībai, ne tiešiem klikšķiem.</p>
+<p class="muted" style="max-width:520px">{% if media_is_video %}Video stāsts (24 h) —
+raksta klips ar tv3.lv CTA beigu kadru.{% else %}Stāsts (24 h).{% endif %}
+Meta API neatbalsta saites uzlīmi stāstos, tāpēc tv3.lv aicinājums ir iestrādāts
+pašā saturā — šis formāts strādā zīmolam un sasniedzamībai, ne tiešiem klikšķiem.</p>
 {% endif %}
 {% if post.format in ('photo', 'story') and post.media and post.media[0].startswith('http') %}
 {% if media_prebranded %}

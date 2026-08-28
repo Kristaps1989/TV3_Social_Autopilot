@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from adapters.base import Adapter, PublishError
+from adapters.base import Adapter, PublishError, is_video
 from app import credentials
 
 GRAPH = "https://graph.facebook.com/v21.0"
@@ -68,9 +68,10 @@ class FacebookPageAdapter(Adapter):
         the article link lands as the first comment."""
         return self._post(f"{post_id}/comments", {"message": message}).get("id", "")
 
-    def _publish_reel(self, video: str, description: str) -> str:
-        """FB Reels three-step flow: start -> binary upload -> finish."""
-        init = self._post(f"{self.page_id}/video_reels", {"upload_phase": "start"})
+    def _upload_video(self, endpoint: str, video: str) -> str:
+        """Shared start -> binary upload phase of the resumable video flow
+        (video_reels and video_stories use the same protocol)."""
+        init = self._post(f"{self.page_id}/{endpoint}", {"upload_phase": "start"})
         video_id = init["video_id"]
         upload_url = (init.get("upload_url")
                       or f"https://rupload.facebook.com/video-upload/v21.0/{video_id}")
@@ -80,17 +81,31 @@ class FacebookPageAdapter(Adapter):
             "offset": "0", "file_size": str(len(payload)),
             "Content-Type": "application/octet-stream"})
         if resp.status_code >= 400:
-            raise PublishError(f"FB reel upload {resp.status_code}: {resp.text[:200]}",
+            raise PublishError(f"FB video upload {resp.status_code}: {resp.text[:200]}",
                                retryable=True)
+        return video_id
+
+    def _publish_reel(self, video: str, description: str) -> str:
+        """FB Reels three-step flow: start -> binary upload -> finish."""
+        video_id = self._upload_video("video_reels", video)
         self._post(f"{self.page_id}/video_reels", {
             "upload_phase": "finish", "video_id": video_id,
             "video_state": "PUBLISHED", "description": description})
         return video_id
 
+    def _publish_video_story(self, video: str) -> str:
+        """FB video story via /video_stories (no caption/description field)."""
+        video_id = self._upload_video("video_stories", video)
+        out = self._post(f"{self.page_id}/video_stories",
+                         {"upload_phase": "finish", "video_id": video_id})
+        return out.get("post_id") or video_id
+
     def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
         if fmt == "reel" and images:
             return self._publish_reel(images[0], text)
         if fmt == "story" and images:
+            if is_video(images[0]):
+                return self._publish_video_story(images[0])
             up = self._upload_photo(images[0], {"published": "false"})
             out = self._post(f"{self.page_id}/photo_stories", {"photo_id": up["id"]})
             return out.get("post_id") or out.get("id", "")

@@ -190,6 +190,132 @@ def test_refresh_missing_media_regenerates_photo(session, monkeypatch):
     assert p4.media == ["https://tv3.lv/i.jpg"]
 
 
+def test_is_video_detection():
+    from adapters.base import is_video
+
+    assert is_video("data/cards/reel_ab12.mp4")
+    assert is_video("https://cdn.tv3.lv/klips.MP4?token=x")
+    assert not is_video("data/cards/story_x.png")
+    assert not is_video("https://tv3.lv/i.jpg")
+
+
+def test_story_media_prefers_real_video(session, monkeypatch):
+    from app import pipeline, reels
+
+    captured = {}
+
+    def fake_build(url, out_dir=None, max_seconds=None):
+        captured.update(url=url, max_seconds=max_seconds)
+        return "data/cards/story_v.mp4"
+
+    monkeypatch.setattr(reels, "available", lambda: True)
+    monkeypatch.setattr(reels, "build_video_reel", fake_build)
+    a = Article(guid="sv-1", url="u", canonical_url="u", title="Video raksts",
+                section="news", images=["https://tv3.lv/i.jpg"],
+                raw_json={"video_url": "https://cdn/klips.mp4"})
+    session.add(a)
+    session.flush()
+    from app.pipeline import story_media
+
+    assert story_media(a, "https://tv3.lv/i.jpg") == ["data/cards/story_v.mp4"]
+    assert captured["url"] == "https://cdn/klips.mp4"
+    # stāstiem īsāks limits nekā reels
+    assert captured["max_seconds"] == reels.STORY_MAX_SECONDS
+
+
+def test_story_media_falls_back_to_image_when_video_fails(session, monkeypatch):
+    from app import cards, pipeline, reels
+
+    monkeypatch.setattr(reels, "available", lambda: True)
+    monkeypatch.setattr(reels, "build_video_reel",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_story",
+                        lambda *a, **k: "data/cards/story_x.png")
+    a = Article(guid="sv-2", url="u", canonical_url="u", title="T", section="news",
+                images=["https://tv3.lv/i.jpg"],
+                raw_json={"video_url": "https://cdn/klips.mp4"})
+    session.add(a)
+    session.flush()
+    assert pipeline.story_media(a, "https://tv3.lv/i.jpg") == ["data/cards/story_x.png"]
+
+
+def test_facebook_video_story_flow(monkeypatch, tmp_path):
+    import httpx
+
+    from adapters import facebook
+
+    monkeypatch.setattr(facebook.credentials, "get",
+                        lambda key, session=None: {"fb_page_id": "520",
+                                                   "fb_page_token": "tok"}.get(key, ""))
+    video = tmp_path / "story.mp4"
+    video.write_bytes(b"mp4-bytes")
+    graph_calls, uploads = [], []
+
+    class R:
+        def __init__(self, status, payload):
+            self.status_code = status
+            self._p = payload
+            self.text = str(payload)
+
+        def json(self):
+            return self._p
+
+    def fake_post(url, data=None, files=None, content=None, headers=None, timeout=None):
+        if "rupload" in url:
+            uploads.append((url, content))
+            return R(200, {"success": True})
+        graph_calls.append((url, dict(data or {})))
+        if data.get("upload_phase") == "start":
+            return R(200, {"video_id": "vs7",
+                           "upload_url": "https://rupload.facebook.com/video-upload/v21.0/vs7"})
+        return R(200, {"success": True, "post_id": "520_777"})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    out = facebook.FacebookPageAdapter().publish(
+        text="", link="", images=[str(video)], fmt="story")
+    assert out == "520_777"
+    assert all("/video_stories" in url for url, _ in graph_calls)
+    assert uploads[0][1] == b"mp4-bytes"
+    assert graph_calls[-1][1] == {"upload_phase": "finish", "video_id": "vs7",
+                                  "access_token": "tok"}
+
+
+def test_instagram_video_story_flow(monkeypatch):
+    import httpx
+
+    from adapters import instagram
+
+    monkeypatch.setattr(instagram.credentials, "get",
+                        lambda key, session=None: {"ig_user_id": "178",
+                                                   "fb_page_token": "tok"}.get(key, ""))
+    calls = []
+
+    class R:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._p = payload
+
+        def json(self):
+            return self._p
+
+    def fake_post(url, data=None, timeout=None):
+        calls.append((url, dict(data)))
+        return R({"id": f"c{len(calls)}"})
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://app.example")
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx, "get",
+                        lambda url, params=None, timeout=None: R({"status_code": "FINISHED"}))
+    out = instagram.InstagramAdapter().publish(
+        text="", link="", images=["/data/cards/story_v.mp4"], fmt="story")
+    assert out == "c2"
+    assert calls[0][1]["media_type"] == "STORIES"
+    assert calls[0][1]["video_url"].endswith("/media/story_v.mp4")
+    assert "image_url" not in calls[0][1]
+
+
 def test_prebranded_images_keep_their_own_headline(session, monkeypatch):
     from app import pipeline
     from app.models import Article
