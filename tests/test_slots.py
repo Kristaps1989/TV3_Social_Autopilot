@@ -163,3 +163,81 @@ def test_daily_cap_flex_for_strong_content(session, monkeypatch):
     assert local_date(strong) == local_date(now)  # flex cap (3) has room today
     # normal cap is full for today -> weak content waits for tomorrow
     assert weak is None or local_date(weak) > local_date(now)
+
+
+def test_asap_mode_takes_first_valid_slot(session, monkeypatch):
+    from datetime import datetime
+
+    from app import config as cfg_mod
+    from app.rules_engine import Verdict
+    from app.slots import plan_slot
+
+    monkeypatch.setattr(cfg_mod, "load_rules", lambda: {"scheduling_mode": "asap"})
+    now = datetime(2026, 8, 28, 10, 3)
+    verdict = Verdict(outcome="eligible", reason="", earliest=now, latest=None,
+                      allowed_windows=[])
+    slot, why = plan_slot(session, "fb_a", {"min_gap_minutes": 45, "daily_cap": 0,
+                                            "quiet_hours": []},
+                          verdict, "news", "photo", "Virsraksts", now)
+    assert slot == datetime(2026, 8, 28, 10, 5)  # nākamais 5 min solis, bez dreifa
+    assert why == ""
+
+
+def test_zero_daily_cap_means_unlimited(session, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from app import config as cfg_mod
+    from app.models import Article, Post
+    from app.rules_engine import Verdict
+    from app.slots import plan_slot
+
+    monkeypatch.setattr(cfg_mod, "load_rules", lambda: {"scheduling_mode": "asap"})
+    a = Article(guid="cap-u", url="u", canonical_url="u", title="Cits", section="news")
+    session.add(a)
+    session.flush()
+    now = datetime(2026, 8, 28, 8, 0)
+    for i in range(30):  # tālu pāri jebkuram vecajam limitam
+        session.add(Post(article_id=a.id, channel="fb_u", state="scheduled",
+                         format="photo",
+                         scheduled_at=now - timedelta(hours=7) + timedelta(minutes=16 * i)))
+    session.commit()
+    verdict = Verdict(outcome="eligible", reason="", earliest=now, latest=None,
+                      allowed_windows=[])
+    slot, _ = plan_slot(session, "fb_u", {"min_gap_minutes": 15, "daily_cap": 0,
+                                          "quiet_hours": []},
+                        verdict, "news", "photo", "Pavisam cits", now)
+    assert slot is not None
+
+
+def test_story_per_section_daily_cap(session, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from app import config as cfg_mod
+    from app.models import Article, Post
+    from app.rules_engine import Verdict
+    from app.slots import plan_slot
+
+    monkeypatch.setattr(cfg_mod, "load_rules", lambda: {"scheduling_mode": "asap"})
+    now = datetime(2026, 8, 28, 8, 0)
+    for i in range(2):
+        art = Article(guid=f"st-{i}", url=f"u{i}", canonical_url=f"u{i}",
+                      title=f"Ziņa {i}", section="news")
+        session.add(art)
+        session.flush()
+        session.add(Post(article_id=art.id, channel="fb_st", state="scheduled",
+                         format="story", scheduled_at=now + timedelta(hours=1 + 3 * i)))
+    session.commit()
+    cfg = {"min_gap_minutes": 120, "daily_cap": 6, "daily_cap_per_section": 2,
+           "quiet_hours": []}
+    verdict = Verdict(outcome="eligible", reason="", earliest=now,
+                      latest=now + timedelta(hours=8), allowed_windows=[])
+
+    slot_news, why = plan_slot(session, "fb_st", cfg, verdict, "news", "story",
+                               "Trešā ziņa", now)
+    # trešais news stāsts šodien neiederas — sadaļas limits tur arī deadline rezervē
+    assert slot_news is None
+    assert "sadaļas dienas limits" in why
+
+    slot_sport, _ = plan_slot(session, "fb_st", cfg, verdict, "sport", "story",
+                              "Sporta stāsts", now)
+    assert slot_sport is not None  # cita sadaļa vēl brīva

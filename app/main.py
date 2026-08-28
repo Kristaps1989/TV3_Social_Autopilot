@@ -222,7 +222,7 @@ def dashboard(request: Request):
                 "upcoming": upcoming,
                 "recent": recent,
                 "today_count": len(published_today),
-                "daily_cap": (cfg or {}).get("daily_cap", "—"),
+                "daily_cap": ((cfg or {}).get("daily_cap") or "∞"),
             })
         return templates.TemplateResponse(request, "dashboard.html", {
             "channels": channel_data,

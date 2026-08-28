@@ -56,6 +56,12 @@ def _daily_count(queue: list[Post], local_day, tz) -> int:
                if p.scheduled_at and _local(p.scheduled_at).date() == local_day)
 
 
+def _daily_count_section(queue: list[Post], local_day, section: str) -> int:
+    return sum(1 for p in queue
+               if p.scheduled_at and _local(p.scheduled_at).date() == local_day
+               and (p.article.section if p.article else "") == section)
+
+
 def violates_similarity(session, channel: str, title: str, rules: dict,
                         queue: list[Post] | None = None,
                         slot: datetime | None = None) -> bool:
@@ -133,13 +139,19 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
 
     hour_weights = priors.channel_hour_weights(session, channel) or DEFAULT_HOUR_WEIGHTS
 
+    # asap (default): news-portal mode — first valid slot wins, freshness
+    # beats hour optimisation and the diversity guard never delays content.
+    # optimize: drift toward measured strong hours + slot-level diversity
+    # (flip in rules.yaml scheduling_mode once GA4 data justifies it).
+    asap = str(rules.get("scheduling_mode", "asap")).lower() != "optimize"
     min_gap = timedelta(minutes=int(channel_cfg.get("min_gap_minutes", 30)))
-    daily_cap = int(channel_cfg.get("daily_cap", 24))
+    daily_cap = int(channel_cfg.get("daily_cap") or 0)  # 0/missing = unlimited
     # the cap is soft: strong content may exceed it (min_gap remains the
     # real anti-flood guard) — rules.yaml daily_cap_flex
     flex = rules.get("daily_cap_flex") or {}
-    if score >= float(flex.get("min_score", 1.01)):
+    if daily_cap and score >= float(flex.get("min_score", 1.01)):
         daily_cap = int(daily_cap * float(flex.get("max_factor", 1.0)))
+    per_section_cap = int(channel_cfg.get("daily_cap_per_section") or 0)
     quiet_hours = channel_cfg.get("quiet_hours") or []
 
     start = max(now, verdict.earliest or now, preferred or now)
@@ -163,9 +175,13 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         for p in queue:
             if p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap:
                 return no("minimālā atstarpe — rinda pilna")
-        if _daily_count(queue, local_dt.date(), tz) >= daily_cap:
+        if daily_cap and _daily_count(queue, local_dt.date(), tz) >= daily_cap:
             return no("dienas limits")
-        if violates_diversity(queue, section, fmt, candidate, rules, channel_cfg):
+        if per_section_cap and _daily_count_section(
+                queue, local_dt.date(), section) >= per_section_cap:
+            return no(f"sadaļas dienas limits ({section})")
+        if not asap and violates_diversity(queue, section, fmt, candidate,
+                                           rules, channel_cfg):
             return no("daudzveidība (sadaļu/formātu mikss)")
         if violates_similarity(session, channel, title, rules, queue, candidate):
             return no("līdzīgs ieraksts tuvu šim laikam")
@@ -189,6 +205,8 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         if verdict.latest and candidate > verdict.latest:
             break
         if valid(candidate):
+            if asap:
+                return candidate, ""  # freshness first: publish when ready
             hour = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).hour
             weight = hour_weights.get(hour, 0.5)
             if best is None:
@@ -201,11 +219,18 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         candidate += timedelta(minutes=STEP_MINUTES)
 
     if best is None and verdict.latest:
-        # 'must' deadline at risk: take literally any slot that only respects the gap
+        # deadline at risk: drop the optimisation-level guards, but never the
+        # hard ones — gap, quiet hours and the daily/section caps still hold
         candidate = start
         while candidate <= verdict.latest:
-            if all(not (p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap)
-                   for p in queue):
+            local_dt = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+            if (all(not (p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap)
+                    for p in queue)
+                    and not _quiet(local_dt, quiet_hours)
+                    and not (daily_cap and _daily_count(queue, local_dt.date(), tz)
+                             >= daily_cap)
+                    and not (per_section_cap and _daily_count_section(
+                        queue, local_dt.date(), section) >= per_section_cap)):
                 return candidate, ""
             candidate += timedelta(minutes=STEP_MINUTES)
     if best is not None:

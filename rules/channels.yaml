@@ -7,7 +7,7 @@ fb_tv3lv:
   display_name: "Facebook — tv3.lv"
   feeds: [news_all, entertainment_all, photo_posts]
   min_gap_minutes: 45        # FB punishes rapid-fire posting; 45 min keeps reach healthy
-  daily_cap: 24
+  daily_cap: 0               # 0 = bez dienas limita; atstarpe ir īstā aizsardzība
   quiet_hours: ["01:00-06:00"]
   # Sections this channel accepts (empty = all)
   sections: []
@@ -27,7 +27,8 @@ fb_stories:
   display_name: "Facebook Stories — tv3.lv"
   feeds: [news_all, entertainment_all]
   min_gap_minutes: 120       # stories are a garnish, not a second feed
-  daily_cap: 6
+  daily_cap: 6               # kopējais drošības griests
+  daily_cap_per_section: 2   # ne vairāk kā 2 stāsti dienā no katras sadaļas
   quiet_hours: ["00:00-07:00"]
   sections: []
   formats: [story]           # vertical branded image, published as a Page story
@@ -38,7 +39,7 @@ x_tv3zinas:
   display_name: "X — TV3 Ziņas"
   feeds: [news_all, sport_all]
   min_gap_minutes: 15        # X tolerates higher frequency
-  daily_cap: 40
+  daily_cap: 0               # bez dienas limita
   quiet_hours: ["01:00-06:00"]
   sections: []
   # X link cards no longer show the headline -> photo (branded title
@@ -69,7 +70,7 @@ threads_sport:
   display_name: "Threads — Sports"
   feeds: [sport_all]
   min_gap_minutes: 30
-  daily_cap: 20
+  daily_cap: 0               # bez dienas limita
   quiet_hours: ["00:00-07:00"]
   sections: [sport]
   formats: [link, photo, text_only]

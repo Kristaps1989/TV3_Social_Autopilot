@@ -66,6 +66,15 @@ photo_prefer_landscape: true
 # the caption clean — better reach, link still one tap away.
 link_in_first_comment: true
 
+# Plānošanas režīms:
+#   asap     -> ziņu portāla režīms (noklusējums): publicē, tiklīdz gatavs —
+#               pirmais derīgais laiks uzvar, daudzveidības sargs nekad
+#               neaizkavē saturu (formātu miksu nodrošina formāta izvēle).
+#   optimize -> velk postus uz izmērītajām stiprajām stundām un piemēro
+#               daudzveidības sargu slotu līmenī. Ieslēdz, kad GA4 dati
+#               parādīs, ka laika optimizācija tiešām dod vairāk sesiju.
+scheduling_mode: asap
+
 # Dienas limits (channels.yaml daily_cap) ir mīksts: saturs ar AI score
 # >= min_score drīkst to pārsniegt līdz max_factor reizēm. Īstā aizsardzība
 # pret plūsmas pārpludināšanu paliek min_gap_minutes.
