@@ -352,7 +352,9 @@ def post_preview(request: Request, post_id: int):
         link = add_utm(post.link_url, platform, post.id,
                        hook=post.hook_type or "") if post.link_url else ""
         shown = shortlinks.display_link(post.id, link)
-        full_text = assemble_post_text(post.copy, post.hashtags or [], shown, platform)
+        from app.pipeline import compose_text
+
+        full_text, in_comment = compose_text(post, platform, shown)
         article = post.article
         img_portrait = False
         if article and post.format == "link":
@@ -372,6 +374,7 @@ def post_preview(request: Request, post_id: int):
             "media_prebranded": media_prebranded,
             "channel_name": cfg.get("display_name", post.channel),
             "full_text": full_text, "link": shown, "target_link": link,
+            "link_in_comment": in_comment,
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
         })

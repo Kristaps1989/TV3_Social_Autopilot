@@ -49,11 +49,10 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
     </div>
   </div>
 
-  {% set first_comment = platform == 'facebook_page'
-       and post.format in ('photo', 'photo_album', 'card_carousel') and link %}
+  {% set first_comment = link_in_comment and link %}
   <div class="mock-copy">{{ post.copy }}{% if post.hashtags %}
-{{ post.hashtags | join(' ') }}{% endif %}{% if platform != 'facebook_page' and link %}
-<a href="{{ link }}">{{ link[:60] }}…</a>{% endif %}</div>
+{{ post.hashtags | join(' ') }}{% endif %}{% if link and link in full_text %}
+<a href="{{ link }}">{{ link }}</a>{% endif %}</div>
 
   {% set media_is_video = post.media and post.media[0].split('?')[0].lower().endswith(('.mp4', '.mov', '.m4v')) %}
   {% if post.format == 'card_carousel' and post.media %}
@@ -91,8 +90,10 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
   {% endif %}
 </div>
 {% if first_comment %}
-<p class="muted" style="max-width:520px">Saite automātiski tiks publicēta kā
-<strong>pirmais komentārs</strong> (SocialFlow taktika — tīrs apraksts, labāks sasniegs).</p>
+<p class="muted" style="max-width:520px">Saite ir gan aprakstā, gan
+automātiski tiks publicēta kā <strong>pirmais komentārs</strong> — lasītājam
+viens pieskāriens abos gadījumos, un apraksts ar saiti ir tas, ko var
+pastiprināt maksas kampaņā.</p>
 {% endif %}
 {% if post.format == 'story' %}
 <p class="muted" style="max-width:520px">{% if media_is_video %}Video stāsts (24 h) —

@@ -120,7 +120,8 @@ def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
 def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
               section: str, fmt: str, title: str,
               now: datetime, preferred: datetime | None = None,
-              score: float = 0.0) -> tuple[datetime | None, str]:
+              score: float = 0.0,
+              allow_similar: bool = False) -> tuple[datetime | None, str]:
     """(slot, reason) — earliest valid slot honouring all constraints, and
     when nothing fits, which guard actually blocked it.
 
@@ -183,7 +184,8 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         if not asap and violates_diversity(queue, section, fmt, candidate,
                                            rules, channel_cfg):
             return no("daudzveidība (sadaļu/formātu mikss)")
-        if violates_similarity(session, channel, title, rules, queue, candidate):
+        if not allow_similar and violates_similarity(session, channel, title,
+                                                     rules, queue, candidate):
             return no("līdzīgs ieraksts tuvu šim laikam")
         return True
 

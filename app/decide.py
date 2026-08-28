@@ -165,6 +165,13 @@ komentārā.
 Formātu mērķis dienā (kopumā, kur saturs tam der): ~1-2 card_carousel un
 ~1-2 reel — neizvēlies visiem rakstiem photo tikai tāpēc, ka tas ir drošākais.
 
+Otrais vilnis: dienas spēcīgākajiem rakstiem (score >= 0.75) drīksti pieteikt
+VIENU kanālu DIVAS reizes ar dažādiem formātiem — piem. photo tagad un link
+posts stundu vēlāk. Otrajam ierakstam raksti CITU tekstu un citu hook_type
+(cits leņķis, ne pārfrāzēts tas pats), citādi tas izskatās pēc kļūdas.
+Sistēma ieplāno otro automātiski ar stundas nobīdi. ~1-2 raksti dienā, ne
+vairāk — pārējiem pietiek ar vienu ierakstu.
+
 Satura izmantošana: lēmums vienmēr ir tavs (redaktora statuss ir signāls,
 ne pavēle), bet noklusējums ir PUBLICĒT — nepublicēts raksts ir izniekots
 redakcijas darbs. publish=false lieto tikai tiešām nederīgam saturam

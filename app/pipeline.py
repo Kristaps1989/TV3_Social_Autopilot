@@ -78,16 +78,26 @@ def run_decisions(session, limit: int = 20) -> int:
             if verdict is None or cfg is None or verdict.outcome == "blocked":
                 continue
 
-            # duplicate guard: same article + channel only once
-            dup = session.execute(
+            # One post per article and channel — except the deliberate second
+            # wave: a strong story may go out twice in DIFFERENT formats (the
+            # photo carries the visual, the link post an hour later carries the
+            # clickable card that paid campaigns can amplify).
+            existing = session.execute(
                 select(Post).where(Post.article_id == article.id, Post.channel == channel,
                                    Post.state.in_(("proposed", "scheduled", "publishing",
                                                    "published")))
-            ).scalar_one_or_none()
-            if dup:
+            ).scalars().all()
+            repost_at = repost_offset(article, cfg, existing)
+            if existing and repost_at is None:
                 continue
 
             fmt, card_media = resolve_format(session, channel, cfg, article, ch_dec)
+            if any(p.format == fmt for p in existing):
+                # the second wave only earns its place as a different format
+                session.add(Evaluation(article_id=article.id, channel=channel,
+                                       outcome="blocked",
+                                       reason=f"atkārtojums tajā pašā formātā ({fmt})"))
+                continue
 
             platform = cfg.get("platform", "")
             copy, hashtags, fixes = sanitize_copy(
@@ -96,7 +106,7 @@ def run_decisions(session, limit: int = 20) -> int:
                 platform, article.sensitivity, reserve_link_chars=True,
             )
 
-            preferred = None
+            preferred = repost_at
             # asap režīmā AI ieteiktā stunda NEDRĪKST aizkavēt saturu (tā
             # pārcēla postus uz nākamās dienas pusdienlaiku); to izmanto
             # tikai optimize režīms
@@ -117,7 +127,7 @@ def run_decisions(session, limit: int = 20) -> int:
             score = float(article.ai_score or 0)
             slot, why = plan_slot(session, channel, cfg, verdict,
                                   article.section, fmt, article.title, now, preferred,
-                                  score=score)
+                                  score=score, allow_similar=bool(existing))
             late = False
             if slot is None and verdict.latest is not None:
                 # queue was full inside the status window — a later slot still
@@ -127,7 +137,8 @@ def run_decisions(session, limit: int = 20) -> int:
                 slot, why = plan_slot(session, channel, cfg,
                                       dataclasses.replace(verdict, latest=None),
                                       article.section, fmt, article.title, now,
-                                      preferred, score=score)
+                                      preferred, score=score,
+                                      allow_similar=bool(existing))
                 late = slot is not None
             if slot is None:
                 session.add(Evaluation(article_id=article.id, channel=channel,
@@ -166,6 +177,7 @@ def run_decisions(session, limit: int = 20) -> int:
             session.add(Evaluation(article_id=article.id, channel=channel,
                                    outcome="posted",
                                    reason=f"scheduled {slot:%Y-%m-%d %H:%M} UTC as {fmt}"
+                                          + (" (otrais vilnis)" if existing else "")
                                           + (" (vēlāk — rinda bija pilna)" if late else "")
                                           + (f" (fixes: {', '.join(fixes)})" if fixes else "")))
             created += 1
@@ -413,6 +425,45 @@ def refresh_missing_media(session, post, platform: str) -> None:
         session.commit()
 
 
+def repost_offset(article, cfg: dict, existing: list) -> datetime | None:
+    """When a second post for this article may go out on the channel, or None.
+
+    Deliberate duplication (the competitor pattern: photo first, link post an
+    hour later) is reserved for content the AI rated strongly, capped at one
+    extra post, and only where the channel configures repost_after_minutes.
+    """
+    minutes = int(cfg.get("repost_after_minutes") or 0)
+    if not minutes or len(existing) != 1:
+        return None
+    rules = config.load_rules()
+    if float(article.ai_score or 0) < float(rules.get("repost_min_score", 0.75)):
+        return None
+    first = existing[0].scheduled_at
+    return first + timedelta(minutes=minutes) if first else None
+
+
+def compose_text(post, platform: str, shown_link: str,
+                 rules: dict | None = None) -> tuple[str, bool]:
+    """(post text, whether the link also goes out as the first comment).
+
+    On FB/IG image posts the link goes into the first comment — the
+    SocialFlow tactic. It ALSO stays in the caption (rules.yaml
+    link_in_caption): one tap for the reader either way, and a caption that
+    carries the destination is what Facebook can amplify as a traffic ad.
+    Instagram drops it from the caption on its own (links aren't clickable
+    there), so only the comment carries it.
+    """
+    rules = config.load_rules() if rules is None else rules
+    in_comment = bool(
+        shown_link and platform in ("facebook_page", "instagram")
+        and post.format in ("photo", "photo_album", "card_carousel", "reel")
+        and rules.get("link_in_first_comment", True))
+    in_caption = rules.get("link_in_caption", True) or not in_comment
+    text = assemble_post_text(post.copy, post.hashtags or [],
+                              shown_link if in_caption else "", platform)
+    return text, in_comment
+
+
 def publish_due(session) -> int:
     """Publish posts whose time has come. Cancels posts whose article turned 'dont'."""
     now = utcnow()
@@ -445,15 +496,7 @@ def publish_due(session) -> int:
             # (the full tracked URL still goes to the API as the link target,
             # where only the domain is ever displayed)
             shown = shortlinks.display_link(post.id, link, rules)
-            # SocialFlow-style tactic: on FB/IG image posts the link goes into
-            # the first comment, keeping the caption clean for reach (on IG
-            # caption links aren't clickable at all)
-            first_comment_link = bool(
-                link and platform in ("facebook_page", "instagram")
-                and post.format in ("photo", "photo_album", "card_carousel", "reel")
-                and rules.get("link_in_first_comment", True))
-            text = assemble_post_text(post.copy, post.hashtags or [],
-                                      "" if first_comment_link else shown, platform)
+            text, first_comment_link = compose_text(post, platform, shown, rules)
             adapter = get_adapter(platform)
             post.platform_post_id = adapter.publish(
                 text=text, link=link, images=post.media or [], fmt=post.format)

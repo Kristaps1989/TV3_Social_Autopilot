@@ -71,6 +71,17 @@ photo_prefer_landscape: true
 # the caption clean — better reach, link still one tap away.
 link_in_first_comment: true
 
+# Saite paliek ARĪ aprakstā (ne tikai komentārā): lasītājam viens pieskāriens
+# abos gadījumos, un tikai apraksts ar mērķa saiti ir tas, ko Facebook var
+# pastiprināt kā maksas traffic reklāmu. Instagram to izlaiž pats — tur
+# apraksta saites nav klikšķināmas. false = vecā "tīrā apraksta" taktika.
+link_in_caption: true
+
+# Apzinātā dublēšana (channels.yaml repost_after_minutes): otro ierakstu
+# dabū tikai raksti ar vismaz šādu AI vērtējumu — lai dublējas spēcīgākais
+# saturs, nevis viss.
+repost_min_score: 0.75
+
 # Īsā, zīmolotā saite ierakstu tekstā: pilnā saite ar UTM birkām aizņem
 # trīs rindas un izskatās tehniska, tāpēc lasītājam rādām
 # https://tv3.lv/r/<kods>, kas ar 302 aizved uz to pašu adresi ar tām pašām

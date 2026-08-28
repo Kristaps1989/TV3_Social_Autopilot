@@ -28,6 +28,10 @@ fb_tv3lv:
   # Link posts ir arī vienīgais ieraksta veids, ko Facebook var pastiprināt
   # kā traffic reklāmu (mērķa saite un CTA poga ir pašā ierakstā).
   format_mix: {link: 0.4}
+  # Apzinātā dublēšana: spēcīgākajiem rakstiem AI drīkst pieteikt OTRU
+  # ierakstu šajā pašā kanālā citā formātā (foto tagad, saites posts pēc
+  # stundas). 0 = izslēgts. Slieksni nosaka rules.yaml repost_min_score.
+  repost_after_minutes: 60
 
 fb_stories:
   platform: facebook_page

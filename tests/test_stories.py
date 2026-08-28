@@ -104,7 +104,9 @@ def test_fb_photo_gets_link_in_first_comment(session, monkeypatch):
     assert publish_due(session) == 1
     assert "utm_content" in calls["comment"]        # link went to the comment
     assert calls["comment_on"] == "fake-123"
-    assert "https://" not in calls["text"]           # ...and NOT into the caption
+    # ...and stays in the caption too: one tap either way, and a caption with
+    # the destination is what a paid traffic campaign can amplify
+    assert "utm_content" in calls["text"]
 
 
 def test_fb_uploads_image_bytes_and_clear_error_on_missing_file(monkeypatch, tmp_path):
