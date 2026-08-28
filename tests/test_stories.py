@@ -188,3 +188,36 @@ def test_refresh_missing_media_regenerates_photo(session, monkeypatch):
     session.commit()
     pipeline.refresh_missing_media(session, p4, "facebook_page")
     assert p4.media == ["https://tv3.lv/i.jpg"]
+
+
+def test_prebranded_images_keep_their_own_headline(session, monkeypatch):
+    from app import pipeline
+    from app.models import Article
+
+    a = Article(guid="pb-1", url="u", canonical_url="u", title="Virsraksts",
+                section="news",
+                images=["https://tv3cdn.lv/photopost/2026/abc.jpg"])
+    # photo: the graphic goes out untouched
+    assert pipeline.branded_photo(
+        a, "https://tv3cdn.lv/photopost/2026/abc.jpg") == \
+        "https://tv3cdn.lv/photopost/2026/abc.jpg"
+    assert pipeline.prebranded("https://tv3cdn.lv/photopost/x.png")
+    assert not pipeline.prebranded("https://tv3cdn.lv/uploads/parasts-foto.jpg")
+
+    # story: rendered without the duplicate title plate
+    captured = {}
+
+    def fake_render(title, section, image_url, kicker="", out_dir=None,
+                    with_title=True):
+        captured["with_title"] = with_title
+        return "data/cards/story_x.png"
+
+    monkeypatch.setattr(pipeline.cards if hasattr(pipeline, "cards") else __import__("app.cards", fromlist=["x"]),
+                        "render_story", fake_render, raising=False)
+    from app import cards as cards_mod
+
+    monkeypatch.setattr(cards_mod, "render_story", fake_render)
+    monkeypatch.setattr(cards_mod, "renderer_available", lambda: True)
+    out = pipeline.story_media(a, "https://tv3cdn.lv/photopost/2026/abc.jpg")
+    assert out == ["data/cards/story_x.png"]
+    assert captured["with_title"] is False

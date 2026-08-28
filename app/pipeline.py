@@ -245,6 +245,15 @@ def photo_base_image(article, idx: int = 0) -> str:
     return chosen
 
 
+def prebranded(image_url: str) -> bool:
+    """True for images that already carry a baked-in headline (photopost
+    graphics) — never put the title plate on top of those."""
+    patterns = config.load_rules().get("prebranded_image_patterns")
+    if patterns is None:
+        patterns = ["photopost"]
+    return any(p and p in (image_url or "") for p in patterns)
+
+
 def branded_photo(article, image_url: str, platform: str = "") -> str:
     """Photo posts carry the article image with the tv3.lv title plate
     burned in (rules.yaml photo_title_overlay). Falls back to the raw
@@ -252,6 +261,8 @@ def branded_photo(article, image_url: str, platform: str = "") -> str:
     from app import cards
 
     rules = config.load_rules()
+    if prebranded(image_url):
+        return image_url  # the graphic already has its headline
     if not rules.get("photo_title_overlay", True) or not cards.renderer_available():
         return image_url
     width, height = PHOTO_SIZES.get(platform, (1080, 1080))
@@ -271,7 +282,10 @@ def story_media(article, image_url: str) -> list[str]:
 
     if cards.renderer_available():
         try:
-            return [cards.render_story(article.title, article.section, image_url)]
+            # a pre-branded source keeps its own headline; we add only the
+            # CTA layer (brand chip + poga + tv3.lv) around it
+            return [cards.render_story(article.title, article.section, image_url,
+                                       with_title=not prebranded(image_url))]
         except Exception as e:  # noqa: BLE001
             log.warning("story render failed for article %s: %s", article.id, e)
             cards.record_render_failure("story", e)
@@ -292,6 +306,8 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
             tag = "#" + (article.labels[0].upper().replace(" ", "")
                          if article.labels else article.section.upper())
             image = photo_base_image(article)
+            if prebranded(image):
+                image = ""  # flat section-color cover instead of doubled text
             question = (ch_dec.get("card_end_question")
                         or "Uzzini visu stāstu tv3.lv").strip()
             try:
@@ -319,7 +335,9 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
                   if isinstance(p, str) and p.strip()][:3]
         image = photo_base_image(article)
-        if len(points) >= 2 and image and reels.available():
+        if prebranded(image):
+            image = ""  # reel cover renders its own headline
+        if len(points) >= 2 and reels.available():
             try:
                 media = reels.build_reel(article.title, article.section,
                                          image, points)

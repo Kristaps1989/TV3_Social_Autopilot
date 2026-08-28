@@ -303,7 +303,7 @@ _LINK_ICON = (
 
 
 def build_story_html(title: str, section: str, image_url: str,
-                     kicker: str = "") -> str:
+                     kicker: str = "", with_title: bool = True) -> str:
     """Vertical story (1080x1920) in the tv3.lv style: full-bleed image,
     title plate, CTA. Top/bottom safe zones respected (platform UI)."""
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
@@ -312,6 +312,10 @@ def build_story_html(title: str, section: str, image_url: str,
     bg = (f'background:url({html.escape(image_url, quote=True)}) center/cover, {color};'
           if image_url else f"background:{color};")
     kicker_html = (f'<div class="kick">{esc(kicker or style["kicker"])}</div>')
+    # pre-branded source images (photopost) already carry the headline —
+    # keep only the CTA layer so the text is never doubled
+    plate = (f'<div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>'
+             if with_title else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden; {bg} }}
@@ -337,7 +341,7 @@ def build_story_html(title: str, section: str, image_url: str,
 <div class="story">
   <div class="shade"></div>
   <div class="brand">{_logo(52)}</div>
-  <div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>
+  {plate}
   <div class="cta">Lasi visu rakstā</div>
   <div class="linkpill">{_LINK_ICON}tv3.lv</div>
 </div>
@@ -345,14 +349,16 @@ def build_story_html(title: str, section: str, image_url: str,
 
 
 def render_story(title: str, section: str, image_url: str,
-                 kicker: str = "", out_dir: Path | None = None) -> str:
+                 kicker: str = "", out_dir: Path | None = None,
+                 with_title: bool = True) -> str:
     from playwright.sync_api import sync_playwright
 
     out_dir = Path(out_dir or CARDS_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_t{token}.html"
-    tmp.write_text(build_story_html(title, section, image_url, kicker),
+    tmp.write_text(build_story_html(title, section, image_url, kicker,
+                                    with_title=with_title),
                    encoding="utf-8")
     chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
     try:
