@@ -260,6 +260,7 @@ def branded_photo(article, image_url: str, platform: str = "") -> str:
                                         width=width, height=height)
     except Exception as e:  # noqa: BLE001
         log.warning("share image render failed for article %s: %s", article.id, e)
+        cards.record_render_failure("photo", e)
         return image_url
 
 
@@ -273,6 +274,7 @@ def story_media(article, image_url: str) -> list[str]:
             return [cards.render_story(article.title, article.section, image_url)]
         except Exception as e:  # noqa: BLE001
             log.warning("story render failed for article %s: %s", article.id, e)
+            cards.record_render_failure("story", e)
     return [image_url] if image_url else []
 
 
@@ -298,6 +300,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 return "card_carousel", media
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("card render failed for article %s: %s", article.id, e)
+                cards.record_render_failure("card_carousel", e)
         ai_fmt = None  # fall back to a normal format
     if ai_fmt == "reel" and "reel" in (cfg.get("formats") or []):
         from app import reels
@@ -310,6 +313,9 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 return "reel", [reels.build_video_reel(video)]
             except Exception as e:  # noqa: BLE001
                 log.warning("video reel failed for article %s: %s", article.id, e)
+                from app import cards as _cards
+
+                _cards.record_render_failure("video_reel", e)
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
                   if isinstance(p, str) and p.strip()][:3]
         image = photo_base_image(article)

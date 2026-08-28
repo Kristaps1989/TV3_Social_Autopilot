@@ -497,6 +497,8 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "Attēlu renderētājs (Chromium)": (
                 "strādā ✓" if render_ok
                 else f"NESTRĀDĀ — foto/story bez virsraksta plāksnes: {render_err}"),
+            "Pēdējā renderēšanas kļūda": (cards.last_render_failure()
+                                          or "nav reģistrēta ✓"),
             "Video (ffmpeg)": ("strādā ✓" if reels.ffmpeg_bin()
                                else "nav — reel formāts izslēgts"),
             "META_APP_ID": _env("META_APP_ID"),

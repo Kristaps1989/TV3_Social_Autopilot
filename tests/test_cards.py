@@ -150,3 +150,13 @@ def test_render_cards_real(tmp_path, monkeypatch):
     assert len(paths) == 5
     for p in paths:
         assert os.path.getsize(p) > 10000  # real PNGs, not empty files
+
+
+def test_render_failure_journal(tmp_path, monkeypatch):
+    from app import cards
+
+    monkeypatch.setattr(cards, "CARDS_DIR", tmp_path)
+    assert cards.last_render_failure() == ""
+    cards.record_render_failure("story", RuntimeError("Target crashed"))
+    out = cards.last_render_failure()
+    assert "story" in out and "Target crashed" in out and "RuntimeError" in out

@@ -11,6 +11,7 @@ import html
 import logging
 import os
 import secrets
+from datetime import datetime
 from pathlib import Path
 
 from app import config
@@ -78,17 +79,34 @@ def renderer_check(max_age: float = 600.0) -> tuple[bool, str]:
         _render_check = (now, False, "playwright/Chromium nav instalēts")
         return False, _render_check[2]
     try:
-        from playwright.sync_api import sync_playwright
-
-        chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
-        with sync_playwright() as p:
-            browser = (p.chromium.launch(executable_path=chromium) if chromium
-                       else p.chromium.launch())
-            browser.close()
+        # the real pipeline, not just a launch: render an actual share image
+        out = render_share_image("Diagnostikas tests", "news", "",
+                                 width=200, height=200)
+        Path(out).unlink(missing_ok=True)
         _render_check = (now, True, "")
     except Exception as e:  # noqa: BLE001
-        _render_check = (now, False, str(e)[:300])
+        _render_check = (now, False, f"{type(e).__name__}: {str(e)[:300]}")
     return _render_check[1], _render_check[2]
+
+
+def record_render_failure(context: str, error: Exception) -> None:
+    """Persist the latest real render failure so the Konti page can show it
+    (scheduler-thread failures are otherwise visible only in server logs)."""
+    try:
+        CARDS_DIR.mkdir(parents=True, exist_ok=True)
+        (CARDS_DIR / "last_render_error.txt").write_text(
+            f"{datetime.utcnow():%Y-%m-%d %H:%M} UTC · {context}: "
+            f"{type(error).__name__}: {str(error)[:400]}", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def last_render_failure() -> str:
+    try:
+        path = CARDS_DIR / "last_render_error.txt"
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+    except OSError:
+        return ""
 
 
 # The white corner swoosh is the sponsor area ("SADARBĪBĀ AR ...").
