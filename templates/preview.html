@@ -125,6 +125,14 @@ brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
   <strong>Pilnais teksts, kas tiks publicēts:</strong>
   <pre style="white-space:pre-wrap;background:var(--card);border:1px solid var(--line);
        border-radius:8px;padding:.7rem;font:inherit">{{ full_text }}</pre>
+  {% if target_link and link != target_link %}
+  <p style="margin:.4rem 0 0">Īsā saite <code>{{ link }}</code> ved uz
+    <span style="word-break:break-all">{{ target_link }}</span> (302 pāradresācija —
+    UTM birkas saglabājas, klikšķus skaitām paši).</p>
+  {% endif %}
+  {% if post.short_hits %}
+  <p style="margin:.4rem 0 0"><strong>{{ post.short_hits }}</strong> klikšķi caur īso saiti.</p>
+  {% endif %}
   {% if article %}<a href="/why?url={{ article.canonical_url | urlencode }}">→ Lēmumu vēsture</a>{% endif %}
 </div>
 {% endblock %}

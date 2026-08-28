@@ -172,6 +172,11 @@ def test_asap_ignores_ai_preferred_hour(session, monkeypatch):
         "channels": [{"channel": "x_tv3zinas", "format": "text_only",
                       "copy": "Teksts", "preferred_hour": 12}],
     })
+    # nakts klusuma stundas ir atsevišķs sargs — bez šī tests krīt, kad to
+    # palaiž naktī (slots tad likumīgi aizbīdās uz rītu)
+    channels = {name: {**cfg, "quiet_hours": []}
+                for name, cfg in cfg_mod.load_channels().items()}
+    monkeypatch.setattr(cfg_mod, "load_channels", lambda: channels)
     a = Article(guid="ph-1", url="https://tv3.lv/ph", canonical_url="https://tv3.lv/ph",
                 title="Ātra ziņa bez attēla", section="news", editor_status="must",
                 published_at=utcnow() - timedelta(minutes=5))

@@ -67,6 +67,9 @@ class Post(Base):
     # A/B dimension: same article, different hooks, measured via utm_term
     hook_type: Mapped[str] = mapped_column(String(16), default="")
     dry_run: Mapped[bool] = mapped_column(Boolean, default=True)
+    # clicks counted on our own /r/<code> redirect — the only click number we
+    # get for FB photo posts and for Instagram, where the API reports none
+    short_hits: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

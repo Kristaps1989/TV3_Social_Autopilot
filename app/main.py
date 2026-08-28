@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import auth, config, credentials, ga4, reels, runtime
+from app import auth, config, credentials, ga4, reels, runtime, shortlinks
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -45,8 +45,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="TV3 Social Autopilot", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
-# Pages reachable without a session: healthcheck, the auth pages, and
-# rendered card images (unguessable names; platforms must be able to fetch them).
+# Pages reachable without a session: healthcheck, the auth pages, rendered
+# card images (unguessable names; platforms must be able to fetch them) and
+# the /r/<code> short links, which every reader on Facebook follows.
 PUBLIC_PATHS = {"/health", "/login", "/setup"}
 
 
@@ -55,7 +56,9 @@ async def require_login(request: Request, call_next):
     """The admin UI holds the kill switch and platform tokens — everything
     except /health requires a logged-in session. With no password configured
     yet, every page redirects to the one-time /setup screen."""
-    if request.url.path in PUBLIC_PATHS or request.url.path.startswith("/media/"):
+    if (request.url.path in PUBLIC_PATHS
+            or request.url.path.startswith("/media/")
+            or request.url.path.startswith("/r/")):
         return await call_next(request)
     session = get_session()
     try:
@@ -346,8 +349,10 @@ def post_preview(request: Request, post_id: int):
         platform = cfg.get("platform", "")
         from app.best_practices import add_utm, assemble_post_text
 
-        link = add_utm(post.link_url, platform, post.id) if post.link_url else ""
-        full_text = assemble_post_text(post.copy, post.hashtags or [], link, platform)
+        link = add_utm(post.link_url, platform, post.id,
+                       hook=post.hook_type or "") if post.link_url else ""
+        shown = shortlinks.display_link(post.id, link)
+        full_text = assemble_post_text(post.copy, post.hashtags or [], shown, platform)
         article = post.article
         img_portrait = False
         if article and post.format == "link":
@@ -366,7 +371,7 @@ def post_preview(request: Request, post_id: int):
             "post": post, "article": article, "platform": platform,
             "media_prebranded": media_prebranded,
             "channel_name": cfg.get("display_name", post.channel),
-            "full_text": full_text, "link": link,
+            "full_text": full_text, "link": shown, "target_link": link,
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
         })
@@ -443,6 +448,37 @@ def stats_page(request: Request, path: str, period: str = "7d",
 @app.get("/portal")
 def portal_redirect():
     return RedirectResponse("/stats", status_code=308)
+
+
+@app.get("/r/{code}")
+def short_link(request: Request, code: str):
+    """Public short link: /r/<code> -> the article with the same UTM tags the
+    post would have carried. Fronted by tv3.lv (rules.yaml short_link_base),
+    so readers only ever see a tv3.lv address."""
+    from app.best_practices import add_utm
+    from app.shortlinks import decode, is_bot
+
+    home = "https://tv3.lv/"
+    post_id = decode(code)
+    if post_id is None:
+        return RedirectResponse(home, status_code=302)
+    session = get_session()
+    try:
+        post = session.get(Post, post_id)
+        if post is None or not post.link_url:
+            return RedirectResponse(home, status_code=302)
+        platform = (config.load_channels().get(post.channel) or {}).get("platform", "")
+        target = add_utm(post.link_url, platform, post.id, hook=post.hook_type or "")
+        # carry through whatever the platform appended (fbclid & co)
+        extra = str(request.url.query or "")
+        if extra:
+            target += ("&" if "?" in target else "?") + extra
+        if not is_bot(request.headers.get("user-agent", "")):
+            post.short_hits = (post.short_hits or 0) + 1
+            session.commit()
+        return RedirectResponse(target, status_code=302)
+    finally:
+        session.close()
 
 
 @app.get("/media/{name}")
@@ -544,6 +580,10 @@ def connect(request: Request, error: str = "", connected: str = ""):
                                           or "nav reģistrēta ✓"),
             "Video (ffmpeg)": ("strādā ✓" if reels.ffmpeg_bin()
                                else "nav — reel formāts izslēgts"),
+            "Īsās saites": (
+                f"{shortlinks.base_url()}/<kods> ✓" if shortlinks.base_url()
+                else "izslēgtas — tekstā iet pilnā saite ar UTM "
+                     "(ieslēdz ar short_link_base sadaļā Noteikumi)"),
             "META_APP_ID": _env("META_APP_ID"),
             "META_APP_SECRET": _env("META_APP_SECRET", secret=True),
             "META_LOGIN_CONFIG_ID": _env("META_LOGIN_CONFIG_ID"),

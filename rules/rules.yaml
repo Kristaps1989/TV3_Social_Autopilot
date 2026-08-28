@@ -71,6 +71,15 @@ photo_prefer_landscape: true
 # the caption clean — better reach, link still one tap away.
 link_in_first_comment: true
 
+# Īsā, zīmolotā saite ierakstu tekstā: pilnā saite ar UTM birkām aizņem
+# trīs rindas un izskatās tehniska, tāpēc lasītājam rādām
+# https://tv3.lv/r/<kods>, kas ar 302 aizved uz to pašu adresi ar tām pašām
+# UTM birkām (GA4 attiecinājums nemainās) un ļauj mums skaitīt īstos
+# klikšķus — Facebook foto ierakstiem un Instagram tādu metriku nedod.
+# Tukša vērtība = izslēgts (iet pilnā saite). Lai ieslēgtu, tv3.lv pusē
+# vajag vienu CDN/nginx noteikumu: tv3.lv/r/* -> šīs lietotnes /r/*.
+short_link_base: ""
+
 # Plānošanas režīms:
 #   asap     -> ziņu portāla režīms (noklusējums): publicē, tiklīdz gatavs —
 #               pirmais derīgais laiks uzvar, daudzveidības sargs nekad

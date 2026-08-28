@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from adapters import get_adapter
 from adapters.base import PublishError
-from app import config
+from app import config, shortlinks
 from app.best_practices import add_utm, assemble_post_text, sanitize_copy
 from app.decide import decide
 from app.formats import choose_format
@@ -433,17 +433,22 @@ def publish_due(session) -> int:
         post.attempts += 1
         session.commit()
         try:
+            rules = config.load_rules()
             link = (add_utm(post.link_url, platform, post.id, hook=post.hook_type or "")
                     if post.link_url else "")
+            # what a reader sees: the tv3.lv short link when one is configured
+            # (the full tracked URL still goes to the API as the link target,
+            # where only the domain is ever displayed)
+            shown = shortlinks.display_link(post.id, link, rules)
             # SocialFlow-style tactic: on FB/IG image posts the link goes into
             # the first comment, keeping the caption clean for reach (on IG
             # caption links aren't clickable at all)
             first_comment_link = bool(
                 link and platform in ("facebook_page", "instagram")
                 and post.format in ("photo", "photo_album", "card_carousel", "reel")
-                and config.load_rules().get("link_in_first_comment", True))
+                and rules.get("link_in_first_comment", True))
             text = assemble_post_text(post.copy, post.hashtags or [],
-                                      "" if first_comment_link else link, platform)
+                                      "" if first_comment_link else shown, platform)
             adapter = get_adapter(platform)
             post.platform_post_id = adapter.publish(
                 text=text, link=link, images=post.media or [], fmt=post.format)
@@ -453,7 +458,7 @@ def publish_due(session) -> int:
             published += 1
             if first_comment_link and post.platform_post_id:
                 try:
-                    adapter.comment(post.platform_post_id, link)
+                    adapter.comment(post.platform_post_id, shown)
                 except Exception as e:  # noqa: BLE001 — post stands even if it fails
                     log.warning("first-comment link failed for post %s: %s", post.id, e)
                     post.error = f"comment failed: {e}"
