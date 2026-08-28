@@ -52,7 +52,8 @@ def _parse_dt(value: Any) -> datetime | None:
     return None
 
 
-def derive_section(term_ids: list, hint: str, term_sections: dict) -> str:
+def term_section(term_ids: list, term_sections: dict) -> str:
+    """Section from the term-ID mapping ('' when no term matches)."""
     for tid in term_ids:
         try:
             key = int(tid)
@@ -62,7 +63,11 @@ def derive_section(term_ids: list, hint: str, term_sections: dict) -> str:
             return term_sections[key]
         if str(key) in term_sections:
             return term_sections[str(key)]
-    return hint or "news"
+    return ""
+
+
+def derive_section(term_ids: list, hint: str, term_sections: dict) -> str:
+    return term_section(term_ids, term_sections) or hint or "news"
 
 
 def normalize_json_item(item: dict, feed_name: str, hint: str, term_sections: dict) -> dict:
@@ -79,6 +84,7 @@ def normalize_json_item(item: dict, feed_name: str, hint: str, term_sections: di
     status = str(_first(item, "status", "social_status", "editor_status", default="can")).lower()
     if status not in STATUSES:
         status = "can"
+    from_terms = bool(term_section([str(t) for t in term_ids], term_sections))
     return {
         "guid": str(_first(item, "guid", "id", "post_id", default=url)),
         "url": url,
@@ -93,7 +99,9 @@ def normalize_json_item(item: dict, feed_name: str, hint: str, term_sections: di
         "editor_timeframe": str(_first(item, "timeframe", "social_timeframe")).lower(),
         "section": derive_section(term_ids, hint, term_sections),
         "feed_name": feed_name,
-        "raw_json": item,
+        # _section_src: "terms" is authoritative; "hint" (the feed's default)
+        # may be corrected later by the term mapping or the AI classifier
+        "raw_json": {**item, "_section_src": "terms" if from_terms else "hint"},
     }
 
 
@@ -173,12 +181,18 @@ def upsert_article(session, data: dict) -> tuple[Article, bool, bool]:
     existing.title = data["title"] or existing.title
     existing.lead = data["lead"] or existing.lead
     existing.images = data["images"] or existing.images
+    if data["raw_json"].get("_section_src") == "terms":
+        existing.section = data["section"]  # term mapping beats any earlier guess
     if data["raw_json"]:
         # refresh feed data (e.g. a video URL added later) but keep the
         # underscore-prefixed caches the pipeline stores on the article
-        cached = {k: v for k, v in (existing.raw_json or {}).items()
+        prev = existing.raw_json or {}
+        cached = {k: v for k, v in prev.items()
                   if k.startswith("_") and k not in data["raw_json"]}
-        existing.raw_json = {**data["raw_json"], **cached}
+        merged = {**data["raw_json"], **cached}
+        if prev.get("_section_src") == "terms":
+            merged["_section_src"] = "terms"  # never downgrade to a guess
+        existing.raw_json = merged
     existing.last_seen_at = utcnow()
     if status_changed:
         # A status change means the editor changed their mind: re-decide.

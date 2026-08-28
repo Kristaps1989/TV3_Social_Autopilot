@@ -28,6 +28,12 @@ DECISION_TOOL = {
         "type": "object",
         "properties": {
             "publish": {"type": "boolean"},
+            "section": {
+                "type": "string",
+                "enum": ["news", "sport", "entertainment"],
+                "description": "Raksta PATIESĀ sadaļa pēc satura (feed marķējums "
+                               "mēdz būt kļūdains — NATO ziņas nav izklaide).",
+            },
             "score": {"type": "number", "minimum": 0, "maximum": 1},
             "reason": {"type": "string"},
             "labels": {"type": "array", "items": {"type": "string"}},
@@ -106,7 +112,7 @@ def build_user_prompt(article: Article, verdicts: dict[str, Verdict],
     return f"""Raksts:
 Virsraksts: {article.title}
 Ievads: {article.lead[:600]}
-Sadaļa: {article.section}
+Sadaļa (no feed, var būt kļūdaina — klasificē pats laukā section): {article.section}
 Attēli: {len(article.images or [])}
 Video: {"ir 9:16 videoklips" if (article.raw_json or {}).get("_video_url") or any((article.raw_json or {}).get(k) for k in ("video", "video_url", "videoUrl")) else "nav"}
 Redaktora statuss: {article.editor_status}

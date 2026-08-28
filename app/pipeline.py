@@ -57,6 +57,7 @@ def run_decisions(session, limit: int = 20) -> int:
             continue
 
         decision = decide(article, verdicts, session)
+        maybe_correct_section(article, decision)
 
         if not decision.get("publish"):
             for channel, verdict in verdicts.items():
@@ -147,6 +148,18 @@ def run_decisions(session, limit: int = 20) -> int:
             created += 1
         session.commit()
     return created
+
+
+def maybe_correct_section(article, decision: dict) -> None:
+    """Feed hints mislabel sections (a 'must' feed tagging NATO news as
+    entertainment); the AI classifies from content. A section derived from
+    the term-ID mapping is authoritative and never overridden."""
+    sec = decision.get("section") or ""
+    if (sec in ("news", "sport", "entertainment") and sec != article.section
+            and (article.raw_json or {}).get("_section_src") != "terms"):
+        log.info("section corrected for article %s: %s -> %s",
+                 article.id, article.section, sec)
+        article.section = sec
 
 
 # Best-practice photo sizes: FB feed shows 4:5 uncropped and it takes the

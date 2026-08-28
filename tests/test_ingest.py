@@ -74,3 +74,49 @@ def test_dont_cancels_scheduled_posts(session):
     assert n == 1
     states = sorted(p.state for p in article.posts)
     assert states == ["cancelled", "published"]  # published stays published
+
+
+def test_section_from_terms_beats_hint(session):
+    from app.ingest import normalize_json_item, upsert_article
+
+    term_map = {26336: "news", 3383: "sport"}
+    # must-feed item with unknown terms -> falls back to the feed hint
+    d1 = normalize_json_item(
+        {"id": "s-1", "url": "https://tv3.lv/s1", "title": "NATO ziņa",
+         "term_ids": [58898]}, "photo_posts", "entertainment", term_map)
+    assert d1["section"] == "entertainment"
+    assert d1["raw_json"]["_section_src"] == "hint"
+    article, _, _ = upsert_article(session, d1)
+    assert article.section == "entertainment"
+
+    # same article arrives with a mapped term -> section corrected + locked
+    d2 = normalize_json_item(
+        {"id": "s-1", "url": "https://tv3.lv/s1", "title": "NATO ziņa",
+         "term_ids": [26336]}, "news_all", "news", term_map)
+    assert d2["raw_json"]["_section_src"] == "terms"
+    article, created, _ = upsert_article(session, d2)
+    assert not created
+    assert article.section == "news"
+
+    # a later hint-feed pass never downgrades the term-derived section
+    article, _, _ = upsert_article(session, dict(d1))
+    assert article.section == "news"
+    assert article.raw_json["_section_src"] == "terms"
+
+
+def test_ai_section_correction(session):
+    from app.models import Article
+    from app.pipeline import maybe_correct_section
+
+    a = Article(guid="s-2", url="u", canonical_url="u", title="T",
+                section="entertainment", raw_json={"_section_src": "hint"})
+    maybe_correct_section(a, {"section": "news"})
+    assert a.section == "news"
+
+    maybe_correct_section(a, {"section": "kaut-kas"})  # invalid value ignored
+    assert a.section == "news"
+
+    b = Article(guid="s-3", url="u", canonical_url="u", title="T",
+                section="sport", raw_json={"_section_src": "terms"})
+    maybe_correct_section(b, {"section": "news"})  # terms are authoritative
+    assert b.section == "sport"

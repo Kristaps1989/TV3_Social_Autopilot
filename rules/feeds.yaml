@@ -22,8 +22,9 @@ entertainment_all:
   section_hint: entertainment
   active: false   # enable once the term IDs are confirmed with Artis
 
-# Section derivation: term ID -> section. Extend with the full mapping
-# from Artis (open question #7 in the project plan).
+# Section derivation: term ID -> section. Extend with the FULL mapping from
+# Artis — kamēr ID šeit nav, sekciju nosaka AI pēc satura (vai feed mājiens).
+# Piem., photo_posts feed ID: 58898, 21300, 32543, 108271, 4596, 4657.
 term_sections:
   26336: news
   60119: news
