@@ -7,6 +7,14 @@
 <a href="/connect">Konti</a>, un šī lapa sāks rādīt visa portāla datus.</div>
 {% else %}
 
+{% if ga4_error %}
+<div class="notice err">GA4 API atbildēja ar kļūdu: <code>{{ ga4_error }}</code><br>
+Biežākais cēlonis: Google Cloud projektā nav iespējota <b>Google Analytics Data
+API</b> (console.cloud.google.com → APIs &amp; Services → Library → "Google
+Analytics Data API" → Enable), vai service account e-pastam GA4 īpašumā nav
+Viewer lomas. Pēc labojuma dati parādīsies ~5 min (kešs).</div>
+{% endif %}
+
 <p class="muted" style="max-width:760px">Visa tv3.lv īpašuma dati no GA4 (ne tikai
 autopilota posti). Salīdzinājumi ir <b>slīdošie periodi</b>: pēdējās N dienas pret
 N dienām pirms tam (NvN, MvM, GvG). Dati līdz vakardienai; GA4 apstrāde kavējas

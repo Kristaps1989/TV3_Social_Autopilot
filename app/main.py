@@ -394,8 +394,10 @@ def portal(request: Request):
     autopilot posts) for editorial/strategic decisions."""
     session = get_session()
     try:
+        d = ga4.dashboard(session)
         return templates.TemplateResponse(request, "portal.html", {
-            "d": ga4.dashboard(session),
+            "d": d,
+            "ga4_error": ga4.last_error(),
             "dry_run": runtime.is_dry_run(session),
         })
     finally:

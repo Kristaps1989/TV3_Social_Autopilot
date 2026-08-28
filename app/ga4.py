@@ -135,17 +135,33 @@ def _cached(key: str, build):
     return value
 
 
+_last_error: str = ""
+
+
+def last_error() -> str:
+    """The most recent GA4 API failure, for the UI ('' when healthy)."""
+    return _last_error
+
+
 def _report(prop: str, body: dict) -> dict | None:
+    global _last_error
     try:
         resp = httpx.post(
             f"https://analyticsdata.googleapis.com/v1beta/properties/{prop}:runReport",
             headers={"Authorization": f"Bearer {_token()}"}, json=body, timeout=30)
         if resp.status_code != 200:
             log.warning("GA4 report failed %s: %s", resp.status_code, resp.text[:300])
+            try:
+                msg = resp.json().get("error", {}).get("message", "")
+            except ValueError:
+                msg = ""
+            _last_error = f"HTTP {resp.status_code}: {msg or resp.text[:200]}"
             return None
+        _last_error = ""
         return resp.json()
     except Exception as e:  # noqa: BLE001
         log.warning("GA4 report call failed: %s", e)
+        _last_error = f"{type(e).__name__}: {str(e)[:250]}"
         return None
 
 

@@ -160,3 +160,11 @@ def test_render_failure_journal(tmp_path, monkeypatch):
     cards.record_render_failure("story", RuntimeError("Target crashed"))
     out = cards.last_render_failure()
     assert "story" in out and "Target crashed" in out and "RuntimeError" in out
+
+
+def test_cards_dir_is_absolute():
+    # Chromium opens renders via file:// URIs; Path.as_uri() raises on
+    # relative paths, which silently killed every render in production
+    from app import cards
+
+    assert cards.CARDS_DIR.is_absolute()

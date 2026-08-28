@@ -18,7 +18,11 @@ from app import config
 
 log = logging.getLogger(__name__)
 
-CARDS_DIR = Path(os.environ.get("CARDS_DIR", "data/cards"))
+# Absolute path is load-bearing: Chromium opens the rendered HTML via a
+# file:// URI, and Path.as_uri() raises on relative paths ("relative path
+# can't be expressed as a file URI") — which silently killed every render
+# in production while tests (absolute tmp dirs) kept passing.
+CARDS_DIR = Path(os.environ.get("CARDS_DIR", "data/cards")).resolve()
 
 SECTION_STYLE = {
     "news": {"label": "ZIŅAS", "color": "#a5495a", "kicker": "SKAIDROJUMS"},
@@ -263,7 +267,7 @@ def render_share_image(title: str, section: str, image_url: str,
                        width: int = 1080, height: int = 1080) -> str:
     from playwright.sync_api import sync_playwright
 
-    out_dir = out_dir or CARDS_DIR
+    out_dir = Path(out_dir or CARDS_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_s{token}.html"
@@ -344,7 +348,7 @@ def render_story(title: str, section: str, image_url: str,
                  kicker: str = "", out_dir: Path | None = None) -> str:
     from playwright.sync_api import sync_playwright
 
-    out_dir = out_dir or CARDS_DIR
+    out_dir = Path(out_dir or CARDS_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_t{token}.html"
@@ -372,7 +376,7 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
     """Render carousel cards to PNG files; returns local file paths."""
     from playwright.sync_api import sync_playwright
 
-    out_dir = out_dir or CARDS_DIR
+    out_dir = Path(out_dir or CARDS_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     html_doc = build_cards_html(title, section, tag, points, image_url, end_question)
     token = secrets.token_hex(6)
