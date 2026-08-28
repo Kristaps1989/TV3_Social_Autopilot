@@ -416,7 +416,18 @@ def articles(request: Request):
         rows = session.execute(
             select(Article).order_by(desc(Article.first_seen_at)).limit(60)
         ).scalars().all()
-        return templates.TemplateResponse(request, "articles.html", {"articles": rows})
+        feeds = config.load_feeds()
+        mapped = {str(k) for k in (feeds.get("term_sections") or {})}
+        unmapped: dict[str, int] = {}
+        for a in rows:
+            for tid in a.term_ids or []:
+                if str(tid) not in mapped:
+                    unmapped[str(tid)] = unmapped.get(str(tid), 0) + 1
+        return templates.TemplateResponse(request, "articles.html", {
+            "articles": rows,
+            "unmapped_terms": sorted(unmapped.items(), key=lambda kv: -kv[1])[:20],
+            "url_sections": feeds.get("url_sections") or {},
+        })
     finally:
         session.close()
 

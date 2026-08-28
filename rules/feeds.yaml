@@ -22,7 +22,17 @@ entertainment_all:
   section_hint: entertainment
   active: false   # enable once the term IDs are confirmed with Artis
 
-# Section derivation: term ID -> section. Extend with the FULL mapping from
+# Section derivation, 1. solis: raksta URL ceļa segments -> sadaļa.
+# tv3.lv adresē jau ir CMS sadaļa (/zinas/..., /sports/...), tāpēc tas ir
+# bezmaksas un drošs signāls, kam nav vajadzīgas izmaiņas plūsmā.
+# Uzvar visspecifiskākais segments: /zinas/sports/... -> sport.
+url_sections:
+  zinas: news
+  sports: sport
+  izklaide: entertainment
+  dzivesstils: entertainment
+
+# Section derivation, 2. solis: term ID -> section. Extend with the FULL mapping from
 # Artis — kamēr ID šeit nav, sekciju nosaka AI pēc satura (vai feed mājiens).
 # Piem., photo_posts feed ID: 58898, 21300, 32543, 108271, 4596, 4657.
 term_sections:

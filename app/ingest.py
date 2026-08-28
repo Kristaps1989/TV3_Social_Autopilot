@@ -66,8 +66,30 @@ def term_section(term_ids: list, term_sections: dict) -> str:
     return ""
 
 
-def derive_section(term_ids: list, hint: str, term_sections: dict) -> str:
-    return term_section(term_ids, term_sections) or hint or "news"
+def url_section(url: str, url_sections: dict) -> str:
+    """Section from the article URL path ('' when nothing matches).
+
+    tv3.lv paths carry the CMS section (/zinas/..., /sports/...), so this
+    is a free, deterministic signal that needs no feed changes. The most
+    specific segment wins: /zinas/sports/... -> sport.
+    """
+    if not (url and url_sections):
+        return ""
+    from urllib.parse import urlparse
+
+    found = ""
+    for seg in urlparse(url).path.split("/"):
+        seg = seg.strip().lower()
+        if seg in url_sections:
+            found = url_sections[seg]
+    return found
+
+
+def derive_section(term_ids: list, hint: str, term_sections: dict,
+                   url: str = "", url_sections: dict | None = None) -> str:
+    return (term_section(term_ids, term_sections)
+            or url_section(url, url_sections or {})
+            or hint or "news")
 
 
 def normalize_json_item(item: dict, feed_name: str, hint: str, term_sections: dict) -> dict:
@@ -84,7 +106,13 @@ def normalize_json_item(item: dict, feed_name: str, hint: str, term_sections: di
     status = str(_first(item, "status", "social_status", "editor_status", default="can")).lower()
     if status not in STATUSES:
         status = "can"
-    from_terms = bool(term_section([str(t) for t in term_ids], term_sections))
+    url_sections = config.load_feeds().get("url_sections") or {}
+    if term_section([str(t) for t in term_ids], term_sections):
+        section_src = "terms"
+    elif url_section(url, url_sections):
+        section_src = "url"
+    else:
+        section_src = "hint"
     return {
         "guid": str(_first(item, "guid", "id", "post_id", default=url)),
         "url": url,
@@ -97,11 +125,12 @@ def normalize_json_item(item: dict, feed_name: str, hint: str, term_sections: di
         "published_at": _parse_dt(_first(item, "published_at", "date", "pubDate", "published")),
         "editor_status": status,
         "editor_timeframe": str(_first(item, "timeframe", "social_timeframe")).lower(),
-        "section": derive_section(term_ids, hint, term_sections),
+        "section": derive_section(term_ids, hint, term_sections, url, url_sections),
         "feed_name": feed_name,
-        # _section_src: "terms" is authoritative; "hint" (the feed's default)
-        # may be corrected later by the term mapping or the AI classifier
-        "raw_json": {**item, "_section_src": "terms" if from_terms else "hint"},
+        # _section_src: "terms" and "url" come from the CMS and are
+        # authoritative; "hint" (the feed default) may be corrected later
+        # by the term mapping, the URL path or the AI classifier
+        "raw_json": {**item, "_section_src": section_src},
     }
 
 
@@ -133,9 +162,14 @@ def normalize_rss_entry(entry: Any, feed_name: str, hint: str, term_sections: di
         "published_at": published,
         "editor_status": "can",  # RSS carries no status; the feed URL already filters it
         "editor_timeframe": "",
-        "section": hint or "news",
+        "section": (url_section(url, config.load_feeds().get("url_sections") or {})
+                    or hint or "news"),
         "feed_name": feed_name,
-        "raw_json": {"_video_url": video_url} if video_url else {},
+        "raw_json": {
+            "_section_src": ("url" if url_section(
+                url, config.load_feeds().get("url_sections") or {}) else "hint"),
+            **({"_video_url": video_url} if video_url else {}),
+        },
     }
 
 
@@ -181,8 +215,8 @@ def upsert_article(session, data: dict) -> tuple[Article, bool, bool]:
     existing.title = data["title"] or existing.title
     existing.lead = data["lead"] or existing.lead
     existing.images = data["images"] or existing.images
-    if data["raw_json"].get("_section_src") == "terms":
-        existing.section = data["section"]  # term mapping beats any earlier guess
+    if data["raw_json"].get("_section_src") in ("terms", "url"):
+        existing.section = data["section"]  # CMS signal beats any earlier guess
     if data["raw_json"]:
         # refresh feed data (e.g. a video URL added later) but keep the
         # underscore-prefixed caches the pipeline stores on the article
@@ -191,7 +225,9 @@ def upsert_article(session, data: dict) -> tuple[Article, bool, bool]:
                   if k.startswith("_") and k not in data["raw_json"]}
         merged = {**data["raw_json"], **cached}
         if prev.get("_section_src") == "terms":
-            merged["_section_src"] = "terms"  # never downgrade to a guess
+            merged["_section_src"] = "terms"  # never downgrade to a weaker signal
+        elif prev.get("_section_src") == "url" and merged.get("_section_src") == "hint":
+            merged["_section_src"] = "url"
         existing.raw_json = merged
     existing.last_seen_at = utcnow()
     if status_changed:

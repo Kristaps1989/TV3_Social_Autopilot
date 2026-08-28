@@ -1,21 +1,57 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Pēdējie raksti</h1>
+
 <div class="card">
 <table>
-  <tr><th>Ienācis</th><th>Virsraksts</th><th>Sadaļa</th><th>Statuss</th><th>AI</th><th>Ieraksti</th></tr>
+  <tr><th>Ienācis</th><th>Virsraksts</th><th>Sadaļa</th><th>Tagi (term ID)</th>
+      <th>Statuss</th><th>AI</th><th>Ieraksti</th></tr>
   {% for a in articles %}
+  {% set src = (a.raw_json or {}).get('_section_src') %}
   <tr>
     <td>{{ a.first_seen_at | local }}</td>
     <td><a href="/why?url={{ a.canonical_url | urlencode }}">{{ a.title[:90] }}</a></td>
-    <td>{{ a.section }}</td>
+    <td>{{ a.section }}
+      <span class="muted" style="font-size:.75rem">
+        {%- if src == 'terms' %}(tags){% elif src == 'url' %}(url)
+        {%- elif a.ai_score is not none %}(AI){% else %}(plūsma){% endif %}</span></td>
+    <td class="muted" style="font-size:.78rem">{{ (a.term_ids or []) | join(', ') or '—' }}</td>
     <td>{{ a.editor_status }}</td>
     <td>{% if a.ai_score is not none %}{{ '%.2f' % a.ai_score }}{% else %}—{% endif %}</td>
     <td>{{ a.posts | length }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="6" class="muted">Vēl nav rakstu — gaida pirmo plūsmas ielasi.</td></tr>
+  <tr><td colspan="7" class="muted">Vēl nav rakstu — gaida pirmo plūsmas ielasi.</td></tr>
   {% endfor %}
 </table>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Sadaļu noteikšana</h2>
+  <p class="muted">Secība: <b>raksta tagi</b> (term ID kartējums) → <b>URL ceļš</b> →
+  <b>AI klasifikācija pēc satura</b> → plūsmas noklusējums. Pirmie divi nāk no CMS un
+  ir noteicošie; AI labo tikai tos, kam CMS signāla nav.</p>
+
+  <h3>URL kartējums (Noteikumi → Plūsmas)</h3>
+  <p class="muted">
+    {% for seg, sec in url_sections.items() %}<code>/{{ seg }}/</code> → {{ sec }}{% if not loop.last %} · {% endif %}{% else %}
+    Nav uzstādīts{% endfor %}
+  </p>
+
+  <h3>Nekartētie tagi no plūsmas</h3>
+  {% if unmapped_terms %}
+  <p class="muted">Šie term ID ienāk no plūsmas, bet nav sarakstā
+  <code>term_sections</code>. Pievieno tos sadaļā Noteikumi → Plūsmas, un kategorizācija
+  kļūs deterministiska (bez AI minējuma):</p>
+  <table style="max-width:420px">
+    <tr><th>Term ID</th><th>Rakstos</th></tr>
+    {% for tid, n in unmapped_terms %}
+    <tr><td><code>{{ tid }}</code></td><td>{{ n }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Visi plūsmā redzamie term ID ir kartēti — kategorizācija ir pilnībā
+  deterministiska.</p>
+  {% endif %}
 </div>
 {% endblock %}

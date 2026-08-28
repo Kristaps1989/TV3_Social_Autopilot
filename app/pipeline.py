@@ -209,11 +209,11 @@ def requeue_for_retry(article, now) -> None:
 
 def maybe_correct_section(article, decision: dict) -> None:
     """Feed hints mislabel sections (a 'must' feed tagging NATO news as
-    entertainment); the AI classifies from content. A section derived from
-    the term-ID mapping is authoritative and never overridden."""
+    entertainment); the AI classifies from content. Sections derived from
+    the CMS (term-ID mapping or URL path) are authoritative."""
     sec = decision.get("section") or ""
     if (sec in ("news", "sport", "entertainment") and sec != article.section
-            and (article.raw_json or {}).get("_section_src") != "terms"):
+            and (article.raw_json or {}).get("_section_src") not in ("terms", "url")):
         log.info("section corrected for article %s: %s -> %s",
                  article.id, article.section, sec)
         article.section = sec

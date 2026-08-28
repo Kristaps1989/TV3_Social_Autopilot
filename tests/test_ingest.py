@@ -120,3 +120,39 @@ def test_ai_section_correction(session):
                 section="sport", raw_json={"_section_src": "terms"})
     maybe_correct_section(b, {"section": "news"})  # terms are authoritative
     assert b.section == "sport"
+
+
+def test_url_path_gives_the_section(monkeypatch):
+    from app import config
+    from app.ingest import normalize_json_item, url_section
+
+    url_map = {"zinas": "news", "sports": "sport", "izklaide": "entertainment"}
+    monkeypatch.setattr(config, "load_feeds", lambda: {"url_sections": url_map})
+
+    assert url_section("https://tv3.lv/zinas/latvija/sabiedriba/x/", url_map) == "news"
+    assert url_section("https://tv3.lv/zinas/sports/futbols/x/", url_map) == "sport"
+    assert url_section("https://tv3.lv/video/195340749/", url_map) == ""
+
+    # the must-feed hint said entertainment; the URL says news and wins
+    d = normalize_json_item(
+        {"id": "u-1", "url": "https://tv3.lv/zinas/latvija/nato-raksts/",
+         "title": "NATO"}, "photo_posts", "entertainment", {})
+    assert d["section"] == "news"
+    assert d["raw_json"]["_section_src"] == "url"
+
+    # unmapped path falls back to the feed hint
+    d2 = normalize_json_item(
+        {"id": "u-2", "url": "https://tv3.lv/video/1/", "title": "V"},
+        "photo_posts", "entertainment", {})
+    assert d2["section"] == "entertainment"
+    assert d2["raw_json"]["_section_src"] == "hint"
+
+
+def test_ai_does_not_override_url_section():
+    from app.models import Article
+    from app.pipeline import maybe_correct_section
+
+    a = Article(guid="u-3", url="u", canonical_url="u", title="T",
+                section="news", raw_json={"_section_src": "url"})
+    maybe_correct_section(a, {"section": "entertainment"})
+    assert a.section == "news"
