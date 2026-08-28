@@ -6,6 +6,7 @@ a deploy or restart.
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
+
+log = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Repo defaults (read-only templates); editable copies live under data/ so
@@ -81,8 +84,17 @@ def load_channels() -> dict[str, Any]:
     scheduling, publishing) until the flag is flipped — used to ship
     channel configs ahead of their account connection."""
     channels = _load_yaml(_editable("channels.yaml", RULES_DIR, DEFAULT_RULES_DIR))
-    return {name: cfg for name, cfg in channels.items()
-            if (cfg or {}).get("active", True)}
+    out = {}
+    for name, cfg in channels.items():
+        if not isinstance(cfg, dict):
+            # a mis-indented setting parses as a top-level key; skip it rather
+            # than take down every page that loads the channel list
+            log.warning("channels.yaml: «%s» nav kanāla bloks (%r) — izlaists",
+                        name, cfg)
+            continue
+        if cfg.get("active", True):
+            out[name] = cfg
+    return out
 
 
 def load_feeds() -> dict[str, Any]:
@@ -129,4 +141,10 @@ def validate_editable(kind: str, text: str) -> str | None:
             return f"Invalid YAML: {e}"
         if not isinstance(data, dict):
             return "File must be a YAML mapping (key: value)"
+        if kind == "channels":
+            for name, cfg in data.items():
+                if not isinstance(cfg, dict):
+                    return (f"«{name}» nav kanāla bloks, bet atsevišķa vērtība "
+                            f"({cfg!r}) — visticamāk trūkst atkāpes: kanāla "
+                            f"iestatījumiem jāsākas ar diviem tukšumiem")
     return None

@@ -127,3 +127,25 @@ def test_repost_offset_helper():
     # jau divi ieraksti -> trešā nav
     assert pipeline.repost_offset(strong, {"repost_after_minutes": 60},
                                   existing * 2) is None
+
+
+def test_misindented_channel_setting_is_caught_before_saving():
+    """Nobīdīta rinda YAML pārvērš par atsevišķu kanālu — to noķeram
+    saglabāšanas brīdī, un ielasīšana to izlaiž, nevis krīt."""
+    bad = ("fb_tv3lv:\n"
+           "  platform: facebook_page\n"
+           "  format_mix: {link: 0.4}\n"
+           "repost_after_minutes: 60\n")
+    err = config.validate_editable("channels", bad)
+    assert err and "repost_after_minutes" in err and "atkāpes" in err
+
+    good = bad.replace("\nrepost_after_minutes", "\n  repost_after_minutes")
+    assert config.validate_editable("channels", good) is None
+
+
+def test_load_channels_survives_a_broken_entry(tmp_path, monkeypatch):
+    (tmp_path / "channels.yaml").write_text(
+        "fb_tv3lv:\n  platform: facebook_page\nrepost_after_minutes: 60\n",
+        encoding="utf-8")
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    assert list(config.load_channels()) == ["fb_tv3lv"]
