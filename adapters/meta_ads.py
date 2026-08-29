@@ -118,7 +118,60 @@ class MetaAdsClient:
             params["date_preset"] = "today"
         return self._get(f"{self._act()}/insights", params).get("data", [])
 
-    # --- write side (Phase 1; unused while mode is dry) ------------------
+    # --- write side ------------------------------------------------------
+
+    def create_dark_post(self, message: str, link: str) -> str:
+        """Unpublished page link post — exists only as an ad creative. Page
+        posts need the PAGE token, everything else here runs on the user
+        token."""
+        page_token = credentials.get("fb_page_token")
+        r = httpx.post(f"{GRAPH}/{self.page_id}/feed", timeout=60, data={
+            "message": message, "link": link, "published": "false",
+            "access_token": page_token})
+        if r.status_code >= 400:
+            raise PublishError(f"FB dark post {r.status_code}: {r.text[:200]}",
+                               retryable=r.status_code >= 500)
+        return r.json()["id"]
+
+    def upload_image(self, image: str) -> str:
+        """Local path or URL -> ad account image hash (for asset_feed_spec)."""
+        from adapters.facebook import FacebookPageAdapter
+
+        payload = FacebookPageAdapter._image_bytes(image)
+        r = httpx.post(f"{GRAPH}/{self._act()}/adimages", timeout=120,
+                       data={"access_token": self.token},
+                       files={"source": ("creative.png", payload, "image/png")})
+        if r.status_code >= 400:
+            raise PublishError(f"FB adimage {r.status_code}: {r.text[:200]}",
+                               retryable=r.status_code >= 500)
+        images = r.json().get("images") or {}
+        first = next(iter(images.values()), {})
+        return first.get("hash", "")
+
+    def create_flexible_ad(self, adset_id: str, name: str, link: str,
+                           bodies: list[str], titles: list[str],
+                           image_hashes: list[str]) -> str:
+        """Meta's recommended multi-asset ad (asset_feed_spec): several
+        bodies/titles/images in one ad — the delivery system picks the best
+        combination per person and placement."""
+        spec = {
+            "link_urls": [{"website_url": link}],
+            "bodies": [{"text": b} for b in bodies[:5] if b],
+            "titles": [{"text": t} for t in titles[:5] if t],
+            "images": [{"hash": h} for h in image_hashes[:5] if h],
+            "ad_formats": ["SINGLE_IMAGE"],
+        }
+        creative = self._post(f"{self._act()}/adcreatives", {
+            "name": name,
+            "object_story_spec": json.dumps({"page_id": self.page_id}),
+            "asset_feed_spec": json.dumps(spec),
+        })["id"]
+        return self._post(f"{self._act()}/ads", {
+            "name": name, "adset_id": adset_id,
+            "creative": json.dumps({"creative_id": creative}),
+            "status": "PAUSED",
+        })["id"]
+
 
     def create_campaign(self, name: str, objective: str) -> str:
         """Campaign without its own budget — budgets live on ad sets so the
@@ -129,10 +182,16 @@ class MetaAdsClient:
         })["id"]
 
     def create_adset(self, campaign_id: str, name: str, daily_budget_cents: int,
-                     optimization_goal: str = "LANDING_PAGE_VIEWS") -> str:
+                     optimization_goal: str = "") -> str:
+        """Optimization ladder: landing page views when the site has our
+        pixel (it measures the actual page load), plain link clicks without
+        one — LANDING_PAGE_VIEWS hard-requires a pixel."""
+        pixel = credentials.get("meta_pixel_id")
+        if not optimization_goal:
+            optimization_goal = "LANDING_PAGE_VIEWS" if pixel else "LINK_CLICKS"
         targeting = {"geo_locations": {"countries": ["LV"]},
                      "targeting_automation": {"advantage_audience": 1}}
-        return self._post(f"{self._act()}/adsets", {
+        data = {
             "name": name, "campaign_id": campaign_id,
             "daily_budget": str(int(daily_budget_cents)),
             "billing_event": "IMPRESSIONS",
@@ -140,12 +199,22 @@ class MetaAdsClient:
             "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
             "targeting": json.dumps(targeting),
             "status": "PAUSED",
-        })["id"]
+        }
+        if pixel and optimization_goal in ("LANDING_PAGE_VIEWS", "OFFSITE_CONVERSIONS"):
+            data["promoted_object"] = json.dumps({"pixel_id": pixel})
+        return self._post(f"{self._act()}/adsets", data)["id"]
+
+    def full_post_id(self, platform_post_id: str) -> str:
+        """object_story_id must be pageid_postid; photo posts sometimes store
+        the bare object id."""
+        pid = str(platform_post_id)
+        return pid if "_" in pid else f"{self.page_id}_{pid}"
 
     def create_ad_from_post(self, adset_id: str, name: str,
                             page_post_id: str) -> str:
         """Boost an existing (or dark) page post: the creative is the post
         itself, social proof included."""
+        page_post_id = self.full_post_id(page_post_id)
         creative = self._post(f"{self._act()}/adcreatives", {
             "name": name,
             "object_story_id": page_post_id,

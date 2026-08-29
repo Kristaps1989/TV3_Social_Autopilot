@@ -61,6 +61,7 @@ def _migrate() -> None:
     for ddl in (
         "ALTER TABLE posts ADD COLUMN hook_type VARCHAR(16) DEFAULT ''",
         "ALTER TABLE posts ADD COLUMN short_hits INTEGER DEFAULT 0",
+        "ALTER TABLE ads ADD COLUMN dark_ad_id VARCHAR(64) DEFAULT ''",
     ):
         try:
             with engine.begin() as conn:

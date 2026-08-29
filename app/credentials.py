@@ -41,6 +41,7 @@ ENV_FALLBACK = {
     "x_api_secret": "X_API_SECRET",
     "x_access_token": "X_ACCESS_TOKEN",
     "x_access_secret": "X_ACCESS_TOKEN_SECRET",
+    "x_ads_account_id": "X_ADS_ACCOUNT_ID",
 }
 
 

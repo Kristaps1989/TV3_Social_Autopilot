@@ -43,6 +43,8 @@ class Article(Base):
     sensitivity: Mapped[list] = mapped_column(JSON, default=list)
 
     posts: Mapped[list["Post"]] = relationship(back_populates="article")
+    creative_assets: Mapped[list["CreativeAsset"]] = relationship(
+        back_populates="article")
 
 
 class Post(Base):
@@ -99,12 +101,28 @@ class AdEntry(Base):
     sessions: Mapped[int] = mapped_column(Integer, default=0)      # GA4 paid
     campaign_id: Mapped[str] = mapped_column(String(64), default="")
     adset_id: Mapped[str] = mapped_column(String(64), default="")
-    ad_id: Mapped[str] = mapped_column(String(64), default="")
+    ad_id: Mapped[str] = mapped_column(String(64), default="")       # boost
+    dark_ad_id: Mapped[str] = mapped_column(String(64), default="")  # varianti
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     post: Mapped[Post] = relationship()
     article: Mapped[Article] = relationship()
+
+
+class CreativeAsset(Base):
+    """Planner-uploaded creative (image) attached to an article — used by ad
+    variants when the article has no strong visual of its own."""
+
+    __tablename__ = "creative_assets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("articles.id"), index=True)
+    path: Mapped[str] = mapped_column(String(1024))
+    note: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    article: Mapped[Article] = relationship(back_populates="creative_assets")
 
 
 class Evaluation(Base):

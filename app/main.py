@@ -643,6 +643,7 @@ def connect(request: Request, error: str = "", connected: str = ""):
                                  and ads_acct_row.value else ""),
             "pixel_id": credentials.get("meta_pixel_id", session),
             "ads_issues": ads_issues,
+            "x_ads_account_id": credentials.get("x_ads_account_id", session),
             "error": error, "connected": connected,
         })
     finally:
@@ -1055,9 +1056,11 @@ def connect_threads_callback(request: Request, code: str = "", state: str = "",
 
 
 @app.get("/ads", response_class=HTMLResponse)
-def ads_page(request: Request, saved: str = ""):
+def ads_page(request: Request, saved: str = "", error: str = ""):
     from adapters.meta_ads import MetaAdsClient
     from app import ads
+
+    from app.models import AdEntry
 
     session = get_session()
     try:
@@ -1068,8 +1071,14 @@ def ads_page(request: Request, saved: str = ""):
         else:
             ads_ready, ads_issues = False, [
                 "reklāmu konts nav pieslēgts (Konti → Meta reklāmas)"]
+        live = session.execute(
+            select(AdEntry).where(AdEntry.status.in_(
+                ("awaiting_approval", "active", "paused")))
+            .order_by(AdEntry.updated_at.desc())
+        ).scalars().all()
         return templates.TemplateResponse(request, "ads.html", {
             "s": plan["settings"], "plan": plan, "saved": saved,
+            "error": error, "live": live,
             "ads_ready": ads_ready, "ads_issues": ads_issues,
         })
     finally:
@@ -1081,15 +1090,131 @@ def ads_settings_save(mode: str = Form("off"), daily_budget: float = Form(0.0),
                       brand_share: int = Form(20)):
     from app import ads
 
+    from adapters.meta_ads import MetaAdsClient
+
     session = get_session()
     try:
-        # approve/auto ir 2. fāzes režīmi — tos vēl nevar ieslēgt
-        if mode in ("approve", "auto"):
+        # live režīmi prasa pieslēgtu reklāmu kontu; bez tā paliekam dry
+        if mode in ("approve", "auto") and not MetaAdsClient(session).configured():
             mode = "dry"
         ads.save_settings(session, mode, daily_budget, brand_share)
         if mode != "off":
             ads.sync_entries(session)
         return RedirectResponse("/ads?saved=1", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/ads/{entry_id}/approve")
+def ads_approve(entry_id: int):
+    from urllib.parse import quote
+
+    from adapters.meta_ads import MetaAdsClient
+    from app import ads
+    from app.models import AdEntry
+
+    session = get_session()
+    try:
+        entry = session.get(AdEntry, entry_id)
+        if entry is None or entry.status not in ("awaiting_approval", "planned"):
+            return RedirectResponse("/ads", status_code=303)
+        client = MetaAdsClient(session)
+        if not client.configured():
+            return RedirectResponse("/ads?error=konts+nav+pieslēgts", status_code=303)
+        try:
+            ads.launch_entry(session, client, entry)
+        except Exception as e:  # noqa: BLE001
+            entry.status = "rejected"
+            entry.reason = f"palaišana neizdevās: {e}"
+            session.commit()
+            return RedirectResponse(f"/ads?error={quote(str(e)[:200])}", status_code=303)
+        return RedirectResponse("/ads?saved=1", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/ads/{entry_id}/pause")
+def ads_pause(entry_id: int):
+    from adapters.meta_ads import MetaAdsClient
+    from app.models import AdEntry
+
+    session = get_session()
+    try:
+        entry = session.get(AdEntry, entry_id)
+        if entry and entry.status in ("active", "awaiting_approval"):
+            if entry.adset_id:
+                try:
+                    MetaAdsClient(session).set_status(entry.adset_id, "PAUSED")
+                except Exception as e:  # noqa: BLE001
+                    log.warning("manual pause failed: %s", e)
+            entry.status = "paused" if entry.adset_id else "rejected"
+            entry.reason = "manuāli apturēts"
+            session.commit()
+        return RedirectResponse("/ads", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/ads/{entry_id}/resume")
+def ads_resume(entry_id: int):
+    from adapters.meta_ads import MetaAdsClient
+    from app.models import AdEntry
+
+    session = get_session()
+    try:
+        entry = session.get(AdEntry, entry_id)
+        if entry and entry.status == "paused" and entry.adset_id:
+            try:
+                MetaAdsClient(session).set_status(entry.adset_id, "ACTIVE")
+                entry.status = "active"
+                entry.reason = "manuāli atsākts"
+                session.commit()
+            except Exception as e:  # noqa: BLE001
+                log.warning("resume failed: %s", e)
+        return RedirectResponse("/ads", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/ads/creative")
+async def ads_upload_creative(request: Request):
+    """Plānotāja kreatīvs: attēls, ko piesaistīt rakstam reklāmu variantiem."""
+    from urllib.parse import quote
+
+    from app.cards import CARDS_DIR
+    from app.models import Article, CreativeAsset
+
+    form = await request.form()
+    url = str(form.get("article_url") or "").strip()
+    upload = form.get("image")
+    session = get_session()
+    try:
+        art = session.execute(
+            select(Article).where((Article.canonical_url == url) | (Article.url == url))
+        ).scalars().first()
+        if art is None:
+            return RedirectResponse("/ads?error=rakstu+ar+šādu+URL+neatradu",
+                                    status_code=303)
+        if upload is None or not getattr(upload, "filename", ""):
+            return RedirectResponse("/ads?error=pievieno+attēla+failu", status_code=303)
+        data = await upload.read()
+        if not data:
+            return RedirectResponse("/ads?error=tukšs+fails", status_code=303)
+        import secrets as _secrets
+
+        CARDS_DIR.mkdir(parents=True, exist_ok=True)
+        ext = Path(upload.filename).suffix.lower() or ".png"
+        if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+            return RedirectResponse("/ads?error=atbalstīti+png/jpg/webp",
+                                    status_code=303)
+        path = CARDS_DIR / f"creative_{_secrets.token_hex(6)}{ext}"
+        path.write_bytes(data)
+        session.add(CreativeAsset(article_id=art.id, path=str(path),
+                                  note=upload.filename))
+        session.commit()
+        return RedirectResponse("/ads?saved=1", status_code=303)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"/ads?error={quote(str(e)[:200])}", status_code=303)
     finally:
         session.close()
 
@@ -1122,6 +1247,16 @@ def connect_meta_ads(ad_account_id: str = Form(""), pixel_id: str = Form("")):
         return RedirectResponse("/connect?connected=meta_ads", status_code=303)
     except Exception as e:  # noqa: BLE001
         return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/x-ads")
+def connect_x_ads(ads_account_id: str = Form("")):
+    session = get_session()
+    try:
+        credentials.put(session, "x_ads_account_id", ads_account_id.strip())
+        return RedirectResponse("/connect?connected=x_ads", status_code=303)
     finally:
         session.close()
 

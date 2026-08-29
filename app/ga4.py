@@ -61,6 +61,42 @@ def _token() -> str:
     return creds.token
 
 
+def paid_sessions(session, days: int = 7) -> dict[str, int]:
+    """GA4 sessions from paid social by utm_content (dark ads carry
+    utm_content=a<entry_id>). {} on any failure — ads metrics then rest on
+    Meta's own click counts."""
+    if not configured():
+        return {}
+    prop = property_id()
+    try:
+        resp = httpx.post(
+            f"https://analyticsdata.googleapis.com/v1beta/properties/{prop}:runReport",
+            headers={"Authorization": f"Bearer {_token()}"},
+            json={
+                "dateRanges": [{"startDate": f"{days}daysAgo", "endDate": "today"}],
+                "dimensions": [{"name": "sessionManualAdContent"},
+                               {"name": "sessionSource"}],
+                "metrics": [{"name": "sessions"}],
+                "dimensionFilter": {"filter": {
+                    "fieldName": "sessionSource",
+                    "stringFilter": {"value": "facebook_paid"},
+                }},
+                "limit": 10000,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        log.warning("GA4 paid sessions failed: %s", e)
+        return {}
+    out: dict[str, int] = {}
+    for row in resp.json().get("rows", []):
+        content = row["dimensionValues"][0].get("value", "")
+        if content:
+            out[content] = out.get(content, 0) + int(row["metricValues"][0]["value"])
+    return out
+
+
 def collect(session, days: int = 3) -> int:
     """Pull sessions/pageviews by utm_content for recent days; store as
     PostMetrics rows. Returns number of posts updated."""

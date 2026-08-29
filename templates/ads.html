@@ -5,7 +5,8 @@
 sistēma tikai rāda, ko tā boostotu un par cik — neviens eiro netiek tērēts,
 kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
 
-{% if saved %}<div class="notice ok">Iestatījumi saglabāti</div>{% endif %}
+{% if saved %}<div class="notice ok">Saglabāts</div>{% endif %}
+{% if error %}<div class="notice err">{{ error }}</div>{% endif %}
 
 {% if not ads_ready %}
 <div class="notice err" style="background:#fef3c7;color:#92400e">
@@ -24,8 +25,8 @@ kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
     <label class="muted" style="display:block">Režīms</label>
     <select name="mode">
       {% for m, label in [('off','izslēgts'), ('dry','dry-run — tikai plāns'),
-                          ('approve','ar apstiprinājumu (2. fāze)'),
-                          ('auto','pilnā automātika (2. fāze)')] %}
+                          ('approve','ar apstiprinājumu — katru reklāmu palaid tu'),
+                          ('auto','pilnā automātika')] %}
       <option value="{{ m }}" {% if s.mode == m %}selected{% endif %}
         {% if m in ('approve','auto') and not ads_ready %}disabled{% endif %}>{{ label }}</option>
       {% endfor %}
@@ -65,6 +66,58 @@ kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
   {% else %}
   <p class="muted">Pēdējās 48 h nav neviena boostojama ieraksta.</p>
   {% endif %}
+</div>
+
+{% if live %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Aktīvās un gaidošās reklāmas</h2>
+  <table>
+    <tr><th>Ieraksts</th><th>Statuss</th><th>Budžets/d</th><th>Tērēts</th>
+        <th>Klikšķi</th><th>Sesijas</th><th>€/rez.</th><th></th></tr>
+    {% for e in live %}
+    <tr>
+      <td><a href="/post/{{ e.post_id }}/preview">{{ (e.article.title if e.article else '')[:55] }}</a></td>
+      <td><span class="state {{ 'published' if e.status == 'active' else 'scheduled' }}">{{
+        {'awaiting_approval':'gaida apstiprinājumu','active':'aktīva','paused':'pauzē'}.get(e.status, e.status) }}</span></td>
+      <td class="n">{{ '%.2f' % (e.budget_cents / 100) }} €</td>
+      <td class="n">{{ '%.2f' % (e.spent_cents / 100) }} €</td>
+      <td class="n">{{ e.clicks }}</td>
+      <td class="n">{{ e.sessions }}</td>
+      <td class="n">{% set res = e.sessions or e.clicks %}{{ '%.2f' % (e.spent_cents / 100 / res) if res else '—' }}</td>
+      <td style="white-space:nowrap">
+        {% if e.status == 'awaiting_approval' %}
+        <form method="post" action="/ads/{{ e.id }}/approve" style="display:inline">
+          <button class="primary">Palaist</button></form>
+        {% endif %}
+        {% if e.status in ('active', 'awaiting_approval') %}
+        <form method="post" action="/ads/{{ e.id }}/pause" style="display:inline">
+          <button>Apturēt</button></form>
+        {% elif e.status == 'paused' %}
+        <form method="post" action="/ads/{{ e.id }}/resume" style="display:inline">
+          <button>Atsākt</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">Katra reklāma = viens ad set ar diviem kreatīviem: organiskā
+  ieraksta boost (sociālais pierādījums) + vairāku variantu reklāma
+  (asset_feed_spec — Meta pati izvēlas labāko virsrakstu/attēlu kombināciju).
+  Budžetu reizi dienā pārdala pēc rezultātiem; vājākās tiek apturētas.</p>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Plānotāja kreatīvs</h2>
+  <p class="muted">Ja rakstam nav laba vizuāļa, pievieno savu — reklāmu
+  varianti to izmantos papildus (vai tā vietā) raksta attēlam.</p>
+  <form method="post" action="/ads/creative" enctype="multipart/form-data">
+    <label class="muted" style="display:block">Raksta URL</label>
+    <input type="text" name="article_url" placeholder="https://tv3.lv/...">
+    <label class="muted" style="display:block;margin-top:.4rem">Attēls (png/jpg/webp)</label>
+    <input type="file" name="image" accept=".png,.jpg,.jpeg,.webp">
+    <div style="margin-top:.5rem"><button class="primary">Pievienot</button></div>
+  </form>
 </div>
 
 <div class="card">

@@ -204,6 +204,13 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <button class="danger">Atvienot</button>
     </form>
     {% endif %}
+    <form method="post" action="/connect/x-ads" style="margin-top:.6rem">
+      <label class="muted" style="display:block">X Ads konta ID (nav obligāti —
+        4. fāze; vajag apstiprinātu Ads API piekļuvi)</label>
+      <input type="text" name="ads_account_id" value="{{ x_ads_account_id }}"
+             placeholder="piem. 18ce54d4x5t">
+      <button style="margin-top:.4rem">Saglabāt</button>
+    </form>
     <p class="muted">developer.x.com (pieteikties <b>kā @TV3Zinas</b>) → maksas līmenis →
     App permissions <b>“Read and Write”</b> (jāuzstāda PIRMS Access Token izveides) →
     Keys and tokens → izveido API Key/Secret un Access Token/Secret.</p>
