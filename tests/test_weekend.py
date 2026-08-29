@@ -250,3 +250,32 @@ def test_weekly_ai_report_skips_without_key_and_sends_when_ok(session, monkeypat
     overview.weekly_ai_report(session)
     assert len(sent) == 1 and "pirmdienas apskats" in sent[0]
     assert "Pārcel budžetu" in sent[0]
+
+
+def test_reel_digest_is_exactly_thirty_seconds(session, monkeypatch):
+    from app import reels
+
+    for i in range(5):
+        _article(session, f"rd-{i}", f"Garš virsraksts par notikumu numur {i}",
+                 sessions=100 - i)
+    monkeypatch.setattr(reels, "available", lambda: True)
+    captured = {}
+
+    def fake_build(title, section, image, points, out_dir=None, max_points=3,
+                   frame_seconds=2.8, include_cover=True, include_end=True):
+        captured.update(title=title, points=points, frame_seconds=frame_seconds,
+                        cover=include_cover, end=include_end,
+                        total=len(points[:max_points]) * frame_seconds
+                              + (frame_seconds if include_cover else 0)
+                              + (frame_seconds if include_end else 0))
+        return "data/cards/digest.mp4"
+
+    monkeypatch.setattr(reels, "build_reel", fake_build)
+    post = weekend.build_reel_digest(session, SAT.date())
+    assert post is not None and "30 sekundēs" in post.copy
+    assert captured["title"] == "Nedēļa 30 sekundēs"
+    # 5 kadri × 6 s, bez vāka un beigu kadra = precīzi 30 s
+    assert captured["frame_seconds"] == 6.0
+    assert not captured["cover"] and not captured["end"]
+    assert len(captured["points"]) == 5
+    assert captured["total"] == 30.0

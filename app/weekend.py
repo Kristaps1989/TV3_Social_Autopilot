@@ -3,7 +3,7 @@ tāpēc sistēma no jau izmērītā satura uzbūvē svaigus ierakstus.
 
 Pieci formāti, katrs ar savu slēdzi (Pārskata lapā):
   top5       — «Nedēļas TOP 5» karuselis (sestdien sports, svētdien kopējais)
-  reel       — «Nedēļa 90 sekundēs» slaidrādes reels no TOP virsrakstiem
+  reel       — «Nedēļa 30 sekundēs» slaidrādes reels no TOP virsrakstiem
   icymi      — «Nedēļas nepamanītais stāsts»: labs raksts, kam pirmajā reizē
                klājās vāji, saņem vienu atkārtojumu ar citu leņķi
   quiz       — nedēļas kvīza karuselis (jautājums kartītē, atbilde rakstā)
@@ -199,13 +199,18 @@ def build_reel_digest(session, day) -> Post | None:
     if len(articles) < 3 or not reels.available():
         return None
     points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
-    title = "Nedēļa 90 sekundēs"
+    title = "Nedēļa 30 sekundēs"
     try:
-        media = [reels.build_reel(title, "news", "", points, max_points=5)]
+        # 5 punktu kadri pa 6 sekundēm = precīzi 30 s; bez atsevišķa vāka
+        # un beigu kadra — tv3.lv poga un zīmols ir katrā kadrā, un
+        # nosaukums tad nemelo par garumu
+        media = [reels.build_reel(title, "news", "", points, max_points=5,
+                                  frame_seconds=6.0, include_cover=False,
+                                  include_end=False)]
     except Exception as e:  # noqa: BLE001
         log.warning("reel digest failed: %s", e)
         return None
-    copy = ("Nedēļa 90 sekundēs — pieci notikumi, par kuriem runāja Latvija. "
+    copy = ("Nedēļa 30 sekundēs — pieci notikumi, par kuriem runāja Latvija. "
             "Pilnie stāsti portālā tv3.lv.")
     return _schedule(session, _digest_article(
         session, f"digest-reel-{day.isoformat()}", title, "news",

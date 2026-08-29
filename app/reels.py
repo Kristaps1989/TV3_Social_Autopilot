@@ -135,8 +135,9 @@ def _run_ffmpeg(args: list[str]) -> None:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
 
 
-def _assemble(frames: list[Path], workdir: Path, out: Path) -> None:
-    per_frame = int(FRAME_SECONDS * FPS)
+def _assemble(frames: list[Path], workdir: Path, out: Path,
+              frame_seconds: float = FRAME_SECONDS) -> None:
+    per_frame = int(frame_seconds * FPS)
     segments = []
     for i, png in enumerate(frames):
         seg = workdir / f"seg{i}.mp4"
@@ -236,19 +237,29 @@ def build_video_reel(video_url: str, out_dir: Path | None = None,
 
 def build_reel(title: str, section: str, image_url: str, points: list[str],
                out_dir: Path | None = None,
-               max_points: int = MAX_POINTS) -> str:
+               max_points: int = MAX_POINTS,
+               frame_seconds: float = FRAME_SECONDS,
+               include_cover: bool = True,
+               include_end: bool = True) -> str:
     """Render frames and assemble the MP4; returns the local file path.
-    max_points: digests (nedēļas TOP 5) drīkst vairāk kadru nekā teaseri."""
+
+    Teaseri: vāks + īsi punkti + CTA kadrs, 2.8 s kadrā. Digest (nedēļas
+    TOP 5) izlaiž vāku un CTA kadru un tur katru punktu 6 s — garie
+    virsraksti ar datumu 2.8 s nav izlasāmi, un kopgarums tad ir precīzs
+    (5 × 6 s = 30 s); tv3.lv poga un zīmols tāpat ir katrā punkta kadrā."""
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
-    docs = [cards.build_story_html(title, section, image_url)]
+    docs = ([cards.build_story_html(title, section, image_url)]
+            if include_cover else [])
     docs += [_point_frame_html(section, i, p)
              for i, p in enumerate(points[:max_points], start=1)]
-    docs.append(_end_frame_html())
+    if include_end:
+        docs.append(_end_frame_html())
     out = out_dir / f"reel_{secrets.token_hex(6)}.mp4"
     with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
         workdir = Path(tmp)
         frames = _render_frames(docs, workdir)
-        _assemble(frames, workdir, out)
-    log.info("reel built: %s (%d frames)", out.name, len(docs))
+        _assemble(frames, workdir, out, frame_seconds=frame_seconds)
+    log.info("reel built: %s (%d frames, %.1fs/frame)",
+             out.name, len(docs), frame_seconds)
     return str(out)
