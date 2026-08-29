@@ -334,3 +334,50 @@ def test_reel_digest_is_exactly_thirty_seconds(session, monkeypatch):
     assert len(captured["cover_images"]) == 5
     assert all(u.startswith("https://cdn/") for u in captured["cover_images"])
     assert len(captured["point_images"]) == 5
+
+
+def test_photopost_graphics_never_reach_digest_visuals(session, monkeypatch):
+    """Photopost grafikām ir savs iestrādāts virsraksts — mozaīkā un zem
+    mūsu teksta tas dublētos, tāpēc digest ņem tikai tīros foto."""
+    from app import cards, reels
+
+    a1 = _article(session, "pp-1", "Raksts ar photopost un tīro foto",
+                  sessions=90)
+    a1.images = ["https://cdn/photopost/grafika.jpg",
+                 "https://cdn/uploads/tirs-foto1.jpg"]
+    a2 = _article(session, "pp-2", "Raksts tikai ar photopost", sessions=80)
+    a2.images = ["https://cdn/photopost/grafika2.jpg"]
+    a3 = _article(session, "pp-3", "Raksts ar parastu foto", sessions=70)
+    a3.images = ["https://cdn/uploads/tirs-foto3.jpg"]
+    session.commit()
+
+    assert weekend._clean_image(a1) == "https://cdn/uploads/tirs-foto1.jpg"
+    assert weekend._clean_image(a2) == ""      # nav tīra foto -> bez attēla
+    assert weekend._clean_image(a3) == "https://cdn/uploads/tirs-foto3.jpg"
+
+    monkeypatch.setattr(reels, "available", lambda: True)
+    captured = {}
+
+    def fake_build(title, section, image, points, cover_images=None,
+                   point_images=None, **kwargs):
+        captured.update(cover_images=cover_images, point_images=point_images)
+        return "data/cards/digest.mp4"
+
+    monkeypatch.setattr(reels, "build_reel", fake_build)
+    weekend.build_reel_digest(session, SAT.date())
+    assert all("photopost" not in u for u in captured["cover_images"])
+    # a2 punkta kadrs paliek bez fona (gradienta variants), ne ar grafiku
+    assert "" in captured["point_images"]
+    assert all("photopost" not in u for u in captured["point_images"] if u)
+
+    # karuseļa vāks (plāksne pa virsu) arī ņem tikai tīro foto
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    rendered = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kwargs):
+        rendered["image"] = image
+        return ["c0.png", "c1.png"]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    weekend.build_top5(session, SAT.date(), "sport")
+    assert "photopost" not in rendered["image"]

@@ -160,6 +160,17 @@ def _local_slot(day, hour: int) -> datetime:
     return local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
 
+def _clean_image(article: Article) -> str:
+    """Pirmais TĪRAIS raksta foto — photopost grafikas ar iestrādātu
+    virsrakstu mozaīkā un zem mūsu teksta dublētos, tāpēc tās izlaižam;
+    ja rakstam cita attēla nav, atgriež '' (kadrs paliek gradienta/tukšā
+    variantā, nevis ar svešu tekstu fonā)."""
+    from app.pipeline import prebranded
+
+    return next((img for img in (article.images or [])
+                 if img and not prebranded(img)), "")
+
+
 def _point_line(i: int, article: Article) -> str:
     dt = article.published_at or article.first_seen_at
     date = lv_date(dt) if dt else ""
@@ -180,7 +191,9 @@ def build_top5(session, day, section: str | None) -> Post | None:
              "news": "Nedēļas TOP"}.get(section, "Nedēļas TOP")
     title = f"{label}: 5 svarīgākie notikumi"
     points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
-    image = next((img for a in articles for img in (a.images or []) if img), "")
+    # vāka foto ar mūsu virsraksta plāksni pa virsu — tikai tīrs foto,
+    # photopost grafika te dubultotu tekstu
+    image = next((img for img in (_clean_image(a) for a in articles) if img), "")
     try:
         media = cards.render_cards(
             title, sec, "#TOP5", points[:4], image,
@@ -216,7 +229,7 @@ def build_reel_digest(session, day) -> Post | None:
         return None
     points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
     title = "Nedēļa 30 sekundēs"
-    imgs = [next((i for i in (a.images or []) if i), "") for a in articles]
+    imgs = [_clean_image(a) for a in articles]
     try:
         # saturs = 5 punkti pa 6 s (30 s, kā sola nosaukums); klāt īss 3 s
         # intro (rakstu foto mozaīka ar virsrakstu) un 3 s CTA outro — 36 s;
