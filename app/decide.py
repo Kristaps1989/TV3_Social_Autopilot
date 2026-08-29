@@ -35,6 +35,15 @@ DECISION_TOOL = {
                                "mēdz būt kļūdains — NATO ziņas nav izklaide).",
             },
             "score": {"type": "number", "minimum": 0, "maximum": 1},
+            "boostable": {
+                "type": "boolean",
+                "description": "Vai rakstu DRĪKST pastiprināt ar maksas reklāmu "
+                               "ES: Meta nepieņem politiku, vēlēšanas un "
+                               "sabiedriskos jautājumus (TTPA), un mēs nekad "
+                               "nereklamējam traģēdijas/noziegumus.",
+            },
+            "boost_reason": {"type": "string",
+                             "description": "Īss iemesls boostable lēmumam."},
             "reason": {"type": "string"},
             "labels": {"type": "array", "items": {"type": "string"}},
             "sensitivity": {
@@ -173,6 +182,14 @@ posts stundu vēlāk. Otrajam ierakstam raksti CITU tekstu un citu hook_type
 Sistēma ieplāno otro automātiski ar stundas nobīdi. ~1-2 raksti dienā, ne
 vairāk — pārējiem pietiek ar vienu ierakstu.
 
+Maksas pastiprināšana (boostable): atzīmē, vai šo rakstu drīkstētu
+reklamēt ES. boostable=false, ja tēma Meta izpratnē ir politika, vēlēšanas
+vai sabiedriskie jautājumi (valdība, Saeima, partijas, karš, migrācija,
+veselības/izglītības politika, protesti u.tml.) — Meta ES tādas reklāmas
+vairs nepieņem — vai ja saturs ir traģēdija/noziegums. Sports, izklaide,
+dzīvesstils, patērētāju un servisa ziņas parasti ir boostable=true.
+Šis NEIETEKMĒ organisko publicēšanu — tikai maksas kampaņas.
+
 Satura izmantošana: lēmums vienmēr ir tavs (redaktora statuss ir signāls,
 ne pavēle), bet noklusējums ir PUBLICĒT — nepublicēts raksts ir izniekots
 redakcijas darbs. publish=false lieto tikai tiešām nederīgam saturam
@@ -293,4 +310,9 @@ def decide(article: Article, verdicts: dict[str, Verdict], session) -> dict:
     article.ai_reason = str(decision.get("reason") or "")
     article.labels = decision.get("labels") or []
     article.sensitivity = [s for s in (decision.get("sensitivity") or []) if s != "none"]
+    if isinstance(decision.get("boostable"), bool):
+        raw = dict(article.raw_json or {})
+        raw["_boostable"] = decision["boostable"]
+        raw["_boost_reason"] = str(decision.get("boost_reason") or "")
+        article.raw_json = raw
     return decision

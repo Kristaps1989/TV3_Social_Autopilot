@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Reklāmas</h1>
+<p class="muted">Maksas pastiprināšana Meta platformās. Režīmā <b>dry-run</b>
+sistēma tikai rāda, ko tā boostotu un par cik — neviens eiro netiek tērēts,
+kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
+
+{% if saved %}<div class="notice ok">Iestatījumi saglabāti</div>{% endif %}
+
+{% if not ads_ready %}
+<div class="notice err" style="background:#fef3c7;color:#92400e">
+  <b>Reklāmu konts vēl nav gatavs:</b>
+  <ul style="margin:.3rem 0 0">
+  {% for issue in ads_issues %}<li>{{ issue }}</li>{% endfor %}
+  </ul>
+  Konta pieslēgšana notiek sadaļā <a href="/connect">Konti → Meta reklāmas</a>.
+  Dry-run plāns strādā arī bez tā.
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Iestatījumi</h2>
+  <form method="post" action="/ads/settings">
+    <label class="muted" style="display:block">Režīms</label>
+    <select name="mode">
+      {% for m, label in [('off','izslēgts'), ('dry','dry-run — tikai plāns'),
+                          ('approve','ar apstiprinājumu (2. fāze)'),
+                          ('auto','pilnā automātika (2. fāze)')] %}
+      <option value="{{ m }}" {% if s.mode == m %}selected{% endif %}
+        {% if m in ('approve','auto') and not ads_ready %}disabled{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <label class="muted" style="display:block;margin-top:.5rem">Dienas budžets (€)</label>
+    <input type="number" name="daily_budget" min="0" step="1" value="{{ '%g' % s.daily_budget }}">
+    <label class="muted" style="display:block;margin-top:.5rem">
+      Zīmola daļa: <b id="bsv">{{ s.brand_share }}</b>% (pārējais — konversijām)</label>
+    <input type="range" name="brand_share" min="0" max="50" step="5"
+           value="{{ s.brand_share }}" oninput="document.getElementById('bsv').textContent=this.value">
+    <div style="margin-top:.6rem"><button class="primary">Saglabāt</button></div>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Šodienas plāns
+    <span class="muted" style="font-weight:400;font-size:.85rem">
+      konversijām {{ '%.2f' % plan.perf_eur }} € · zīmolam {{ '%.2f' % plan.brand_eur }} €
+    </span></h2>
+  {% if plan.planned %}
+  <table>
+    <tr><th>Ieraksts</th><th>Formāts</th><th>AI score</th><th>Budžets/dienā</th><th>Iemesls</th></tr>
+    {% for r in plan.planned %}
+    <tr>
+      <td><a href="/post/{{ r.post.id }}/preview">{{ r.article.title[:70] }}</a></td>
+      <td>{{ r.post.format }}</td>
+      <td>{{ '%.2f' % r.score }}</td>
+      <td>{{ '%.2f' % r.budget_eur }} €</td>
+      <td class="muted">{{ r.reason }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% elif s.mode == 'off' %}
+  <p class="muted">Reklāmas ir izslēgtas — ieslēdz dry-run, lai redzētu plānu.</p>
+  {% elif s.daily_budget < 5 %}
+  <p class="muted">Norādi dienas budžetu (vismaz 5 €), lai sistēma sastādītu plānu.</p>
+  {% else %}
+  <p class="muted">Pēdējās 48 h nav neviena boostojama ieraksta.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Netiek boostots <span class="muted" style="font-weight:400;font-size:.85rem">
+    aizsardzība pret konta bloķēšanu (ES TTPA) un sensitīvs saturs</span></h2>
+  {% if plan.rejected %}
+  <table>
+    <tr><th>Raksts</th><th>Iemesls</th></tr>
+    {% for r in plan.rejected %}
+    <tr><td>{{ r.article.title[:70] }}</td><td class="muted">{{ r.reason }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Pēdējās 48 h nav noraidītu kandidātu.</p>
+  {% endif %}
+  <p class="muted">Meta ES nepieņem politisko, vēlēšanu un sabiedrisko jautājumu
+  reklāmas — sistēma šādus rakstus izlaiž automātiski (AI vērtējums + atslēgvārdu
+  drošības tīkls), lai konts netiktu karogots. Tas neietekmē organisko publicēšanu.</p>
+</div>
+{% endblock %}

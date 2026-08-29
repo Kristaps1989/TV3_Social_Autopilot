@@ -35,6 +35,8 @@ ENV_FALLBACK = {
     "threads_token": "THREADS_ACCESS_TOKEN",
     "ig_user_id": "IG_USER_ID",
     "ga4_property_id": "GA4_PROPERTY_ID",
+    "fb_ad_account_id": "FB_AD_ACCOUNT_ID",
+    "meta_pixel_id": "META_PIXEL_ID",
     "x_api_key": "X_API_KEY",
     "x_api_secret": "X_API_SECRET",
     "x_access_token": "X_ACCESS_TOKEN",
@@ -108,9 +110,12 @@ def fb_auth_url(redirect_uri: str, state: str) -> str:
     if config_id:
         return f"{base}&config_id={config_id}"
     # pages_manage_engagement (pirmais komentārs) prasa līdzi
-    # pages_read_user_content — bez pāra Meta dialogs krīt ar "Invalid Scopes"
+    # pages_read_user_content — bez pāra Meta dialogs krīt ar "Invalid Scopes".
+    # ads_management/ads_read vajag reklāmu autopilotam; Login konfigurācijas
+    # lietotājiem tie jāpievieno konfigurācijai Meta pusē.
     scope = ("pages_show_list,pages_manage_posts,pages_read_engagement,"
-             "pages_manage_engagement,pages_read_user_content,business_management")
+             "pages_manage_engagement,pages_read_user_content,business_management,"
+             "ads_management,ads_read")
     return f"{base}&scope={scope}"
 
 
@@ -153,6 +158,28 @@ def fb_list_pages(user_token: str) -> list[dict]:
                           "fields": "id,name,access_token"})
     r.raise_for_status()
     return r.json().get("data", [])
+
+
+def fb_list_ad_accounts(user_token: str) -> list[dict]:
+    """Ad accounts this user can act on. Ad accounts belong to the user or
+    Business Manager, not the page — so this needs the USER token (which the
+    connect flow now keeps stored for ads), never the page token."""
+    r = httpx.get(f"{GRAPH}/me/adaccounts", timeout=30, params={
+        "access_token": user_token,
+        "fields": "id,account_id,name,account_status,currency"})
+    r.raise_for_status()
+    return r.json().get("data", [])
+
+
+def fb_token_permissions(user_token: str) -> list[str]:
+    """Granted permission names on the user token ([] when the call fails —
+    callers treat that as 'unknown', not as 'none granted')."""
+    r = httpx.get(f"{GRAPH}/me/permissions", timeout=30,
+                  params={"access_token": user_token})
+    if r.status_code != 200:
+        return []
+    return [d["permission"] for d in r.json().get("data", [])
+            if d.get("status") == "granted"]
 
 
 def fb_page_instagram(session) -> tuple[str, str]:
@@ -267,4 +294,5 @@ def connection_status(session) -> dict[str, dict]:
         "threads": _status(["threads_user_id", "threads_token"], "threads_token"),
         "x": _status(["x_api_key", "x_api_secret", "x_access_token", "x_access_secret"],
                      "x_access_token"),
+        "meta_ads": _status(["fb_ad_account_id", "fb_user_token"], "fb_ad_account_id"),
     }

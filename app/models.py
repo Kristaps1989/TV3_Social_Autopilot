@@ -76,6 +76,37 @@ class Post(Base):
     article: Mapped[Article] = relationship(back_populates="posts")
 
 
+class AdEntry(Base):
+    """One paid boost of one post. Phase 0 keeps these in candidate/planned
+    (dry-run) states; live states arrive with Phase 1."""
+
+    __tablename__ = "ads"
+
+    STATES = ("candidate", "planned", "awaiting_approval", "active",
+              "paused", "rejected", "done")
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id"), index=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("articles.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(32), default="facebook_page")
+    objective: Mapped[str] = mapped_column(String(24), default="traffic")
+    status: Mapped[str] = mapped_column(String(24), default="candidate", index=True)
+    reason: Mapped[str] = mapped_column(Text, default="")   # kāpēc izvēlēts/noraidīts
+    budget_cents: Mapped[int] = mapped_column(Integer, default=0)   # dienas budžets
+    spent_cents: Mapped[int] = mapped_column(Integer, default=0)
+    impressions: Mapped[int] = mapped_column(Integer, default=0)
+    clicks: Mapped[int] = mapped_column(Integer, default=0)
+    sessions: Mapped[int] = mapped_column(Integer, default=0)      # GA4 paid
+    campaign_id: Mapped[str] = mapped_column(String(64), default="")
+    adset_id: Mapped[str] = mapped_column(String(64), default="")
+    ad_id: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    post: Mapped[Post] = relationship()
+    article: Mapped[Article] = relationship()
+
+
 class Evaluation(Base):
     """Rule-engine + AI outcome per (article, channel) — powers 'why wasn't this posted?'."""
 

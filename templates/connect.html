@@ -210,6 +210,60 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
   </div>
 
   <div class="card">
+    <h2>Meta reklāmas
+      {% if ads_status.connected %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="muted" style="margin-bottom:.6rem">
+      {% if ads_status.connected %}
+        Konts {{ ad_account_label or ad_account_id }} (act_{{ ad_account_id }})
+        {% if pixel_id %} · Pixel {{ pixel_id }}{% endif %}
+        {% if ads_issues %}
+        <div class="notice err" style="margin-top:.4rem;background:#fef3c7;color:#92400e">
+          {% for i in ads_issues %}{{ i }}{% if not loop.last %} · {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+      {% else %}
+        Reklāmu autopilotam (sadaļa Reklāmas) vajadzīgs Meta reklāmu konts.
+        Reklāmas iet savienotās Facebook lapas vārdā, bet kontu pārvalda
+        lietotāja tokens — tāpēc vispirms jābūt savienotam Facebook.
+      {% endif %}
+    </div>
+    <form method="post" action="/connect/meta-ads">
+      <label class="muted" style="display:block">Reklāmu konts</label>
+      {% if ad_accounts %}
+      <select name="ad_account_id">
+        {% for a in ad_accounts %}
+        <option value="{{ a.account_id }}"
+          {% if a.account_id|string == ad_account_id %}selected{% endif %}>
+          {{ a.name }} (act_{{ a.account_id }}, {{ a.currency }})</option>
+        {% endfor %}
+      </select>
+      {% else %}
+      <input type="text" name="ad_account_id" value="{{ ad_account_id }}"
+             placeholder="konta ID, piem. 1234567890 (bez act_)">
+      <div class="muted" style="font-size:.8rem">Sarakstu nevarēja ielādēt —
+        pārliecinies, ka Facebook savienojums ir svaigs (lietotāja tokens) un
+        tam ir <code>ads_read</code>; ID atrodams Ads Manager adresē.</div>
+      {% endif %}
+      <label class="muted" style="display:block;margin-top:.4rem">Meta Pixel ID (nav obligāti)</label>
+      <input type="text" name="pixel_id" value="{{ pixel_id }}" placeholder="piem. 987654321">
+      <div style="margin-top:.5rem"><button class="primary">Saglabāt</button></div>
+    </form>
+    {% if ads_status.connected %}
+    <form method="post" action="/connect/meta-ads/disconnect" style="margin-top:.4rem"
+          onsubmit="return confirm('Atvienot reklāmu kontu?')">
+      <button class="danger">Atvienot</button>
+    </form>
+    {% endif %}
+    <p class="muted">Login konfigurācijai Meta pusē jāpievieno
+    <code>ads_management</code> un <code>ads_read</code>, pēc tam pārslēdz
+    Facebook savienojumu (Atvienot → Savienot), lai lietotāja tokens saņem
+    jaunās atļaujas. Maksājumu metodi kontam pievieno Ads Manager →
+    Billing. Naudu tērēt sistēma sāks tikai ārpus dry-run režīma.</p>
+  </div>
+
+  <div class="card">
     <h2>Google Analytics 4
       {% if ga4_connected %}<span class="badge live">savienots</span>
       {% else %}<span class="badge paused">nav savienots</span>{% endif %}

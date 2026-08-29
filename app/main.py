@@ -570,6 +570,27 @@ def connect(request: Request, error: str = "", connected: str = ""):
             return "uzstādīts ✓" if secret else value
 
         ga4_sa = credentials.info(session, "ga4_service_account")
+
+        # Meta reklāmu konts: saraksts izvēlei (best effort — ja lietotāja
+        # tokens der) un gatavības pārbaude jau pieslēgtam kontam
+        from adapters.meta_ads import MetaAdsClient
+
+        ads_status = status.get("meta_ads") or {}
+        ads_acct_row = credentials.info(session, "fb_ad_account_id")
+        ad_accounts: list[dict] = []
+        user_token = credentials.get("fb_user_token", session)
+        if user_token:
+            try:
+                ad_accounts = credentials.fb_list_ad_accounts(user_token)
+            except Exception as e:  # noqa: BLE001 — kartīte strādā arī bez saraksta
+                log.warning("ad account listing failed: %s", e)
+        ads_issues: list[str] = []
+        ads_client = MetaAdsClient(session)
+        if ads_client.configured():
+            try:
+                _, ads_issues = ads_client.readiness()
+            except Exception as e:  # noqa: BLE001
+                ads_issues = [f"pārbaude neizdevās: {e}"]
         vol = runtime.data_dir_persistent()
         from app import cards
         render_ok, render_err = cards.renderer_check()
@@ -590,6 +611,7 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "META_APP_ID": _env("META_APP_ID"),
             "META_APP_SECRET": _env("META_APP_SECRET", secret=True),
             "META_LOGIN_CONFIG_ID": _env("META_LOGIN_CONFIG_ID"),
+            "FB_AD_ACCOUNT_ID": _env("FB_AD_ACCOUNT_ID"),
             "PUBLIC_BASE_URL": (_env("PUBLIC_BASE_URL")
                                 or (f"auto: https://{os.environ['RAILWAY_PUBLIC_DOMAIN']}"
                                     if os.environ.get("RAILWAY_PUBLIC_DOMAIN") else "")),
@@ -615,6 +637,12 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "ga4_connected": ga4.configured(),
             "ga4_property": credentials.get("ga4_property_id", session),
             "ga4_sa_label": (ga4_sa.label if ga4_sa and ga4_sa.value else ""),
+            "ads_status": ads_status, "ad_accounts": ad_accounts,
+            "ad_account_id": credentials.get("fb_ad_account_id", session),
+            "ad_account_label": (ads_acct_row.label if ads_acct_row
+                                 and ads_acct_row.value else ""),
+            "pixel_id": credentials.get("meta_pixel_id", session),
+            "ads_issues": ads_issues,
             "error": error, "connected": connected,
         })
     finally:
@@ -865,10 +893,14 @@ def connect_facebook_callback(request: Request, code: str = "", state: str = "",
             credentials.put(session, "fb_page_id", p["id"], label=p.get("name", ""))
             credentials.put(session, "fb_page_token", p["access_token"],
                             label=p.get("name", ""))
+            credentials.put(session, "fb_user_token", user_token,
+                            label="reklāmu kontam",
+                            expires_at=utcnow() + timedelta(days=60))
             return RedirectResponse("/connect?connected=facebook", status_code=303)
-        # several pages: keep the user token briefly and let the admin pick
+        # several pages: keep the user token (also needed later for ads)
         credentials.put(session, "fb_user_token", user_token,
-                        expires_at=utcnow() + timedelta(minutes=15))
+                        label="reklāmu kontam",
+                        expires_at=utcnow() + timedelta(days=60))
         return templates.TemplateResponse(request, "connect_pick_page.html",
                                           {"pages": pages})
     finally:
@@ -902,9 +934,13 @@ def connect_facebook_token(request: Request, user_token: str = Form(...)):
             credentials.put(session, "fb_page_id", p["id"], label=p.get("name", ""))
             credentials.put(session, "fb_page_token", p["access_token"],
                             label=p.get("name", ""))
+            credentials.put(session, "fb_user_token", token,
+                            label="reklāmu kontam",
+                            expires_at=utcnow() + timedelta(days=60))
             return RedirectResponse("/connect?connected=facebook", status_code=303)
         credentials.put(session, "fb_user_token", token,
-                        expires_at=utcnow() + timedelta(minutes=15))
+                        label="reklāmu kontam",
+                        expires_at=utcnow() + timedelta(days=60))
         return templates.TemplateResponse(request, "connect_pick_page.html",
                                           {"pages": pages})
     finally:
@@ -918,7 +954,8 @@ def connect_facebook_select(page_id: str = Form(...)):
     session = get_session()
     try:
         row = credentials.info(session, "fb_user_token")
-        if not (row and row.value and row.expires_at and row.expires_at > utcnow()):
+        if not (row and row.value and (row.expires_at is None
+                                       or row.expires_at > utcnow())):
             return RedirectResponse("/connect?error=Sesija+beigusies+—+savieno+vēlreiz",
                                     status_code=303)
         pages = credentials.fb_list_pages(row.value)
@@ -928,7 +965,8 @@ def connect_facebook_select(page_id: str = Form(...)):
         credentials.put(session, "fb_page_id", match["id"], label=match.get("name", ""))
         credentials.put(session, "fb_page_token", match["access_token"],
                         label=match.get("name", ""))
-        credentials.put(session, "fb_user_token", "")  # done with it
+        # the USER token stays stored: reklāmu kontam (adapters/meta_ads)
+        # vajag lietotāja, ne lapas tokenu; ilgtermiņa tokens dzīvo ~60 dienas
         return RedirectResponse("/connect?connected=facebook", status_code=303)
     except Exception as e:  # noqa: BLE001
         return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
@@ -1012,6 +1050,90 @@ def connect_threads_callback(request: Request, code: str = "", state: str = "",
         credentials.put(session, "threads_user_id", user_id)
         credentials.put(session, "threads_token", token, expires_at=expires)
         return RedirectResponse("/connect?connected=threads", status_code=303)
+    finally:
+        session.close()
+
+
+@app.get("/ads", response_class=HTMLResponse)
+def ads_page(request: Request, saved: str = ""):
+    from adapters.meta_ads import MetaAdsClient
+    from app import ads
+
+    session = get_session()
+    try:
+        plan = ads.build_plan(session)
+        client = MetaAdsClient(session)
+        if client.configured():
+            ads_ready, ads_issues = client.readiness()
+        else:
+            ads_ready, ads_issues = False, [
+                "reklāmu konts nav pieslēgts (Konti → Meta reklāmas)"]
+        return templates.TemplateResponse(request, "ads.html", {
+            "s": plan["settings"], "plan": plan, "saved": saved,
+            "ads_ready": ads_ready, "ads_issues": ads_issues,
+        })
+    finally:
+        session.close()
+
+
+@app.post("/ads/settings")
+def ads_settings_save(mode: str = Form("off"), daily_budget: float = Form(0.0),
+                      brand_share: int = Form(20)):
+    from app import ads
+
+    session = get_session()
+    try:
+        # approve/auto ir 2. fāzes režīmi — tos vēl nevar ieslēgt
+        if mode in ("approve", "auto"):
+            mode = "dry"
+        ads.save_settings(session, mode, daily_budget, brand_share)
+        if mode != "off":
+            ads.sync_entries(session)
+        return RedirectResponse("/ads?saved=1", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/meta-ads")
+def connect_meta_ads(ad_account_id: str = Form(""), pixel_id: str = Form("")):
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        acct = ad_account_id.strip().replace("act_", "")
+        if acct:
+            label = ""
+            token = credentials.get("fb_user_token", session)
+            if token:
+                try:
+                    accounts = credentials.fb_list_ad_accounts(token)
+                    match = next((a for a in accounts
+                                  if str(a.get("account_id")) == acct), None)
+                    if match:
+                        label = match.get("name", "")
+                except Exception as e:  # noqa: BLE001 — saglabājam arī neverificētu
+                    log.warning("ad account lookup failed: %s", e)
+            credentials.put(session, "fb_ad_account_id", acct, label=label)
+        if pixel_id.strip():
+            credentials.put(session, "meta_pixel_id", pixel_id.strip())
+        if not acct and not pixel_id.strip():
+            return RedirectResponse("/connect?error=Norādi+reklāmu+konta+ID",
+                                    status_code=303)
+        return RedirectResponse("/connect?connected=meta_ads", status_code=303)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/meta-ads/disconnect")
+def disconnect_meta_ads():
+    session = get_session()
+    try:
+        for key in ("fb_ad_account_id", "meta_pixel_id"):
+            credentials.put(session, key, "", label="")
+        return RedirectResponse("/connect?connected=Reklāmu+konts+atvienots",
+                                status_code=303)
     finally:
         session.close()
 
