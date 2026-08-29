@@ -192,6 +192,22 @@ def test_refresh_missing_media_regenerates_photo(session, monkeypatch):
     assert p4.media == ["https://tv3.lv/i.jpg"]
 
 
+def test_prebranded_story_shows_the_whole_graphic():
+    """Regresija: photopost grafika 9:16 stāstā gāja caur center/cover un
+    malās nogrieza tās iestrādāto virsrakstu — tagad contain + blur fons."""
+    doc = cards.build_story_html("T", "news", "https://cdn/photopost/x.jpg",
+                                 with_title=False)
+    body = doc.split("</style>")[1]
+    assert '<img class="art"' in body          # visa grafika, ne izgriezums
+    assert '<div class="bgblur">' in body      # aizmiglotais fons aizpilda 9:16
+    assert 'class="plate"' not in body         # virsraksta plāksne netiek dublēta
+    assert "Lasi visu rakstā" in doc           # CTA slānis paliek
+    # mūsu izkārtojums (ar plāksni) paliek pilnekrāna cover
+    doc2 = cards.build_story_html("T", "news", "https://cdn/foto.jpg")
+    body2 = doc2.split("</style>")[1]
+    assert '<img class="art"' not in body2 and 'class="plate"' in body2
+
+
 def test_is_video_detection():
     from adapters.base import is_video
 

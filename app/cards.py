@@ -326,16 +326,31 @@ def build_story_html(title: str, section: str, image_url: str,
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     esc = html.escape
-    bg = (f'background:url({html.escape(image_url, quote=True)}) center/cover, {color};'
-          if image_url else f"background:{color};")
+    img = html.escape(image_url, quote=True) if image_url else ""
     kicker_html = (f'<div class="kick">{esc(kicker or style["kicker"])}</div>')
-    # pre-branded source images (photopost) already carry the headline —
-    # keep only the CTA layer so the text is never doubled
-    plate = (f'<div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>'
-             if with_title else "")
+    if with_title:
+        # our own layout: full-bleed photo, gradient, white title plate
+        bg = f'background:url({img}) center/cover, {color};' if img             else f"background:{color};"
+        layers = '<div class="shade"></div>'
+        plate = f'<div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>'
+    else:
+        # pre-branded graphic (photopost): its own headline IS the layout, so
+        # it must stay fully visible — center/cover would crop the text on a
+        # 9:16 canvas. Show the whole graphic (contain) over a blurred copy,
+        # and keep only the CTA layer.
+        bg = f"background:{color};"
+        layers = (f'<div class="bgblur"></div><img class="art" src="{img}">'
+                  if img else "")
+        plate = ""
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden; {bg} }}
+.bgblur {{ position:absolute; inset:-60px;
+  background:url({img}) center/cover, {color};
+  filter:blur(48px) brightness(.55); }}
+.art {{ position:absolute; top:190px; left:50%; transform:translateX(-50%);
+  max-width:1016px; max-height:1230px; object-fit:contain;
+  border-radius:22px; box-shadow:0 18px 60px rgba(0,0,0,.45); }}
 .pshade {{ position:absolute; inset:0;
   background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
 .shade {{ position:absolute; inset:0;
@@ -358,7 +373,7 @@ def build_story_html(title: str, section: str, image_url: str,
 .linkpill svg {{ vertical-align:-7px; margin-right:16px; }}
 </style></head><body>
 <div class="story">
-  <div class="shade"></div>
+  {layers}
   <div class="brand">{_logo(52)}</div>
   {plate}
   <div class="cta">Lasi visu rakstā</div>
