@@ -235,13 +235,15 @@ def build_video_reel(video_url: str, out_dir: Path | None = None,
 
 
 def build_reel(title: str, section: str, image_url: str, points: list[str],
-               out_dir: Path | None = None) -> str:
-    """Render frames and assemble the MP4; returns the local file path."""
+               out_dir: Path | None = None,
+               max_points: int = MAX_POINTS) -> str:
+    """Render frames and assemble the MP4; returns the local file path.
+    max_points: digests (nedēļas TOP 5) drīkst vairāk kadru nekā teaseri."""
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     docs = [cards.build_story_html(title, section, image_url)]
     docs += [_point_frame_html(section, i, p)
-             for i, p in enumerate(points[:MAX_POINTS], start=1)]
+             for i, p in enumerate(points[:max_points], start=1)]
     docs.append(_end_frame_html())
     out = out_dir / f"reel_{secrets.token_hex(6)}.mp4"
     with tempfile.TemporaryDirectory(dir=out_dir) as tmp:

@@ -271,6 +271,12 @@ def prebranded(image_url: str) -> bool:
     return any(p and p in (image_url or "") for p in patterns)
 
 
+def article_date(article) -> str:
+    """dd.mm.yyyy no raksta publicēšanas laika — grafiku datuma čipam."""
+    dt = article.published_at or article.first_seen_at
+    return dt.strftime("%d.%m.%Y") if dt else ""
+
+
 def branded_photo(article, image_url: str, platform: str = "") -> str:
     """Photo posts carry the article image with the tv3.lv title plate
     burned in (rules.yaml photo_title_overlay). Falls back to the raw
@@ -285,7 +291,8 @@ def branded_photo(article, image_url: str, platform: str = "") -> str:
     width, height = PHOTO_SIZES.get(platform, (1080, 1080))
     try:
         return cards.render_share_image(article.title, article.section, image_url,
-                                        width=width, height=height)
+                                        width=width, height=height,
+                                        date_txt=article_date(article))
     except Exception as e:  # noqa: BLE001
         log.warning("share image render failed for article %s: %s", article.id, e)
         cards.record_render_failure("photo", e)
@@ -311,7 +318,8 @@ def story_media(article, image_url: str) -> list[str]:
             # a pre-branded source keeps its own headline; we add only the
             # CTA layer (brand chip + poga + tv3.lv) around it
             return [cards.render_story(article.title, article.section, image_url,
-                                       with_title=not prebranded(image_url))]
+                                       with_title=not prebranded(image_url),
+                                       date_txt=article_date(article))]
         except Exception as e:  # noqa: BLE001
             log.warning("story render failed for article %s: %s", article.id, e)
             cards.record_render_failure("story", e)
@@ -343,7 +351,8 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 media = cards.render_cards(article.title, article.section, tag,
                                            points, image, question,
                                            cover_title=cover_title,
-                                           point_bg=point_bg)
+                                           point_bg=point_bg,
+                                           date_txt=article_date(article))
                 return "card_carousel", media
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("card render failed for article %s: %s", article.id, e)

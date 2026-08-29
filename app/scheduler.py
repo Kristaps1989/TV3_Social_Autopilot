@@ -82,6 +82,10 @@ def start_scheduler() -> BackgroundScheduler:
 
     scheduler.add_job(lambda: _job(ads.tick), "interval", hours=1,
                       id="ads", max_instances=1, coalesce=True)
+    from app import weekend
+
+    scheduler.add_job(lambda: _job(weekend.run), "interval", hours=1,
+                      id="weekend", max_instances=1, coalesce=True)
     from app.pipeline import weekly_report
 
     scheduler.add_job(lambda: _job(weekly_report), "cron",

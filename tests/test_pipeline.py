@@ -197,7 +197,7 @@ def test_carousel_uses_prebranded_cover_and_photo_points(session, monkeypatch):
     captured = {}
 
     def fake_render(title, section, tag, points, image, question,
-                    out_dir=None, cover_title=True, point_bg=""):
+                    out_dir=None, cover_title=True, point_bg="", **kwargs):
         captured.update(image=image, cover_title=cover_title, point_bg=point_bg)
         return ["data/cards/c1.png", "data/cards/c2.png"]
 

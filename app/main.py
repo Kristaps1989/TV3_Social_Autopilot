@@ -1061,8 +1061,11 @@ def overview_page(request: Request, saved: str = ""):
 
     session = get_session()
     try:
+        from app import weekend
+
         return templates.TemplateResponse(request, "overview.html", {
             "d": overview.build(session), "saved": saved,
+            "weekend": weekend.settings(session),
         })
     finally:
         session.close()
@@ -1075,6 +1078,20 @@ def overview_spend(monthly_eur: float = Form(0.0)):
     session = get_session()
     try:
         overview.save_external_spend(session, monthly_eur)
+        return RedirectResponse("/overview?saved=1", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/overview/weekend")
+async def overview_weekend(request: Request):
+    from app import weekend
+
+    form = await request.form()
+    session = get_session()
+    try:
+        weekend.save_settings(session, {f: form.get(f) == "on"
+                                        for f in weekend.FEATURES})
         return RedirectResponse("/overview?saved=1", status_code=303)
     finally:
         session.close()

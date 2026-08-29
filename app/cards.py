@@ -45,6 +45,20 @@ def _logo(height: int) -> str:
     return f'<img src="{_logo_data_uri}" style="height:{height}px" alt="tv3.lv">'
 
 
+def date_chip(date_txt: str = "") -> str:
+    """Small tv3.lv + date stamp burned into every rendered graphic, so an
+    old post resurfacing in the feed can never mislead about when it is
+    from. Numeric date — no grammar to get wrong."""
+    if not date_txt:
+        date_txt = datetime.utcnow().strftime("%d.%m.%Y")
+    return f'<div class="dchip">© tv3.lv · {html.escape(date_txt)}</div>'
+
+
+DCHIP_CSS = (".dchip { position:absolute; left:24px; top:24px; z-index:5;"
+             " background:rgba(12,10,14,.62); color:#fff; font-size:22px;"
+             " letter-spacing:.04em; padding:8px 18px; border-radius:99px; }")
+
+
 def _shade(color: str, delta: float) -> str:
     import colorsys
 
@@ -122,7 +136,8 @@ SHOW_SPONSOR = os.environ.get("CARD_SPONSOR", "").lower() == "true"
 def build_cards_html(title: str, section: str, tag: str, points: list[str],
                      image_url: str, end_question: str,
                      show_sponsor: bool | None = None,
-                     cover_title: bool = True, point_bg: str = "") -> str:
+                     cover_title: bool = True, point_bg: str = "",
+                     date_txt: str = "") -> str:
     """cover_title=False: the cover image is a pre-branded graphic that
     already carries the headline — show it full-bleed without our plate.
     point_bg: photo used as a dimmed background on the content cards so the
@@ -160,6 +175,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
     <div class="card">
       <div class="art" style="{cover_bg}">
         {shade}{swoosh}
+        {date_chip(date_txt)}
         <div class="page">1/{total} →</div>
         {cover_txt}
       </div>{bar(1)}
@@ -201,6 +217,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
 
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
+{DCHIP_CSS}
 .card {{ width:1080px; height:1080px; overflow:hidden; display:flex;
         flex-direction:column; background:#fff; }}
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
@@ -247,7 +264,7 @@ h2 {{ font-size:56px; line-height:1.28; margin-bottom:64px; max-width:860px; }}
 
 def build_share_html(title: str, section: str, image_url: str,
                      kicker: str = "", width: int = 1080,
-                     height: int = 1080) -> str:
+                     height: int = 1080, date_txt: str = "") -> str:
     """Single branded share image: article photo full-bleed with the tv3.lv
     title plate — white box, bold headline, red accent bar — matching the
     tv3.lv site's own share-image style. Size per platform: FB feed 4:5
@@ -271,8 +288,10 @@ def build_share_html(title: str, section: str, image_url: str,
 .plate h1 {{ font-size:56px; line-height:1.16; font-weight:bold; color:#111; }}
 .brand {{ position:absolute; right:36px; bottom:34px; background:#fff;
           border-radius:12px; padding:12px 20px; }}
+{DCHIP_CSS}
 </style></head><body>
 <div class="share">
+  {date_chip(date_txt)}
   <div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>
   <div class="brand">{_logo(44)}</div>
 </div>
@@ -281,7 +300,8 @@ def build_share_html(title: str, section: str, image_url: str,
 
 def render_share_image(title: str, section: str, image_url: str,
                        kicker: str = "", out_dir: Path | None = None,
-                       width: int = 1080, height: int = 1080) -> str:
+                       width: int = 1080, height: int = 1080,
+                       date_txt: str = "") -> str:
     from playwright.sync_api import sync_playwright
 
     out_dir = Path(out_dir or CARDS_DIR).resolve()
@@ -289,7 +309,7 @@ def render_share_image(title: str, section: str, image_url: str,
     token = secrets.token_hex(6)
     tmp = out_dir / f"_s{token}.html"
     tmp.write_text(build_share_html(title, section, image_url, kicker,
-                                    width, height),
+                                    width, height, date_txt=date_txt),
                    encoding="utf-8")
     chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
     try:
@@ -320,7 +340,8 @@ _LINK_ICON = (
 
 
 def build_story_html(title: str, section: str, image_url: str,
-                     kicker: str = "", with_title: bool = True) -> str:
+                     kicker: str = "", with_title: bool = True,
+                     date_txt: str = "") -> str:
     """Vertical story (1080x1920) in the tv3.lv style: full-bleed image,
     title plate, CTA. Top/bottom safe zones respected (platform UI)."""
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
@@ -351,6 +372,7 @@ def build_story_html(title: str, section: str, image_url: str,
 .art {{ position:absolute; top:190px; left:50%; transform:translateX(-50%);
   max-width:1016px; max-height:1230px; object-fit:contain;
   border-radius:22px; box-shadow:0 18px 60px rgba(0,0,0,.45); }}
+{DCHIP_CSS}
 .pshade {{ position:absolute; inset:0;
   background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
 .shade {{ position:absolute; inset:0;
@@ -374,6 +396,7 @@ def build_story_html(title: str, section: str, image_url: str,
 </style></head><body>
 <div class="story">
   {layers}
+  {date_chip(date_txt)}
   <div class="brand">{_logo(52)}</div>
   {plate}
   <div class="cta">Lasi visu rakstā</div>
@@ -384,7 +407,7 @@ def build_story_html(title: str, section: str, image_url: str,
 
 def render_story(title: str, section: str, image_url: str,
                  kicker: str = "", out_dir: Path | None = None,
-                 with_title: bool = True) -> str:
+                 with_title: bool = True, date_txt: str = "") -> str:
     from playwright.sync_api import sync_playwright
 
     out_dir = Path(out_dir or CARDS_DIR).resolve()
@@ -392,7 +415,7 @@ def render_story(title: str, section: str, image_url: str,
     token = secrets.token_hex(6)
     tmp = out_dir / f"_t{token}.html"
     tmp.write_text(build_story_html(title, section, image_url, kicker,
-                                    with_title=with_title),
+                                    with_title=with_title, date_txt=date_txt),
                    encoding="utf-8")
     chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
     try:
@@ -413,7 +436,8 @@ def render_story(title: str, section: str, image_url: str,
 def render_cards(title: str, section: str, tag: str, points: list[str],
                  image_url: str, end_question: str,
                  out_dir: Path | None = None,
-                 cover_title: bool = True, point_bg: str = "") -> list[str]:
+                 cover_title: bool = True, point_bg: str = "",
+                 date_txt: str = "") -> list[str]:
     """Render carousel cards to PNG files; returns local file paths."""
     from playwright.sync_api import sync_playwright
 
@@ -421,7 +445,7 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
     out_dir.mkdir(parents=True, exist_ok=True)
     html_doc = build_cards_html(title, section, tag, points, image_url,
                                 end_question, cover_title=cover_title,
-                                point_bg=point_bg)
+                                point_bg=point_bg, date_txt=date_txt)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_{token}.html"
     tmp.write_text(html_doc, encoding="utf-8")

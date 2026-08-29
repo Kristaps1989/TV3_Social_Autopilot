@@ -352,7 +352,7 @@ def test_prebranded_images_keep_their_own_headline(session, monkeypatch):
     captured = {}
 
     def fake_render(title, section, image_url, kicker="", out_dir=None,
-                    with_title=True):
+                    with_title=True, **kwargs):
         captured["with_title"] = with_title
         return "data/cards/story_x.png"
 
