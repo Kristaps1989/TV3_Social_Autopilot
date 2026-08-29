@@ -218,6 +218,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 {DCHIP_CSS}
+.dchip {{ left:auto; right:28px; top:28px; }}
 .card {{ width:1080px; height:1080px; overflow:hidden; display:flex;
         flex-direction:column; background:#fff; }}
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
@@ -373,6 +374,7 @@ def build_story_html(title: str, section: str, image_url: str,
   max-width:1016px; max-height:1230px; object-fit:contain;
   border-radius:22px; box-shadow:0 18px 60px rgba(0,0,0,.45); }}
 {DCHIP_CSS}
+.dchip {{ left:auto; top:auto; right:48px; bottom:160px; }}
 .pshade {{ position:absolute; inset:0;
   background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
 .shade {{ position:absolute; inset:0;
