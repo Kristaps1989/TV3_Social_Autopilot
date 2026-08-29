@@ -61,6 +61,40 @@ def _token() -> str:
     return creds.token
 
 
+def channel_economics(days: int = 30) -> list[dict]:
+    """Sessions by default channel group for the period — the raw material
+    for the overview's cost-per-session comparison across paid channels.
+    [] when GA4 is not configured or errors (page shows a hint instead)."""
+    if not configured():
+        return []
+    prop = property_id()
+    try:
+        resp = httpx.post(
+            f"https://analyticsdata.googleapis.com/v1beta/properties/{prop}:runReport",
+            headers={"Authorization": f"Bearer {_token()}"},
+            json={
+                "dateRanges": [{"startDate": f"{days}daysAgo", "endDate": "today"}],
+                "dimensions": [{"name": "sessionDefaultChannelGroup"}],
+                "metrics": [{"name": "sessions"}, {"name": "engagedSessions"}],
+                "limit": 50,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        log.warning("GA4 channel economics failed: %s", e)
+        return []
+    out = []
+    for row in resp.json().get("rows", []):
+        out.append({
+            "channel": row["dimensionValues"][0].get("value", ""),
+            "sessions": int(row["metricValues"][0]["value"]),
+            "engaged": int(row["metricValues"][1]["value"]),
+        })
+    out.sort(key=lambda r: -r["sessions"])
+    return out
+
+
 def paid_sessions(session, days: int = 7) -> dict[str, int]:
     """GA4 sessions from paid social by utm_content (dark ads carry
     utm_content=a<entry_id>). {} on any failure — ads metrics then rest on

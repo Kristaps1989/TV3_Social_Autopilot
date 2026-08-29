@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Pārskats</h1>
+<p class="muted">Helikoptera skats: saturs → izplatīšana → reklāma → ekonomika.
+Viena atbilde uz jautājumu «kur eiro atved visvairāk lasītāju».</p>
+
+{% if saved %}<div class="notice ok">Saglabāts</div>{% endif %}
+
+<div class="cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem;margin-bottom:1rem">
+  <div class="card"><div class="muted">Raksti (7 d)</div>
+    <div style="font-size:1.6rem;font-weight:700">{{ d.funnel7.articles }}</div>
+    <div class="muted">šodien: {{ d.funnel1.articles }}</div></div>
+  <div class="card"><div class="muted">Publicēti raksti (7 d)</div>
+    <div style="font-size:1.6rem;font-weight:700">{{ d.funnel7.published_articles }}
+      <span class="muted" style="font-size:1rem">({{ '%.0f' % d.funnel7.utilization }}%)</span></div>
+    <div class="muted">satura izmantošana</div></div>
+  <div class="card"><div class="muted">Ieraksti kanālos (7 d)</div>
+    <div style="font-size:1.6rem;font-weight:700">{{ d.funnel7.posts }}</div>
+    <div class="muted">{% for f, n in d.funnel7.by_format.items() %}{{ f }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div></div>
+  <div class="card"><div class="muted">Google ārējais budžets</div>
+    <div style="font-size:1.6rem;font-weight:700">{{ '%.0f' % d.google_monthly }} €/mēn</div>
+    <div class="muted">aģentūras Search / PMax</div></div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Kanālu ekonomika (30 d) — cena par sesiju</h2>
+  {% if d.economics.configured %}
+  <table>
+    <tr><th>Kanāls</th><th>Sesijas</th><th>Tēriņš</th><th>€ / sesija</th><th></th></tr>
+    {% set g = d.economics.google %}
+    <tr><td>Google maksas (Search/PMax)</td>
+      <td class="n">{{ '{:,}'.format(g.sessions).replace(',', ' ') }}</td>
+      <td class="n">{{ '%.0f' % g.spend }} €</td>
+      <td class="n"><b>{{ '%.2f' % g.cps if g.cps else '—' }}</b></td>
+      <td class="muted">ārpus sistēmas; tēriņš no manuālā lauka</td></tr>
+    {% set m = d.economics.meta_paid %}
+    <tr><td>Meta maksas (šī sistēma)</td>
+      <td class="n">{{ '{:,}'.format(m.sessions).replace(',', ' ') }}</td>
+      <td class="n">{{ '%.2f' % m.spend }} €</td>
+      <td class="n"><b>{{ '%.2f' % m.cps if m.cps else '—' }}</b></td>
+      <td class="muted">{{ d.economics.our_ads.n }} reklāmas, auto-optimizētas</td></tr>
+    {% set o = d.economics.organic_social %}
+    <tr><td>Organic Social (autopilots)</td>
+      <td class="n">{{ '{:,}'.format(o.sessions).replace(',', ' ') }}</td>
+      <td class="n">0 €</td><td class="n"><b>0.00</b></td>
+      <td class="muted">bāzes līnija — bezmaksas</td></tr>
+    {% for c in d.economics.channels[:8] %}
+    <tr class="muted"><td style="font-weight:400;padding-left:1.4rem">{{ c.channel }}</td>
+      <td class="n">{{ '{:,}'.format(c.sessions).replace(',', ' ') }}</td>
+      <td></td><td></td><td></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">GA4 nav pieslēgts vai neatbild — kanālu ekonomikai vajag
+  GA4 savienojumu (Konti sadaļā).</p>
+  {% endif %}
+  <form method="post" action="/overview/spend" style="margin-top:.6rem">
+    <label class="muted">Google kampaņu mēneša tēriņš ārpus sistēmas (€):</label>
+    <input type="number" name="monthly_eur" min="0" step="50"
+           value="{{ '%g' % d.google_monthly }}" style="width:8rem">
+    <button>Saglabāt</button>
+    <span class="muted">— pagaidu lauks, līdz pieslēgsim Google Ads kontu
+      lasīšanas režīmā</span>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>AI mārketinga ieteikumi
+    {% if d.ai_report_at %}<span class="muted" style="font-weight:400;font-size:.8rem">
+      ģenerēts {{ d.ai_report_at }} UTC</span>{% endif %}</h2>
+  {% if d.ai_report %}
+  <div style="white-space:pre-wrap">{{ d.ai_report }}</div>
+  {% else %}
+  <p class="muted">Vēl nav ģenerēti — nospied pogu, un AI kā performance
+  mārketinga vadītājs izvērtēs kanālu ekonomiku un ieteiks budžeta pārdali.</p>
+  {% endif %}
+  <form method="post" action="/overview/ai-report" style="margin-top:.6rem">
+    <button class="primary">Ģenerēt no jauna</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Izplatīšana pa kanāliem (7 d)</h2>
+  <table>
+    <tr><th>Kanāls</th><th>Ieraksti</th></tr>
+    {% for ch, n in d.funnel7.by_channel.items() %}
+    <tr><td>{{ ch }}</td><td class="n">{{ n }}</td></tr>
+    {% else %}
+    <tr><td colspan="2" class="muted">nav publicētu ierakstu</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">Detaļas: <a href="/stats">Statistika</a> ·
+    <a href="/ads">Reklāmas</a> · <a href="/">Rinda</a></p>
+</div>
+{% endblock %}

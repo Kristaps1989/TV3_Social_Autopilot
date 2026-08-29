@@ -1,0 +1,179 @@
+"""Helicopter view: content -> distribution -> advertising -> economics.
+
+One page that answers the marketing director's questions: how much content
+came in and how much of it we used, where it went out, what every channel's
+session costs, and what the AI would change. External spend (the agency-run
+Google Search / Performance Max campaigns) enters as a monthly figure the
+admin types in, so the cost-per-session comparison works before any Google
+Ads API connection exists — GA4 already counts those sessions in the
+Paid Search / Cross-network channel groups.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import timedelta
+
+from sqlalchemy import func, select
+
+from app.models import AdEntry, Article, Post, get_setting, set_setting, utcnow
+
+log = logging.getLogger(__name__)
+
+DAYS = 30
+
+# GA4 default channel groups that carry the externally bought Google traffic
+GOOGLE_PAID_CHANNELS = ("Paid Search", "Cross-network", "Paid Shopping",
+                        "Display")
+META_PAID_CHANNELS = ("Paid Social",)
+ORGANIC_SOCIAL_CHANNELS = ("Organic Social",)
+
+
+def external_spend(session) -> float:
+    """Monthly € the business spends on Google campaigns outside this
+    system (admin-entered until the Google Ads account is connected)."""
+    return float(get_setting(session, "overview:google_monthly_spend", "0") or 0)
+
+
+def save_external_spend(session, monthly_eur: float) -> None:
+    set_setting(session, "overview:google_monthly_spend",
+                str(max(0.0, monthly_eur)))
+
+
+def content_funnel(session, days: int = 7) -> dict:
+    """Articles in -> decided -> published posts; the utilization number."""
+    since = utcnow() - timedelta(days=days)
+    total = session.execute(
+        select(func.count(Article.id)).where(Article.first_seen_at >= since)
+    ).scalar() or 0
+    decided = session.execute(
+        select(func.count(Article.id)).where(Article.first_seen_at >= since,
+                                             Article.decided_at.is_not(None))
+    ).scalar() or 0
+    published_articles = session.execute(
+        select(func.count(func.distinct(Post.article_id)))
+        .where(Post.state == "published", Post.published_at >= since)
+    ).scalar() or 0
+    posts = session.execute(
+        select(Post.channel, Post.format, func.count(Post.id))
+        .where(Post.state == "published", Post.published_at >= since)
+        .group_by(Post.channel, Post.format)
+    ).all()
+    by_channel: dict[str, int] = {}
+    by_format: dict[str, int] = {}
+    for channel, fmt, n in posts:
+        by_channel[channel] = by_channel.get(channel, 0) + n
+        by_format[fmt] = by_format.get(fmt, 0) + n
+    return {
+        "days": days, "articles": total, "decided": decided,
+        "published_articles": published_articles,
+        "posts": sum(by_channel.values()),
+        "by_channel": dict(sorted(by_channel.items(), key=lambda kv: -kv[1])),
+        "by_format": dict(sorted(by_format.items(), key=lambda kv: -kv[1])),
+        "utilization": (published_articles / total * 100) if total else 0.0,
+    }
+
+
+def our_ads_summary(session, days: int = DAYS) -> dict:
+    since = utcnow() - timedelta(days=days)
+    rows = session.execute(
+        select(AdEntry).where(AdEntry.updated_at >= since,
+                              AdEntry.status.in_(("active", "paused", "done")))
+    ).scalars().all()
+    spend = sum(e.spent_cents for e in rows) / 100
+    sessions = sum(e.sessions for e in rows)
+    clicks = sum(e.clicks for e in rows)
+    return {"n": len(rows), "spend": spend, "sessions": sessions,
+            "clicks": clicks,
+            "cps": (spend / sessions) if sessions else None}
+
+
+def channel_economics(session, days: int = DAYS) -> dict:
+    """Cost per session per money bucket: the agency's Google campaigns,
+    our Meta ads, and organic social as the free baseline."""
+    from app import ga4
+
+    channels = ga4.channel_economics(days)
+    def _bucket(names):
+        rows = [c for c in channels if c["channel"] in names]
+        return {"sessions": sum(c["sessions"] for c in rows),
+                "engaged": sum(c["engaged"] for c in rows)}
+
+    google = _bucket(GOOGLE_PAID_CHANNELS)
+    meta_paid = _bucket(META_PAID_CHANNELS)
+    organic = _bucket(ORGANIC_SOCIAL_CHANNELS)
+    google_spend = external_spend(session) * days / 30.4
+    ours = our_ads_summary(session, days)
+    return {
+        "configured": bool(channels),
+        "channels": channels,
+        "google": {**google, "spend": round(google_spend, 2),
+                   "cps": (google_spend / google["sessions"])
+                   if google["sessions"] else None},
+        "meta_paid": {**meta_paid, "spend": ours["spend"],
+                      "cps": (ours["spend"] / meta_paid["sessions"])
+                      if meta_paid["sessions"] else ours["cps"]},
+        "organic_social": organic,
+        "our_ads": ours,
+    }
+
+
+def build(session) -> dict:
+    return {
+        "funnel7": content_funnel(session, 7),
+        "funnel1": content_funnel(session, 1),
+        "economics": channel_economics(session),
+        "google_monthly": external_spend(session),
+        "ai_report": get_setting(session, "overview:ai_report", ""),
+        "ai_report_at": get_setting(session, "overview:ai_report_at", ""),
+    }
+
+
+def ai_report(session) -> str:
+    """The performance-marketer memo: Claude reads the same numbers the page
+    shows and writes 3-5 concrete recommendations. Cached until regenerated."""
+    from app import config, credentials
+
+    api_key = credentials.get("anthropic_api_key", session)
+    if not api_key:
+        return ("AI atslēga nav pieslēgta (Konti → Anthropic) — ieteikumi "
+                "nav pieejami.")
+    data = build(session)
+    eco = data["economics"]
+
+    def fmt_cps(v):
+        return f"{v:.2f} €/sesija" if v else "nav datu"
+
+    context = f"""Saturs (7 d): {data['funnel7']['articles']} raksti, publicēti
+{data['funnel7']['published_articles']} ({data['funnel7']['utilization']:.0f}%),
+{data['funnel7']['posts']} ieraksti pa kanāliem {data['funnel7']['by_channel']}.
+Kanālu ekonomika (30 d):
+- Google maksas (aģentūras Search/PMax): {eco['google']['sessions']} sesijas,
+  tēriņš ~{eco['google']['spend']:.0f} €, {fmt_cps(eco['google']['cps'])}
+- Mūsu Meta reklāmas: {eco['our_ads']['n']} reklāmas, tēriņš
+  {eco['our_ads']['spend']:.2f} €, {eco['our_ads']['sessions']} sesijas,
+  {fmt_cps(eco['our_ads']['cps'])}
+- Organic Social: {eco['organic_social']['sessions']} sesijas (0 €)
+Visi GA4 kanāli: {[(c['channel'], c['sessions']) for c in eco['channels'][:8]]}"""
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=config.AI_MODEL_STRONG, max_tokens=900,
+            system=("Tu esi pieredzējis performance mārketinga vadītājs ziņu "
+                    "medijā. Mērķis: ar mazāku budžetu vairāk sesiju uz tv3.lv. "
+                    "Atbildi latviski, nevainojamā pareizrakstībā, bez ūdens."),
+            messages=[{"role": "user", "content":
+                f"{context}\n\nUzraksti 3-5 konkrētus ieteikumus budžeta un "
+                f"satura izplatīšanas uzlabošanai. Katrs: ko darīt, kāpēc "
+                f"(ar skaitli no datiem), gaidāmais efekts. Ja kādam kanālam "
+                f"trūkst datu, pasaki, kas jāpieslēdz, lai to izmērītu."}],
+        )
+        text = "".join(b.text for b in resp.content if b.type == "text").strip()
+        set_setting(session, "overview:ai_report", text)
+        set_setting(session, "overview:ai_report_at",
+                    utcnow().strftime("%Y-%m-%d %H:%M"))
+        return text
+    except Exception as e:  # noqa: BLE001
+        log.warning("overview AI report failed: %s", e)
+        return f"Ieteikumu ģenerēšana neizdevās: {e}"

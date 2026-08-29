@@ -1055,6 +1055,43 @@ def connect_threads_callback(request: Request, code: str = "", state: str = "",
         session.close()
 
 
+@app.get("/overview", response_class=HTMLResponse)
+def overview_page(request: Request, saved: str = ""):
+    from app import overview
+
+    session = get_session()
+    try:
+        return templates.TemplateResponse(request, "overview.html", {
+            "d": overview.build(session), "saved": saved,
+        })
+    finally:
+        session.close()
+
+
+@app.post("/overview/spend")
+def overview_spend(monthly_eur: float = Form(0.0)):
+    from app import overview
+
+    session = get_session()
+    try:
+        overview.save_external_spend(session, monthly_eur)
+        return RedirectResponse("/overview?saved=1", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/overview/ai-report")
+def overview_ai_report():
+    from app import overview
+
+    session = get_session()
+    try:
+        overview.ai_report(session)
+        return RedirectResponse("/overview", status_code=303)
+    finally:
+        session.close()
+
+
 @app.get("/ads", response_class=HTMLResponse)
 def ads_page(request: Request, saved: str = "", error: str = ""):
     from adapters.meta_ads import MetaAdsClient
