@@ -46,6 +46,18 @@ def lv_date(dt: datetime) -> str:
     return base if dt.year == utcnow().year else f"{base} ({dt.year}. gads)"
 
 
+def week_start(now: datetime | None = None) -> datetime:
+    """Šīs nedēļas pirmdienas 00:00 pēc Rīgas laika, kā UTC naive laiks —
+    Latvijā nedēļa ir pirmdiena–svētdiena, tāpēc «nedēļas TOP» skaita tikai
+    šo kalendāro nedēļu, nevis ritošās 7 dienas."""
+    now = now or utcnow()
+    local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+        ZoneInfo(config.TIMEZONE))
+    monday = (local - timedelta(days=local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    return monday.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
 def has_relative_words(text: str) -> str:
     low = f" {text.lower()} "
     for w in RELATIVE_WORDS:
@@ -72,11 +84,13 @@ def _ran_key(feature: str, day) -> str:
 
 # --- nedēļas dati ---------------------------------------------------------
 
-def week_top(session, section: str | None = None, days: int = 7,
-             limit: int = 5, max_age_days: int | None = None) -> list[Article]:
-    """Raksti ar visvairāk izmērītajām sesijām (GA4 caur post_metrics);
-    kamēr metriku nav, krīt atpakaļ uz AI vērtējumu."""
-    since = utcnow() - timedelta(days=days)
+def week_top(session, section: str | None = None,
+             limit: int = 5, max_age_days: int | None = None,
+             now: datetime | None = None) -> list[Article]:
+    """Šīs kalendārās nedēļas (no pirmdienas) raksti ar visvairāk
+    izmērītajām sesijām (GA4 caur post_metrics); kamēr metriku nav, krīt
+    atpakaļ uz AI vērtējumu."""
+    since = week_start(now)
     q = (select(Article,
                 func.coalesce(func.sum(PostMetrics.ga_sessions), 0).label("s"),
                 func.coalesce(func.sum(PostMetrics.clicks), 0).label("c"))
@@ -175,8 +189,10 @@ def build_top5(session, day, section: str | None) -> Post | None:
         log.warning("top5 render failed: %s", e)
         return None
     link = ("https://tv3.lv/sports" if section == "sport" else "https://tv3.lv")
-    week_from = lv_date(utcnow() - timedelta(days=6))
-    week_to = lv_date(utcnow())
+    local_now = utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(
+        ZoneInfo(config.TIMEZONE))
+    week_from = lv_date(local_now - timedelta(days=local_now.weekday()))
+    week_to = lv_date(local_now)
     copy = (f"{label} — pieci notikumi, par kuriem visvairāk lasīja tv3.lv "
             f"({week_from} – {week_to}). Pilnie stāsti portālā.")
     # kartīte -> SAVS raksts: media ir [vāks, punkti..., CTA kartīte], tāpēc
@@ -219,7 +235,7 @@ def build_reel_digest(session, day) -> Post | None:
 def build_icymi(session, day) -> Post | None:
     """Labs raksts (score >= 0.7) ar vājāko izmērīto atdevi — viena otrā
     iespēja ar godīgu datumu tekstā."""
-    since = utcnow() - timedelta(days=7)
+    since = week_start()
     rows = session.execute(
         select(Article, func.coalesce(func.sum(PostMetrics.ga_sessions), 0)
                .label("s"))

@@ -20,7 +20,7 @@ def _article(session, guid, title, section="sport", sessions=0, score=0.8,
     session.flush()
     p = Post(article_id=a.id, channel="fb_tv3lv", format="link", copy=title,
              link_url=a.canonical_url, state="published",
-             published_at=utcnow() - timedelta(days=min(age_days, 6)))
+             published_at=utcnow() - timedelta(hours=2))
     session.add(p)
     session.flush()
     if sessions:
@@ -35,6 +35,39 @@ def test_lv_date_and_relative_words():
     assert "2025. gads" in weekend.lv_date(datetime(2025, 12, 3))
     assert weekend.has_relative_words("Vakar notika spēle") == "vakar"
     assert weekend.has_relative_words("26. augustā notika spēle") == ""
+
+
+def test_week_starts_on_monday_riga_time(session):
+    from zoneinfo import ZoneInfo
+
+    # piektdiena, 2026-09-04 12:00 UTC -> pirmdiena ir 31. augusts Rīgā
+    start = weekend.week_start(datetime(2026, 9, 4, 12, 0))
+    local = start.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+        ZoneInfo("Europe/Riga"))
+    assert local.weekday() == 0 and (local.hour, local.minute) == (0, 0)
+    assert local.day == 31 and local.month == 8
+
+    # iepriekšējās nedēļas svētdienas ieraksts NAV šīs nedēļas TOP
+    a_old = Article(guid="wk-old", url="u1", canonical_url="u1",
+                    title="Pagājušās svētdienas hits", section="sport")
+    a_new = Article(guid="wk-new", url="u2", canonical_url="u2",
+                    title="Otrdienas raksts", section="sport")
+    session.add_all([a_old, a_new])
+    session.flush()
+    p_old = Post(article_id=a_old.id, channel="fb_tv3lv", format="link",
+                 state="published", published_at=datetime(2026, 8, 30, 12, 0))
+    p_new = Post(article_id=a_new.id, channel="fb_tv3lv", format="link",
+                 state="published", published_at=datetime(2026, 9, 1, 12, 0))
+    session.add_all([p_old, p_new])
+    session.flush()
+    session.add(PostMetrics(post_id=p_old.id, ga_sessions=999,
+                            collected_at=utcnow()))
+    session.add(PostMetrics(post_id=p_new.id, ga_sessions=10,
+                            collected_at=utcnow()))
+    session.commit()
+    top = weekend.week_top(session, section="sport",
+                           now=datetime(2026, 9, 4, 12, 0))
+    assert [a.id for a in top] == [a_new.id]
 
 
 def test_week_top_prefers_measured_sessions(session):
