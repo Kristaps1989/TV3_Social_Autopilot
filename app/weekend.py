@@ -120,12 +120,14 @@ def _digest_article(session, guid: str, title: str, section: str,
 
 
 def _schedule(session, article: Article, fmt: str, copy: str, media: list,
-              link: str, marker: str, at: datetime) -> Post:
+              link: str, marker: str, at: datetime,
+              card_links: list[str] | None = None) -> Post:
     from app import runtime
 
     post = Post(article_id=article.id, channel=CHANNEL, format=fmt, copy=copy,
                 media=media, link_url=link, hook_type=marker,
                 state="scheduled", scheduled_at=at,
+                extra={"card_links": card_links} if card_links else {},
                 dry_run=runtime.is_dry_run(session))
     session.add(post)
     session.flush()
@@ -172,9 +174,15 @@ def build_top5(session, day, section: str | None) -> Post | None:
     week_to = lv_date(utcnow())
     copy = (f"{label} — pieci notikumi, par kuriem visvairāk lasīja tv3.lv "
             f"({week_from} – {week_to}). Pilnie stāsti portālā.")
+    # kartīte -> SAVS raksts: media ir [vāks, punkti..., CTA kartīte], tāpēc
+    # saites sarindojam tāpat — vāks un CTA ved uz sadaļu, punkti uz rakstiem
+    used = articles[:max(0, len(media) - 2)]
+    card_links = ([link] + [a.canonical_url or a.url for a in used]
+                  + [link])[:len(media)]
     return _schedule(session, _digest_article(
         session, f"digest-top5-{sec}-{day.isoformat()}", title, sec, link),
-        "card_carousel", copy, media, link, "digest", _local_slot(day, 10))
+        "card_carousel", copy, media, link, "digest", _local_slot(day, 10),
+        card_links=card_links)
 
 
 def build_reel_digest(session, day) -> Post | None:

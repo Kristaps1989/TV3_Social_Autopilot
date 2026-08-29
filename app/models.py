@@ -72,6 +72,9 @@ class Post(Base):
     # clicks counted on our own /r/<code> redirect — the only click number we
     # get for FB photo posts and for Instagram, where the API reports none
     short_hits: Mapped[int] = mapped_column(Integer, default=0)
+    # format-specific extras, e.g. digest carousels: {"card_links": [...]} —
+    # each carousel card then links to ITS article, not the section page
+    extra: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

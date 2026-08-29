@@ -507,8 +507,14 @@ def publish_due(session) -> int:
             shown = shortlinks.display_link(post.id, link, rules)
             text, first_comment_link = compose_text(post, platform, shown, rules)
             adapter = get_adapter(platform)
+            raw_card_links = (post.extra or {}).get("card_links") or []
+            card_links = [add_utm(u, platform, post.id, hook=f"karte{i + 1}")
+                          if u else "" for i, u in enumerate(raw_card_links)]
+            # kwarg tikai digest karuseļiem — vecāki/svešie adapteri to nezina
+            extra_kwargs = {"card_links": card_links} if card_links else {}
             post.platform_post_id = adapter.publish(
-                text=text, link=link, images=post.media or [], fmt=post.format)
+                text=text, link=link, images=post.media or [], fmt=post.format,
+                **extra_kwargs)
             post.state = "published"
             post.published_at = utcnow()
             post.error = ""

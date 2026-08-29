@@ -91,5 +91,10 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler.add_job(lambda: _job(weekly_report), "cron",
                       day_of_week="mon", hour=5, minute=0,  # 07:00/08:00 Riga
                       id="weekly_report", max_instances=1, coalesce=True)
+    from app.overview import weekly_ai_report
+
+    scheduler.add_job(lambda: _job(weekly_ai_report), "cron",
+                      day_of_week="mon", hour=5, minute=30,
+                      id="weekly_ai_report", max_instances=1, coalesce=True)
     scheduler.start()
     return scheduler

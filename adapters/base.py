@@ -44,8 +44,11 @@ class Adapter(ABC):
         return True
 
     @abstractmethod
-    def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
-        """Publish and return the platform post id."""
+    def publish(self, *, text: str, link: str, images: list[str], fmt: str,
+                card_links: list[str] | None = None) -> str:
+        """Publish and return the platform post id. card_links: per-card
+        destinations for digest carousels (platforms without carousel link
+        support ignore it)."""
 
     def fetch_insights(self, platform_post_id: str) -> dict | None:
         """Return {impressions, clicks, reactions} or None if unavailable."""
@@ -65,7 +68,8 @@ class DryRunAdapter(Adapter):
         self.platform = platform
         self.note = note
 
-    def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
+    def publish(self, *, text: str, link: str, images: list[str], fmt: str,
+                card_links: list[str] | None = None) -> str:
         log.info("[DRY RUN %s] %s | %s | link=%s images=%d",
                  self.platform, fmt, text[:120], link, len(images))
         return f"dry-run{'-' + self.note if self.note else ''}"

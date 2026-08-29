@@ -128,6 +128,20 @@ def build(session) -> dict:
     }
 
 
+def weekly_ai_report(session) -> None:
+    """Monday cron: refresh the marketer memo so Pārskats opens the week
+    with current recommendations; forwarded to Slack when configured."""
+    from app import credentials
+    from app.pipeline import alert
+
+    if not credentials.get("anthropic_api_key", session):
+        return  # bez atslēgas nav ko ģenerēt — lapa rāda norādi pati
+    text = ai_report(session)
+    if text and not text.startswith("Ieteikumu ģenerēšana neizdevās"):
+        alert("TV3 Autopilot — AI mārketinga ieteikumi (pirmdienas apskats):\n"
+              + text)
+
+
 def ai_report(session) -> str:
     """The performance-marketer memo: Claude reads the same numbers the page
     shows and writes 3-5 concrete recommendations. Cached until regenerated."""

@@ -104,8 +104,8 @@ class FacebookPageAdapter(Adapter):
                          {"upload_phase": "finish", "video_id": video_id})
         return out.get("post_id") or video_id
 
-    def _publish_link_carousel(self, text: str, link: str,
-                               images: list[str]) -> str:
+    def _publish_link_carousel(self, text: str, link: str, images: list[str],
+                               card_links: list[str] | None = None) -> str:
         """Organic swipeable carousel: /feed with child_attachments — each
         card is an image + the article link, the TVNET-style format. Needs
         public image URLs (PUBLIC_BASE_URL). Returns '' when the carousel
@@ -113,13 +113,17 @@ class FacebookPageAdapter(Adapter):
         album collage instead of losing the post."""
         # max 5 cards; keep the cover, trim middle points, never drop the
         # closing CTA card (it is the last image the renderer produced)
-        picked = images if len(images) <= 5 else images[:4] + [images[-1]]
+        idxs = (list(range(len(images))) if len(images) <= 5
+                else [0, 1, 2, 3, len(images) - 1])
         cards = []
-        for img in picked:
-            url = public_image_url(img)
+        for i in idxs:
+            url = public_image_url(images[i])
             if not url:
                 return ""
-            cards.append({"link": link, "picture": url})
+            # digest karuselī katra kartīte ved uz SAVU rakstu
+            card_link = (card_links[i] if card_links and i < len(card_links)
+                         and card_links[i] else link)
+            cards.append({"link": card_link, "picture": url})
         if len(cards) < 2:
             return ""
         data = {
@@ -138,7 +142,8 @@ class FacebookPageAdapter(Adapter):
             log.warning("FB link carousel rejected, falling back to album: %s", e)
             return ""
 
-    def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
+    def publish(self, *, text: str, link: str, images: list[str], fmt: str,
+                card_links: list[str] | None = None) -> str:
         if fmt == "reel" and images:
             return self._publish_reel(images[0], text)
         if fmt == "story" and images:
@@ -151,7 +156,7 @@ class FacebookPageAdapter(Adapter):
             out = self._upload_photo(images[0], {"caption": text})
             return out.get("post_id") or out.get("id", "")
         if fmt == "card_carousel" and link and len(images) > 1:
-            post_id = self._publish_link_carousel(text, link, images)
+            post_id = self._publish_link_carousel(text, link, images, card_links)
             if post_id:
                 return post_id
             # no public URLs / FB rejected the carousel -> album collage below

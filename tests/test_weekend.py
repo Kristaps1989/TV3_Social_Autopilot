@@ -133,3 +133,106 @@ def test_quiz_skipped_without_ai_key(session, monkeypatch):
         _article(session, f"q-{i}", f"Notikums numur {i}", sessions=50)
     monkeypatch.setattr(credentials, "get", lambda key, session=None: "")
     assert weekend.build_quiz(session, SUN.date()) is None
+
+
+def test_top5_stores_per_card_links(session, monkeypatch):
+    from app import cards
+
+    arts = [_article(session, f"cl-{i}", f"Notikums numur {i}", sessions=100 - i)
+            for i in range(4)]
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards", lambda *a, **k: [
+        "c0.png", "c1.png", "c2.png", "c3.png", "c4.png", "end.png"])
+    post = weekend.build_top5(session, SAT.date(), "sport")
+    links = post.extra["card_links"]
+    assert len(links) == 6
+    assert links[0] == "https://tv3.lv/sports" and links[-1] == "https://tv3.lv/sports"
+    # punktu kartītes ved uz SAVIEM rakstiem TOP secībā
+    assert links[1] == arts[0].canonical_url
+    assert links[4] == arts[3].canonical_url
+
+
+def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
+    import app.pipeline as pl
+
+    captured = {}
+
+    class FakeAdapter:
+        def publish(self, *, text, link, images, fmt, card_links=None):
+            captured.update(link=link, card_links=card_links)
+            return "fb-9"
+
+        def comment(self, post_id, message):
+            return "c1"
+
+    monkeypatch.setattr(pl, "get_adapter", lambda platform: FakeAdapter())
+    a = _article(session, "cl-pub", "Digest tests")
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="card_carousel",
+             copy="Teksts", link_url="https://tv3.lv/sports",
+             media=["c0.png", "c1.png", "end.png"],
+             extra={"card_links": ["https://tv3.lv/sports",
+                                   "https://tv3.lv/raksts-viens", ""]},
+             state="scheduled", scheduled_at=utcnow() - timedelta(minutes=1))
+    session.add(p)
+    session.commit()
+    assert pl.publish_due(session) == 1
+    links = captured["card_links"]
+    assert "utm_content" in links[0] and "utm_term=karte1" in links[0]
+    assert links[1].startswith("https://tv3.lv/raksts-viens?")
+    assert "utm_term=karte2" in links[1]
+    assert links[2] == ""   # tukša saite paliek tukša -> adapteris liek galveno
+
+
+def test_fb_carousel_uses_per_card_links_and_trim_keeps_last(monkeypatch, ):
+    import json as _json
+
+    import httpx
+
+    from adapters import facebook
+
+    monkeypatch.setattr(facebook.credentials, "get",
+                        lambda key, session=None: {"fb_page_id": "520",
+                                                   "fb_page_token": "tok"}.get(key, ""))
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://app.example")
+    calls = []
+
+    class R:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"id": "520_77"}
+
+    monkeypatch.setattr(httpx, "post",
+                        lambda url, data=None, files=None, timeout=None:
+                        (calls.append((url, dict(data or {}))), R())[1])
+    imgs = [f"/d/c{i}.png" for i in range(5)] + ["/d/end.png"]
+    links = [f"https://tv3.lv/r{i}" for i in range(5)] + ["https://tv3.lv"]
+    out = facebook.FacebookPageAdapter().publish(
+        text="T", link="https://tv3.lv/sports", images=imgs,
+        fmt="card_carousel", card_links=links)
+    assert out == "520_77"
+    cards_sent = _json.loads(calls[0][1]["child_attachments"])
+    # 6 -> 5 kartītes: pirmās četras + CTA; saites seko līdzi tam pašam griezumam
+    assert [c["link"] for c in cards_sent] == \
+        ["https://tv3.lv/r0", "https://tv3.lv/r1", "https://tv3.lv/r2",
+         "https://tv3.lv/r3", "https://tv3.lv"]
+
+
+def test_weekly_ai_report_skips_without_key_and_sends_when_ok(session, monkeypatch):
+    from app import credentials, overview
+    import app.pipeline as pl
+
+    sent = []
+    monkeypatch.setattr(pl, "alert", lambda msg: sent.append(msg))
+    monkeypatch.setattr(credentials, "get", lambda key, session=None: "")
+    overview.weekly_ai_report(session)
+    assert sent == []
+
+    monkeypatch.setattr(credentials, "get",
+                        lambda key, session=None: "sk-x" if key == "anthropic_api_key" else "")
+    monkeypatch.setattr(overview, "ai_report",
+                        lambda s: "1. Pārcel budžetu uz Meta.")
+    overview.weekly_ai_report(session)
+    assert len(sent) == 1 and "pirmdienas apskats" in sent[0]
+    assert "Pārcel budžetu" in sent[0]

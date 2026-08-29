@@ -30,7 +30,8 @@ class ThreadsAdapter(Adapter):
             raise PublishError(f"Threads {resp.status_code}: {resp.text[:200]}", retryable=False)
         return resp.json()
 
-    def publish(self, *, text: str, link: str, images: list[str], fmt: str) -> str:
+    def publish(self, *, text: str, link: str, images: list[str], fmt: str,
+                card_links: list[str] | None = None) -> str:
         data: dict = {"text": text}
         image_url = public_image_url(images[0]) if images else ""
         if fmt == "photo" and image_url:
