@@ -514,8 +514,14 @@ def publish_due(session) -> int:
             if (not card_titles and post.format == "card_carousel"
                     and post.article is not None):
                 # parastam karuselim FB teksta josla zem katras kartītes rāda
-                # raksta virsrakstu — tukša josla izskatās pēc kļūdas
-                card_titles = [post.article.title] * len(post.media or [])
+                # raksta virsrakstu — tukša josla izskatās pēc kļūdas; pēdējā
+                # (CTA) kartīte tā vietā sauc uz rakstu
+                n = len(post.media or [])
+                if n >= 2:
+                    card_titles = ([post.article.title] * (n - 1)
+                                   + ["Lasi visu rakstā — tv3.lv"])
+                else:
+                    card_titles = [post.article.title] * n
             extra_kwargs = {}
             if card_links:
                 extra_kwargs["card_links"] = card_links

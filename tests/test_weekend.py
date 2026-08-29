@@ -187,8 +187,9 @@ def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
     assert links[1].startswith("https://tv3.lv/raksts-viens?")
     assert "utm_term=karte2" in links[1]
     assert links[2] == ""   # tukša saite paliek tukša -> adapteris liek galveno
-    # bez explicit virsrakstiem karuselis dabū raksta virsrakstu katrai kartītei
-    assert captured["card_titles"] == ["Digest tests"] * 3
+    # bez explicit virsrakstiem: raksta virsraksts, pēdējai (CTA) kartītei aicinājums
+    assert captured["card_titles"] == ["Digest tests", "Digest tests",
+                                       "Lasi visu rakstā — tv3.lv"]
 
 
 def test_fb_carousel_uses_per_card_links_and_trim_keeps_last(monkeypatch, ):
