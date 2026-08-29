@@ -336,6 +336,132 @@ def test_reel_digest_is_exactly_thirty_seconds(session, monkeypatch):
     assert len(captured["point_images"]) == 5
 
 
+MON = datetime(2026, 8, 31, 6, 0)   # pirmdiena 09:00 Rīgā
+
+
+def _dated_article(session, guid, title, published_at, sessions=0,
+                   images=None):
+    """Raksts + publicēts posts ar FIKSĒTU laiku — pirmdienas loga testiem."""
+    a = Article(guid=guid, url=f"https://tv3.lv/{guid}",
+                canonical_url=f"https://tv3.lv/{guid}", title=title,
+                section="news", ai_score=0.8,
+                images=images if images is not None
+                else [f"https://cdn/uploads/{guid}.jpg"],
+                published_at=published_at)
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="link", copy=title,
+             link_url=a.canonical_url, state="published",
+             published_at=published_at)
+    session.add(p)
+    session.flush()
+    if sessions:
+        session.add(PostMetrics(post_id=p.id, ga_sessions=sessions,
+                                collected_at=utcnow()))
+    session.commit()
+    return a
+
+
+def test_weekend_start_is_saturday_riga_midnight():
+    from zoneinfo import ZoneInfo
+
+    start = weekend.weekend_start(MON)
+    local = start.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+        ZoneInfo("Europe/Riga"))
+    assert local.weekday() == 5                       # sestdiena
+    assert (local.day, local.month) == (29, 8)
+    assert (local.hour, local.minute) == (0, 0)
+
+
+def test_monday_builds_weekend_top5_and_story(session, monkeypatch):
+    from app import cards
+
+    # nedēļas nogale: sestdiena + svētdiena (UTC laiki loga iekšpusē)
+    wk = [_dated_article(session, f"m-{i}", f"Nogales notikums numur {i}",
+                         datetime(2026, 8, 29 + i % 2, 12, 0),
+                         sessions=100 - i)
+          for i in range(4)]
+    # piektdienas hits ar lielāko trafiku NEDRĪKST iekļūt nogales TOP
+    friday = _dated_article(session, "m-fri", "Piektdienas lielais stāsts",
+                            datetime(2026, 8, 28, 12, 0), sessions=9000)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    rendered = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kwargs):
+        rendered.update(title=title, points=points,
+                        date=kwargs.get("date_txt"))
+        return ["c0.png", "c1.png", "c2.png", "c3.png", "c4.png", "end.png"]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    mosaic = {}
+
+    def fake_mosaic(title, section, images, **kwargs):
+        mosaic.update(title=title, images=images,
+                      date=kwargs.get("date_txt"))
+        return "data/cards/mosaic.png"
+
+    monkeypatch.setattr(cards, "render_mosaic_story", fake_mosaic)
+
+    assert weekend.run(session, MON) == 2
+    posts = {p.hook_type: p for p in session.execute(select(Post).where(
+        Post.hook_type.in_(("mondaytop5", "mondaystory")))).scalars().all()}
+    assert set(posts) == {"mondaytop5", "mondaystory"}
+
+    top5 = posts["mondaytop5"]
+    assert top5.channel == "fb_tv3lv" and top5.format == "card_carousel"
+    assert "nedēļas nogalē" in top5.copy
+    # loga datumi tekstā absolūti; nekādu relatīvo vārdu
+    assert "29. augustā" in top5.copy and "30. augustā" in top5.copy
+    assert weekend.has_relative_words(top5.copy) == ""
+    # kartītes ved uz nogales rakstiem TOP secībā; piektdienas hits ārpusē
+    links = top5.extra["card_links"]
+    assert links[1] == wk[0].canonical_url
+    assert friday.canonical_url not in links
+    assert links[0] == "https://tv3.lv" and links[-1] == "https://tv3.lv"
+    # 08:00 Rīgā = 05:00 UTC (vasaras laiks)
+    assert top5.scheduled_at == datetime(2026, 8, 31, 5, 0)
+    assert rendered["date"] == "31.08.2026"
+
+    story = posts["mondaystory"]
+    assert story.channel == "fb_stories" and story.format == "story"
+    assert story.media == ["data/cards/mosaic.png"]
+    assert story.scheduled_at == datetime(2026, 8, 31, 5, 30)
+    assert mosaic["title"] == "Nedēļas nogales TOP 5"
+    assert len(mosaic["images"]) >= 3
+    assert all("photopost" not in u for u in mosaic["images"])
+
+    # atkārtota izpilde tajā pašā pirmdienā neko nedublē
+    assert weekend.run(session, MON) == 0
+
+
+def test_monday_toggle_off_skips_both(session, monkeypatch):
+    from app import cards
+
+    for i in range(4):
+        _dated_article(session, f"mt-{i}", f"Nogales notikums numur {i}",
+                       datetime(2026, 8, 29, 12, 0), sessions=50)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards", lambda *a, **k: ["x.png", "y.png"])
+    monkeypatch.setattr(cards, "render_mosaic_story",
+                        lambda *a, **k: "data/cards/mosaic.png")
+    weekend.save_settings(session, {"top5": True, "reel": True, "icymi": True,
+                                    "quiz": True, "evergreen": True,
+                                    "monday": False})
+    assert weekend.run(session, MON) == 0
+
+
+def test_monday_story_needs_three_clean_images(session, monkeypatch):
+    from app import cards
+
+    # photopost grafikas neskaitās — bez 3 tīriem foto stāsta nav
+    for i in range(4):
+        _dated_article(session, f"ms-{i}", f"Nogales notikums numur {i}",
+                       datetime(2026, 8, 29, 12, 0), sessions=50,
+                       images=[f"https://cdn/photopost/g{i}.jpg"])
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    assert weekend.build_monday_story(session, MON.date(), MON) is None
+
+
 def test_photopost_graphics_never_reach_digest_visuals(session, monkeypatch):
     """Photopost grafikām ir savs iestrādāts virsraksts — mozaīkā un zem
     mūsu teksta tas dublētos, tāpēc digest ņem tikai tīros foto."""

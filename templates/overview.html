@@ -84,7 +84,9 @@ Viena atbilde uz jautājumu «kur eiro atved visvairāk lasītāju».</p>
   <p class="muted">Brīvdienās redakcija raksta mazāk — sistēma no nedēļas
   izmērītā satura uzbūvē svaigus ierakstus. Sestdien: sporta TOP 5 karuselis,
   «Nedēļa 30 sekundēs» reels un nepamanītā stāsta atkārtojums; svētdien:
-  kopējais TOP 5, nedēļas kvīzs un arhīva raksts, ko joprojām lasa. Visās
+  kopējais TOP 5, nedēļas kvīzs un arhīva raksts, ko joprojām lasa;
+  pirmdienas rītā (8:00) — nedēļas nogales TOP 5 karuselis un stāsts tiem,
+  kas brīvdienās ziņām nesekoja. Visās
   grafikās ir iededzināts datums un © tv3.lv; tekstos datumi vienmēr ir
   absolūti — vecs ieraksts nekad nemaldina.</p>
   <form method="post" action="/overview/weekend">
@@ -92,7 +94,8 @@ Viena atbilde uz jautājumu «kur eiro atved visvairāk lasītāju».</p>
                         ('reel', '«Nedēļa 30 sekundēs» reels'),
                         ('icymi', 'Nepamanītā stāsta atkārtojums'),
                         ('quiz', 'Nedēļas kvīzs'),
-                        ('evergreen', 'Arhīva raksts svētdienas rītā')] %}
+                        ('evergreen', 'Arhīva raksts svētdienas rītā'),
+                        ('monday', 'Pirmdienas rītā — nedēļas nogales TOP 5')] %}
     <label style="display:block;margin:.25rem 0">
       <input type="checkbox" name="{{ f }}" value="on"
              {% if weekend[f] %}checked{% endif %}> {{ label }}</label>

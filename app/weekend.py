@@ -8,6 +8,8 @@ Pieci formāti, katrs ar savu slēdzi (Pārskata lapā):
                klājās vāji, saņem vienu atkārtojumu ar citu leņķi
   quiz       — nedēļas kvīza karuselis (jautājums kartītē, atbilde rakstā)
   evergreen  — arhīva raksts, ko joprojām lasa, svētdienas rītā
+  monday     — pirmdienas rītā «Nedēļas nogales TOP 5» (karuselis + stāsts)
+               tiem, kas brīvdienās ziņām nesekoja
 
 Valodas disciplīna: visos tekstos datumi ir absolūti («26. augustā»), nekad
 relatīvi («vakar», «šonedēļ» ir pieļaujams tikai publicēšanas nedēļā pašā
@@ -27,8 +29,9 @@ from app.models import Article, Post, PostMetrics, get_setting, set_setting, utc
 
 log = logging.getLogger(__name__)
 
-FEATURES = ("top5", "reel", "icymi", "quiz", "evergreen")
+FEATURES = ("top5", "reel", "icymi", "quiz", "evergreen", "monday")
 CHANNEL = "fb_tv3lv"
+STORY_CHANNEL = "fb_stories"   # story formāts dzīvo savā kanālā (savi limiti)
 
 # Latviešu datumu vārdi — lokatīvs («26. augustā»)
 MONTHS_LOC = ["", "janvārī", "februārī", "martā", "aprīlī", "maijā", "jūnijā",
@@ -84,13 +87,20 @@ def _ran_key(feature: str, day) -> str:
 
 # --- nedēļas dati ---------------------------------------------------------
 
+def weekend_start(now: datetime | None = None) -> datetime:
+    """Tikko beigušās nedēļas nogales sestdienas 00:00 (Rīgas laiks, UTC
+    naive). Pirmdienas rīta apkopojumam: viss, kas publicēts no sestdienas."""
+    return week_start(now) - timedelta(days=2)
+
+
 def week_top(session, section: str | None = None,
              limit: int = 5, max_age_days: int | None = None,
-             now: datetime | None = None) -> list[Article]:
-    """Šīs kalendārās nedēļas (no pirmdienas) raksti ar visvairāk
-    izmērītajām sesijām (GA4 caur post_metrics); kamēr metriku nav, krīt
-    atpakaļ uz AI vērtējumu."""
-    since = week_start(now)
+             now: datetime | None = None,
+             since: datetime | None = None) -> list[Article]:
+    """Perioda (noklusēti — šīs kalendārās nedēļas no pirmdienas) raksti ar
+    visvairāk izmērītajām sesijām (GA4 caur post_metrics); kamēr metriku
+    nav, krīt atpakaļ uz AI vērtējumu."""
+    since = since or week_start(now)
     q = (select(Article,
                 func.coalesce(func.sum(PostMetrics.ga_sessions), 0).label("s"),
                 func.coalesce(func.sum(PostMetrics.clicks), 0).label("c"))
@@ -136,7 +146,8 @@ def _digest_article(session, guid: str, title: str, section: str,
 def _schedule(session, article: Article, fmt: str, copy: str, media: list,
               link: str, marker: str, at: datetime,
               card_links: list[str] | None = None,
-              card_titles: list[str] | None = None) -> Post:
+              card_titles: list[str] | None = None,
+              channel: str = CHANNEL) -> Post:
     from app import runtime
 
     extra = {}
@@ -144,7 +155,7 @@ def _schedule(session, article: Article, fmt: str, copy: str, media: list,
         extra["card_links"] = card_links
     if card_titles:
         extra["card_titles"] = card_titles
-    post = Post(article_id=article.id, channel=CHANNEL, format=fmt, copy=copy,
+    post = Post(article_id=article.id, channel=channel, format=fmt, copy=copy,
                 media=media, link_url=link, hook_type=marker,
                 state="scheduled", scheduled_at=at, extra=extra,
                 dry_run=runtime.is_dry_run(session))
@@ -180,6 +191,37 @@ def _point_line(i: int, article: Article) -> str:
 
 # --- formāti --------------------------------------------------------------
 
+def _carousel_digest(session, day, articles: list[Article], title: str,
+                     sec: str, link: str, copy: str, guid: str, marker: str,
+                     hour: int) -> Post | None:
+    """Kopīgais TOP karuseļa celtnieks: kartītes ar rakstu saitēm un
+    virsrakstiem, tīrs vāka foto, datuma čips."""
+    from app import cards
+
+    points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
+    # vāka foto ar mūsu virsraksta plāksni pa virsu — tikai tīrs foto,
+    # photopost grafika te dubultotu tekstu
+    image = next((img for img in (_clean_image(a) for a in articles) if img), "")
+    try:
+        media = cards.render_cards(
+            title, sec, "#TOP5", points[:4], image,
+            "Visi stāsti — tv3.lv", date_txt=day.strftime("%d.%m.%Y"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("%s render failed: %s", marker, e)
+        return None
+    # kartīte -> SAVS raksts: media ir [vāks, punkti..., CTA kartīte], tāpēc
+    # saites sarindojam tāpat — vāks un CTA ved uz sadaļu, punkti uz rakstiem
+    used = articles[:max(0, len(media) - 2)]
+    card_links = ([link] + [a.canonical_url or a.url for a in used]
+                  + [link])[:len(media)]
+    card_titles = ([title] + [a.title for a in used]
+                   + ["Visi stāsti — tv3.lv"])[:len(media)]
+    return _schedule(session, _digest_article(session, guid, title, sec, link),
+                     "card_carousel", copy, media, link, marker,
+                     _local_slot(day, hour),
+                     card_links=card_links, card_titles=card_titles)
+
+
 def build_top5(session, day, section: str | None) -> Post | None:
     from app import cards
 
@@ -190,17 +232,6 @@ def build_top5(session, day, section: str | None) -> Post | None:
     label = {"sport": "Nedēļas sports", None: "Nedēļas TOP",
              "news": "Nedēļas TOP"}.get(section, "Nedēļas TOP")
     title = f"{label}: 5 svarīgākie notikumi"
-    points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
-    # vāka foto ar mūsu virsraksta plāksni pa virsu — tikai tīrs foto,
-    # photopost grafika te dubultotu tekstu
-    image = next((img for img in (_clean_image(a) for a in articles) if img), "")
-    try:
-        media = cards.render_cards(
-            title, sec, "#TOP5", points[:4], image,
-            "Visi stāsti — tv3.lv", date_txt=day.strftime("%d.%m.%Y"))
-    except Exception as e:  # noqa: BLE001
-        log.warning("top5 render failed: %s", e)
-        return None
     link = ("https://tv3.lv/sports" if section == "sport" else "https://tv3.lv")
     local_now = utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(
         ZoneInfo(config.TIMEZONE))
@@ -208,17 +239,52 @@ def build_top5(session, day, section: str | None) -> Post | None:
     week_to = lv_date(local_now)
     copy = (f"{label} — pieci notikumi, par kuriem visvairāk lasīja tv3.lv "
             f"({week_from} – {week_to}). Pilnie stāsti portālā.")
-    # kartīte -> SAVS raksts: media ir [vāks, punkti..., CTA kartīte], tāpēc
-    # saites sarindojam tāpat — vāks un CTA ved uz sadaļu, punkti uz rakstiem
-    used = articles[:max(0, len(media) - 2)]
-    card_links = ([link] + [a.canonical_url or a.url for a in used]
-                  + [link])[:len(media)]
-    card_titles = ([title] + [a.title for a in used]
-                   + ["Visi stāsti — tv3.lv"])[:len(media)]
+    return _carousel_digest(session, day, articles, title, sec, link, copy,
+                            f"digest-top5-{sec}-{day.isoformat()}", "digest", 10)
+
+
+def build_monday_top5(session, day, now: datetime | None = None) -> Post | None:
+    """Pirmdienas rīta karuselis: nedēļas nogales (sestdiena–svētdiena)
+    svarīgākais tiem, kas brīvdienās ziņām nesekoja."""
+    from app import cards
+
+    articles = week_top(session, since=weekend_start(now))
+    if len(articles) < 3 or not cards.renderer_available():
+        return None
+    title = "Nedēļas nogales TOP 5"
+    sat = weekend_start(now).replace(tzinfo=ZoneInfo("UTC")).astimezone(
+        ZoneInfo(config.TIMEZONE))
+    sun = sat + timedelta(days=1)
+    copy = (f"Ja nedēļas nogalē biji prom no ekrāniem — pieci notikumi "
+            f"({lv_date(sat)} – {lv_date(sun)}), par kuriem runāja Latvija. "
+            f"Pilnie stāsti portālā.")
+    return _carousel_digest(session, day, articles, title, "news",
+                            "https://tv3.lv", copy,
+                            f"digest-monday-{day.isoformat()}",
+                            "mondaytop5", 8)
+
+
+def build_monday_story(session, day, now: datetime | None = None) -> Post | None:
+    """Pirmdienas rīta stāsts: nedēļas nogales foto mozaīka ar CTA — otrs
+    pieskāriens citai auditorijai (stāstu skatītājiem) 24 h formātā."""
+    from app import cards
+
+    articles = week_top(session, since=weekend_start(now))
+    images = [i for i in (_clean_image(a) for a in articles) if i]
+    if len(articles) < 3 or len(images) < 3 or not cards.renderer_available():
+        return None
+    try:
+        media = [cards.render_mosaic_story(
+            "Nedēļas nogales TOP 5", "news", images,
+            date_txt=day.strftime("%d.%m.%Y"))]
+    except Exception as e:  # noqa: BLE001
+        log.warning("monday story render failed: %s", e)
+        return None
     return _schedule(session, _digest_article(
-        session, f"digest-top5-{sec}-{day.isoformat()}", title, sec, link),
-        "card_carousel", copy, media, link, "digest", _local_slot(day, 10),
-        card_links=card_links, card_titles=card_titles)
+        session, f"digest-monday-story-{day.isoformat()}",
+        "Nedēļas nogales TOP 5 (stāsts)", "news", "https://tv3.lv"),
+        "story", "", media, "https://tv3.lv", "mondaystory",
+        _local_slot(day, 8) + timedelta(minutes=30), channel=STORY_CHANNEL)
 
 
 def build_reel_digest(session, day) -> Post | None:
@@ -369,20 +435,29 @@ def run(session, now: datetime | None = None) -> int:
     now = now or utcnow()
     local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(
         ZoneInfo(config.TIMEZONE))
-    if local.weekday() not in (5, 6) or local.hour < 8:
+    if local.weekday() not in (5, 6, 0) or local.hour < 7:
         return 0
     day = local.date()
-    plan = ({"top5_sport": lambda: build_top5(session, day, "sport"),
-             "reel": lambda: build_reel_digest(session, day),
-             "icymi": lambda: build_icymi(session, day)}
-            if local.weekday() == 5 else
-            {"top5_all": lambda: build_top5(session, day, None),
-             "quiz": lambda: build_quiz(session, day),
-             "evergreen": lambda: build_evergreen(session, day)})
+    if local.weekday() == 5:
+        plan = {"top5_sport": lambda: build_top5(session, day, "sport"),
+                "reel": lambda: build_reel_digest(session, day),
+                "icymi": lambda: build_icymi(session, day)}
+    elif local.weekday() == 6:
+        plan = {"top5_all": lambda: build_top5(session, day, None),
+                "quiz": lambda: build_quiz(session, day),
+                "evergreen": lambda: build_evergreen(session, day)}
+    else:  # pirmdiena: nedēļas nogales apkopojums rīta pīķim
+        plan = {"monday_top5": lambda: build_monday_top5(session, day, now),
+                "monday_story": lambda: build_monday_story(session, day, now)}
     toggles = settings(session)
     created = 0
     for name, builder in plan.items():
-        feature = name.split("_")[0] if name.startswith("top5") else name
+        if name.startswith("top5"):
+            feature = "top5"
+        elif name.startswith("monday"):
+            feature = "monday"
+        else:
+            feature = name
         if not toggles.get(feature, False):
             continue
         if get_setting(session, _ran_key(name, day)):

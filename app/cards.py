@@ -453,6 +453,34 @@ def build_mosaic_story_html(title: str, section: str, images: list[str],
 </body></html>"""
 
 
+def render_mosaic_story(title: str, section: str, images: list[str],
+                        date_txt: str = "",
+                        out_dir: Path | None = None) -> str:
+    from playwright.sync_api import sync_playwright
+
+    out_dir = Path(out_dir or CARDS_DIR).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_hex(6)
+    tmp = out_dir / f"_m{token}.html"
+    tmp.write_text(build_mosaic_story_html(title, section, images,
+                                           date_txt=date_txt),
+                   encoding="utf-8")
+    chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
+    try:
+        with sync_playwright() as pw:
+            browser = (pw.chromium.launch(executable_path=chromium) if chromium
+                       else pw.chromium.launch())
+            page = browser.new_page(viewport={"width": 1080, "height": 1920})
+            page.goto(tmp.as_uri(), timeout=30000)
+            page.wait_for_timeout(800)
+            out = out_dir / f"mosaic_{token}.png"
+            page.locator(".story").screenshot(path=str(out), timeout=15000)
+            browser.close()
+    finally:
+        tmp.unlink(missing_ok=True)
+    return str(out)
+
+
 def render_story(title: str, section: str, image_url: str,
                  kicker: str = "", out_dir: Path | None = None,
                  with_title: bool = True, date_txt: str = "") -> str:
