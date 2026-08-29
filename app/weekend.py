@@ -201,12 +201,10 @@ def build_reel_digest(session, day) -> Post | None:
     points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
     title = "Nedēļa 30 sekundēs"
     try:
-        # 5 punktu kadri pa 6 sekundēm = precīzi 30 s; bez atsevišķa vāka
-        # un beigu kadra — tv3.lv poga un zīmols ir katrā kadrā, un
-        # nosaukums tad nemelo par garumu
+        # saturs = 5 punkti pa 6 s (30 s, kā sola nosaukums); klāt īss
+        # 3 s intro ar nosaukumu un 3 s CTA outro — kopā 36 s
         media = [reels.build_reel(title, "news", "", points, max_points=5,
-                                  frame_seconds=6.0, include_cover=False,
-                                  include_end=False)]
+                                  frame_seconds=6.0, edge_seconds=3.0)]
     except Exception as e:  # noqa: BLE001
         log.warning("reel digest failed: %s", e)
         return None

@@ -136,10 +136,15 @@ def _run_ffmpeg(args: list[str]) -> None:
 
 
 def _assemble(frames: list[Path], workdir: Path, out: Path,
-              frame_seconds: float = FRAME_SECONDS) -> None:
-    per_frame = int(frame_seconds * FPS)
+              frame_seconds: float = FRAME_SECONDS,
+              durations: list[float] | None = None) -> None:
+    """durations: sekundes katram kadram atsevišķi (piem., īss intro/outro ap
+    garākiem satura kadriem); bez tā visi kadri ir frame_seconds gari."""
     segments = []
     for i, png in enumerate(frames):
+        seconds = (durations[i] if durations and i < len(durations)
+                   else frame_seconds)
+        per_frame = int(seconds * FPS)
         seg = workdir / f"seg{i}.mp4"
         # upscale first so the zoom pans over subpixels instead of jittering
         _run_ffmpeg([
@@ -239,27 +244,33 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                out_dir: Path | None = None,
                max_points: int = MAX_POINTS,
                frame_seconds: float = FRAME_SECONDS,
+               edge_seconds: float | None = None,
                include_cover: bool = True,
                include_end: bool = True) -> str:
     """Render frames and assemble the MP4; returns the local file path.
 
     Teaseri: vāks + īsi punkti + CTA kadrs, 2.8 s kadrā. Digest (nedēļas
-    TOP 5) izlaiž vāku un CTA kadru un tur katru punktu 6 s — garie
-    virsraksti ar datumu 2.8 s nav izlasāmi, un kopgarums tad ir precīzs
-    (5 × 6 s = 30 s); tv3.lv poga un zīmols tāpat ir katrā punkta kadrā."""
+    TOP 5): punkti pa 6 s, lai garos virsrakstus ar datumu var izlasīt, un
+    īss intro/outro (edge_seconds) — vāks dod kontekstu, beigu kadrs CTA,
+    bet saturs paliek video centrā."""
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
-    docs = ([cards.build_story_html(title, section, image_url)]
-            if include_cover else [])
-    docs += [_point_frame_html(section, i, p)
-             for i, p in enumerate(points[:max_points], start=1)]
+    edge = frame_seconds if edge_seconds is None else edge_seconds
+    docs, durations = [], []
+    if include_cover:
+        docs.append(cards.build_story_html(title, section, image_url))
+        durations.append(edge)
+    for i, p in enumerate(points[:max_points], start=1):
+        docs.append(_point_frame_html(section, i, p))
+        durations.append(frame_seconds)
     if include_end:
         docs.append(_end_frame_html())
+        durations.append(edge)
     out = out_dir / f"reel_{secrets.token_hex(6)}.mp4"
     with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
         workdir = Path(tmp)
         frames = _render_frames(docs, workdir)
-        _assemble(frames, workdir, out, frame_seconds=frame_seconds)
-    log.info("reel built: %s (%d frames, %.1fs/frame)",
-             out.name, len(docs), frame_seconds)
+        _assemble(frames, workdir, out, durations=durations)
+    log.info("reel built: %s (%d frames, %.0fs total)",
+             out.name, len(docs), sum(durations))
     return str(out)

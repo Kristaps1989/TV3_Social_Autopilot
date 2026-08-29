@@ -262,20 +262,21 @@ def test_reel_digest_is_exactly_thirty_seconds(session, monkeypatch):
     captured = {}
 
     def fake_build(title, section, image, points, out_dir=None, max_points=3,
-                   frame_seconds=2.8, include_cover=True, include_end=True):
+                   frame_seconds=2.8, edge_seconds=None,
+                   include_cover=True, include_end=True):
+        edge = frame_seconds if edge_seconds is None else edge_seconds
         captured.update(title=title, points=points, frame_seconds=frame_seconds,
-                        cover=include_cover, end=include_end,
+                        edge=edge,
                         total=len(points[:max_points]) * frame_seconds
-                              + (frame_seconds if include_cover else 0)
-                              + (frame_seconds if include_end else 0))
+                              + (edge if include_cover else 0)
+                              + (edge if include_end else 0))
         return "data/cards/digest.mp4"
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
     post = weekend.build_reel_digest(session, SAT.date())
     assert post is not None and "30 sekundēs" in post.copy
     assert captured["title"] == "Nedēļa 30 sekundēs"
-    # 5 kadri × 6 s, bez vāka un beigu kadra = precīzi 30 s
-    assert captured["frame_seconds"] == 6.0
-    assert not captured["cover"] and not captured["end"]
+    # saturs: 5 punkti × 6 s = 30 s; intro + outro pa 3 s -> kopā 36 s
+    assert captured["frame_seconds"] == 6.0 and captured["edge"] == 3.0
     assert len(captured["points"]) == 5
-    assert captured["total"] == 30.0
+    assert captured["total"] == 36.0
