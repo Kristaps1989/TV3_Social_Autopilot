@@ -510,8 +510,17 @@ def publish_due(session) -> int:
             raw_card_links = (post.extra or {}).get("card_links") or []
             card_links = [add_utm(u, platform, post.id, hook=f"karte{i + 1}")
                           if u else "" for i, u in enumerate(raw_card_links)]
-            # kwarg tikai digest karuseļiem — vecāki/svešie adapteri to nezina
-            extra_kwargs = {"card_links": card_links} if card_links else {}
+            card_titles = (post.extra or {}).get("card_titles") or []
+            if (not card_titles and post.format == "card_carousel"
+                    and post.article is not None):
+                # parastam karuselim FB teksta josla zem katras kartītes rāda
+                # raksta virsrakstu — tukša josla izskatās pēc kļūdas
+                card_titles = [post.article.title] * len(post.media or [])
+            extra_kwargs = {}
+            if card_links:
+                extra_kwargs["card_links"] = card_links
+            if card_titles:
+                extra_kwargs["card_titles"] = card_titles
             post.platform_post_id = adapter.publish(
                 text=text, link=link, images=post.media or [], fmt=post.format,
                 **extra_kwargs)

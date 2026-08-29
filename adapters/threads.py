@@ -31,7 +31,8 @@ class ThreadsAdapter(Adapter):
         return resp.json()
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
-                card_links: list[str] | None = None) -> str:
+                card_links: list[str] | None = None,
+                card_titles: list[str] | None = None) -> str:
         data: dict = {"text": text}
         image_url = public_image_url(images[0]) if images else ""
         if fmt == "photo" and image_url:

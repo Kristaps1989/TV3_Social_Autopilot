@@ -40,7 +40,8 @@ class InstagramAdapter(Adapter):
         return self._post(f"{self.user_id}/media", data)["id"]
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
-                card_links: list[str] | None = None) -> str:
+                card_links: list[str] | None = None,
+                card_titles: list[str] | None = None) -> str:
         urls = [u for u in (public_image_url(i) for i in images) if u]
         if not urls:
             raise PublishError(

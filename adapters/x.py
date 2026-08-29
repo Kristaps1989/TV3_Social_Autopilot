@@ -90,7 +90,8 @@ class XAdapter(Adapter):
         return resp.json()["media_id_string"]
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
-                card_links: list[str] | None = None) -> str:
+                card_links: list[str] | None = None,
+                card_titles: list[str] | None = None) -> str:
         payload: dict = {"text": text}
         if fmt in ("photo", "story") and images:
             try:

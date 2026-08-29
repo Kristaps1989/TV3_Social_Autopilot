@@ -150,6 +150,10 @@ def test_top5_stores_per_card_links(session, monkeypatch):
     # punktu kartītes ved uz SAVIEM rakstiem TOP secībā
     assert links[1] == arts[0].canonical_url
     assert links[4] == arts[3].canonical_url
+    # katrai kartītei savs virsraksts FB teksta joslai zem attēla
+    titles = post.extra["card_titles"]
+    assert len(titles) == 6
+    assert titles[1] == arts[0].title and titles[-1] == "Visi stāsti — tv3.lv"
 
 
 def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
@@ -158,8 +162,10 @@ def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
     captured = {}
 
     class FakeAdapter:
-        def publish(self, *, text, link, images, fmt, card_links=None):
-            captured.update(link=link, card_links=card_links)
+        def publish(self, *, text, link, images, fmt, card_links=None,
+                    card_titles=None):
+            captured.update(link=link, card_links=card_links,
+                            card_titles=card_titles)
             return "fb-9"
 
         def comment(self, post_id, message):
@@ -181,6 +187,8 @@ def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
     assert links[1].startswith("https://tv3.lv/raksts-viens?")
     assert "utm_term=karte2" in links[1]
     assert links[2] == ""   # tukša saite paliek tukša -> adapteris liek galveno
+    # bez explicit virsrakstiem karuselis dabū raksta virsrakstu katrai kartītei
+    assert captured["card_titles"] == ["Digest tests"] * 3
 
 
 def test_fb_carousel_uses_per_card_links_and_trim_keeps_last(monkeypatch, ):
@@ -208,15 +216,20 @@ def test_fb_carousel_uses_per_card_links_and_trim_keeps_last(monkeypatch, ):
                         (calls.append((url, dict(data or {}))), R())[1])
     imgs = [f"/d/c{i}.png" for i in range(5)] + ["/d/end.png"]
     links = [f"https://tv3.lv/r{i}" for i in range(5)] + ["https://tv3.lv"]
+    titles = [f"Virsraksts {i}" for i in range(5)] + ["Visi stāsti"]
     out = facebook.FacebookPageAdapter().publish(
         text="T", link="https://tv3.lv/sports", images=imgs,
-        fmt="card_carousel", card_links=links)
+        fmt="card_carousel", card_links=links, card_titles=titles)
     assert out == "520_77"
     cards_sent = _json.loads(calls[0][1]["child_attachments"])
     # 6 -> 5 kartītes: pirmās četras + CTA; saites seko līdzi tam pašam griezumam
     assert [c["link"] for c in cards_sent] == \
         ["https://tv3.lv/r0", "https://tv3.lv/r1", "https://tv3.lv/r2",
          "https://tv3.lv/r3", "https://tv3.lv"]
+    # name aizpilda FB kartītes teksta joslu; griezums saskan arī virsrakstiem
+    assert [c["name"] for c in cards_sent] == \
+        ["Virsraksts 0", "Virsraksts 1", "Virsraksts 2", "Virsraksts 3",
+         "Visi stāsti"]
 
 
 def test_weekly_ai_report_skips_without_key_and_sends_when_ok(session, monkeypatch):

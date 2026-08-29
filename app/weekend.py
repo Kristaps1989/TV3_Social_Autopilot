@@ -121,13 +121,18 @@ def _digest_article(session, guid: str, title: str, section: str,
 
 def _schedule(session, article: Article, fmt: str, copy: str, media: list,
               link: str, marker: str, at: datetime,
-              card_links: list[str] | None = None) -> Post:
+              card_links: list[str] | None = None,
+              card_titles: list[str] | None = None) -> Post:
     from app import runtime
 
+    extra = {}
+    if card_links:
+        extra["card_links"] = card_links
+    if card_titles:
+        extra["card_titles"] = card_titles
     post = Post(article_id=article.id, channel=CHANNEL, format=fmt, copy=copy,
                 media=media, link_url=link, hook_type=marker,
-                state="scheduled", scheduled_at=at,
-                extra={"card_links": card_links} if card_links else {},
+                state="scheduled", scheduled_at=at, extra=extra,
                 dry_run=runtime.is_dry_run(session))
     session.add(post)
     session.flush()
@@ -179,10 +184,12 @@ def build_top5(session, day, section: str | None) -> Post | None:
     used = articles[:max(0, len(media) - 2)]
     card_links = ([link] + [a.canonical_url or a.url for a in used]
                   + [link])[:len(media)]
+    card_titles = ([title] + [a.title for a in used]
+                   + ["Visi stāsti — tv3.lv"])[:len(media)]
     return _schedule(session, _digest_article(
         session, f"digest-top5-{sec}-{day.isoformat()}", title, sec, link),
         "card_carousel", copy, media, link, "digest", _local_slot(day, 10),
-        card_links=card_links)
+        card_links=card_links, card_titles=card_titles)
 
 
 def build_reel_digest(session, day) -> Post | None:

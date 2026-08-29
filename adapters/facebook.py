@@ -105,7 +105,8 @@ class FacebookPageAdapter(Adapter):
         return out.get("post_id") or video_id
 
     def _publish_link_carousel(self, text: str, link: str, images: list[str],
-                               card_links: list[str] | None = None) -> str:
+                               card_links: list[str] | None = None,
+                               card_titles: list[str] | None = None) -> str:
         """Organic swipeable carousel: /feed with child_attachments — each
         card is an image + the article link, the TVNET-style format. Needs
         public image URLs (PUBLIC_BASE_URL). Returns '' when the carousel
@@ -123,7 +124,14 @@ class FacebookPageAdapter(Adapter):
             # digest karuselī katra kartīte ved uz SAVU rakstu
             card_link = (card_links[i] if card_links and i < len(card_links)
                          and card_links[i] else link)
-            cards.append({"link": card_link, "picture": url})
+            card = {"link": card_link, "picture": url}
+            # name aizpilda FB kartītes teksta joslu zem attēla — bez tā
+            # kartīte plūsmā izskatās kā attēls ar tukšu apakšu
+            title = (card_titles[i] if card_titles and i < len(card_titles)
+                     and card_titles[i] else "")
+            if title:
+                card["name"] = title[:80]
+            cards.append(card)
         if len(cards) < 2:
             return ""
         data = {
@@ -143,7 +151,8 @@ class FacebookPageAdapter(Adapter):
             return ""
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
-                card_links: list[str] | None = None) -> str:
+                card_links: list[str] | None = None,
+                card_titles: list[str] | None = None) -> str:
         if fmt == "reel" and images:
             return self._publish_reel(images[0], text)
         if fmt == "story" and images:
@@ -156,7 +165,8 @@ class FacebookPageAdapter(Adapter):
             out = self._upload_photo(images[0], {"caption": text})
             return out.get("post_id") or out.get("id", "")
         if fmt == "card_carousel" and link and len(images) > 1:
-            post_id = self._publish_link_carousel(text, link, images, card_links)
+            post_id = self._publish_link_carousel(text, link, images,
+                                                  card_links, card_titles)
             if post_id:
                 return post_id
             # no public URLs / FB rejected the carousel -> album collage below
