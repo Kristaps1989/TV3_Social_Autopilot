@@ -30,6 +30,21 @@ def _article(session, guid, title, section="sport", sessions=0, score=0.8,
     return a
 
 
+def test_mosaic_cover_and_photo_point_frames():
+    from app import cards, reels
+
+    doc = cards.build_mosaic_story_html("Nedēļa 30 sekundēs", "sport",
+                                        [f"https://cdn/p{i}.jpg" for i in range(5)],
+                                        date_txt="29.08.2026")
+    assert doc.count('class="cell"') == 6      # 5 foto -> pirmais atkārtojas
+    assert "Nedēļa 30 sekundēs" in doc and "29.08.2026" in doc
+    frame = reels._point_frame_html("sport", 1, "Punkts",
+                                    bg_image="https://cdn/p0.jpg")
+    assert "https://cdn/p0.jpg" in frame and "rgba(12,6,16" in frame
+    plain = reels._point_frame_html("sport", 1, "Punkts")
+    assert "linear-gradient(160deg" in plain and "url(" not in plain
+
+
 def test_lv_date_and_relative_words():
     assert weekend.lv_date(datetime(2026, 8, 26)) == "26. augustā"
     assert "2025. gads" in weekend.lv_date(datetime(2025, 12, 3))
@@ -296,10 +311,12 @@ def test_reel_digest_is_exactly_thirty_seconds(session, monkeypatch):
 
     def fake_build(title, section, image, points, out_dir=None, max_points=3,
                    frame_seconds=2.8, edge_seconds=None,
-                   include_cover=True, include_end=True):
+                   include_cover=True, include_end=True,
+                   cover_images=None, point_images=None):
         edge = frame_seconds if edge_seconds is None else edge_seconds
         captured.update(title=title, points=points, frame_seconds=frame_seconds,
-                        edge=edge,
+                        edge=edge, cover_images=cover_images,
+                        point_images=point_images,
                         total=len(points[:max_points]) * frame_seconds
                               + (edge if include_cover else 0)
                               + (edge if include_end else 0))
@@ -313,3 +330,7 @@ def test_reel_digest_is_exactly_thirty_seconds(session, monkeypatch):
     assert captured["frame_seconds"] == 6.0 and captured["edge"] == 3.0
     assert len(captured["points"]) == 5
     assert captured["total"] == 36.0
+    # vāks = rakstu foto mozaīka; punktu kadri = katra raksta foto fonā
+    assert len(captured["cover_images"]) == 5
+    assert all(u.startswith("https://cdn/") for u in captured["cover_images"])
+    assert len(captured["point_images"]) == 5

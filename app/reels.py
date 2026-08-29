@@ -52,15 +52,23 @@ def available() -> bool:
     return bool(ffmpeg_bin()) and cards.renderer_available()
 
 
-def _point_frame_html(section: str, number: int, point: str) -> str:
+def _point_frame_html(section: str, number: int, point: str,
+                      bg_image: str = "") -> str:
     import html as _html
 
     style = cards.SECTION_STYLE.get(section) or cards.SECTION_STYLE["news"]
     color = style["color"]
+    # raksta foto aptumšotā fonā tur uzmanību labāk nekā tukšs gradients
+    bg = (f"background:url({_html.escape(bg_image, quote=True)}) "
+          f"center/cover, {color};" if bg_image
+          else f"background:linear-gradient(160deg, {color} 0%, #1c0d12 85%);")
+    shade = ('<div style="position:absolute;inset:0;background:'
+             'linear-gradient(160deg, rgba(12,6,16,.85), rgba(12,6,16,.62))">'
+             '</div>' if bg_image else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
-  background:linear-gradient(160deg, {color} 0%, #1c0d12 85%); }}
+  {bg} }}
 .brand {{ position:absolute; top:200px; right:48px; background:#fff;
           border-radius:14px; padding:14px 22px; }}
 .num {{ position:absolute; top:480px; left:72px; font-size:260px; font-weight:bold;
@@ -74,6 +82,7 @@ def _point_frame_html(section: str, number: int, point: str) -> str:
 .linkpill svg {{ vertical-align:-7px; margin-right:16px; }}
 </style></head><body>
 <div class="story">
+  {shade}
   <div class="brand">{cards._logo(52)}</div>
   <div class="num">{number}</div>
   <div class="point">{_html.escape(point)}</div>
@@ -246,7 +255,9 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                frame_seconds: float = FRAME_SECONDS,
                edge_seconds: float | None = None,
                include_cover: bool = True,
-               include_end: bool = True) -> str:
+               include_end: bool = True,
+               cover_images: list[str] | None = None,
+               point_images: list[str] | None = None) -> str:
     """Render frames and assemble the MP4; returns the local file path.
 
     Teaseri: vāks + īsi punkti + CTA kadrs, 2.8 s kadrā. Digest (nedēļas
@@ -258,10 +269,16 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
     edge = frame_seconds if edge_seconds is None else edge_seconds
     docs, durations = [], []
     if include_cover:
-        docs.append(cards.build_story_html(title, section, image_url))
+        if cover_images:
+            docs.append(cards.build_mosaic_story_html(title, section,
+                                                      cover_images))
+        else:
+            docs.append(cards.build_story_html(title, section, image_url))
         durations.append(edge)
+    point_images = point_images or []
     for i, p in enumerate(points[:max_points], start=1):
-        docs.append(_point_frame_html(section, i, p))
+        bg = point_images[i - 1] if i - 1 < len(point_images) else ""
+        docs.append(_point_frame_html(section, i, p, bg_image=bg))
         durations.append(frame_seconds)
     if include_end:
         docs.append(_end_frame_html())

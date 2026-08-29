@@ -407,6 +407,52 @@ def build_story_html(title: str, section: str, image_url: str,
 </body></html>"""
 
 
+def build_mosaic_story_html(title: str, section: str, images: list[str],
+                            date_txt: str = "") -> str:
+    """9:16 vāks no vairākiem rakstu foto — 2×3 mozaīka ar tumšu pārklājumu
+    un virsraksta plāksni. Nedēļas digest vākam: viens attēls nepasaka
+    "nedēļa", mozaīka pasaka."""
+    style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
+    color = style["color"]
+    esc = html.escape
+    pics = [i for i in images if i][:6]
+    while pics and len(pics) < 6:
+        pics.append(pics[len(pics) % max(1, len(images))])
+    cells = "".join(
+        f'<div class="cell" style="background:url({html.escape(u, quote=True)}) '
+        f'center/cover, {color}"></div>' for u in pics)
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+* {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
+.story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
+  background:{color}; }}
+.grid {{ position:absolute; inset:0; display:grid; gap:6px;
+  grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr 1fr; }}
+.cell {{ width:100%; height:100%; }}
+.shade {{ position:absolute; inset:0;
+  background:linear-gradient(to top, rgba(8,4,12,.9) 20%, rgba(8,4,12,.25) 60%); }}
+.brand {{ position:absolute; top:200px; right:48px; background:#fff;
+          border-radius:14px; padding:14px 22px; }}
+.plate {{ position:absolute; left:0; bottom:430px; max-width:920px;
+          background:#fff; padding:52px 60px 52px 56px;
+          border-right:20px solid #e3000f;
+          box-shadow:0 10px 40px rgba(0,0,0,.3); }}
+.kick {{ position:absolute; top:-52px; left:0; background:#e3000f; color:#fff;
+         font-weight:bold; font-size:30px; letter-spacing:.1em; padding:10px 22px; }}
+.plate h1 {{ font-size:72px; line-height:1.14; font-weight:bold; color:#111; }}
+{DCHIP_CSS}
+.dchip {{ left:auto; top:auto; right:48px; bottom:160px; }}
+</style></head><body>
+<div class="story">
+  <div class="grid">{cells}</div>
+  <div class="shade"></div>
+  {date_chip(date_txt)}
+  <div class="brand">{_logo(52)}</div>
+  <div class="plate"><div class="kick">{esc(style['kicker'])}</div>
+    <h1>{esc(title)}</h1></div>
+</div>
+</body></html>"""
+
+
 def render_story(title: str, section: str, image_url: str,
                  kicker: str = "", out_dir: Path | None = None,
                  with_title: bool = True, date_txt: str = "") -> str:

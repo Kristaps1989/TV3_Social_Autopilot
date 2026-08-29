@@ -216,11 +216,15 @@ def build_reel_digest(session, day) -> Post | None:
         return None
     points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
     title = "Nedēļa 30 sekundēs"
+    imgs = [next((i for i in (a.images or []) if i), "") for a in articles]
     try:
-        # saturs = 5 punkti pa 6 s (30 s, kā sola nosaukums); klāt īss
-        # 3 s intro ar nosaukumu un 3 s CTA outro — kopā 36 s
+        # saturs = 5 punkti pa 6 s (30 s, kā sola nosaukums); klāt īss 3 s
+        # intro (rakstu foto mozaīka ar virsrakstu) un 3 s CTA outro — 36 s;
+        # punktu kadros attiecīgā raksta foto aptumšotā fonā
         media = [reels.build_reel(title, "news", "", points, max_points=5,
-                                  frame_seconds=6.0, edge_seconds=3.0)]
+                                  frame_seconds=6.0, edge_seconds=3.0,
+                                  cover_images=[i for i in imgs if i],
+                                  point_images=imgs)]
     except Exception as e:  # noqa: BLE001
         log.warning("reel digest failed: %s", e)
         return None
