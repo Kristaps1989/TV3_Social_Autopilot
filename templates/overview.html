@@ -80,28 +80,64 @@ Viena atbilde uz jautājumu «kur eiro atved visvairāk lasītāju».</p>
 </div>
 
 <div class="card" style="margin-bottom:1rem">
-  <h2>Nedēļas nogales formāti</h2>
-  <p class="muted">Brīvdienās redakcija raksta mazāk — sistēma no nedēļas
-  izmērītā satura uzbūvē svaigus ierakstus. Sestdien: sporta TOP 5 karuselis,
-  «Nedēļa 30 sekundēs» reels un nepamanītā stāsta atkārtojums; svētdien:
-  kopējais TOP 5, nedēļas kvīzs un arhīva raksts, ko joprojām lasa;
-  pirmdienas rītā (8:00) — nedēļas nogales TOP 5 karuselis un stāsts tiem,
-  kas brīvdienās ziņām nesekoja. Visās
-  grafikās ir iededzināts datums un © tv3.lv; tekstos datumi vienmēr ir
-  absolūti — vecs ieraksts nekad nemaldina.</p>
+  <h2>Satura franšīzes — nedēļas režģis</h2>
+  <p class="muted">Franšīze ir nosaukts formāts fiksētā laikā: lasītājs
+  atgriežas pie tā, ko pazīst un gaida. Visas uzbūvētas no jau izmērītā
+  satura — bez papildu redakcijas darba. Darba dienā ir ne vairāk kā viens
+  plūsmas ieraksts, plus vakara stāsts stāstu kanālā, tāpēc pārstrādātais
+  saturs paliek zem ~20% no plūsmas. Visās grafikās ir iededzināts datums
+  un © tv3.lv; tekstos datumi vienmēr ir absolūti — vecs ieraksts nekad
+  nemaldina.</p>
   <form method="post" action="/overview/weekend">
-    {% for f, label in [('top5', 'Nedēļas TOP 5 karuselis'),
-                        ('reel', '«Nedēļa 30 sekundēs» reels'),
-                        ('icymi', 'Nepamanītā stāsta atkārtojums'),
-                        ('quiz', 'Nedēļas kvīzs'),
-                        ('evergreen', 'Arhīva raksts svētdienas rītā'),
-                        ('monday', 'Pirmdienas rītā — nedēļas nogales TOP 5')] %}
-    <label style="display:block;margin:.25rem 0">
-      <input type="checkbox" name="{{ f }}" value="on"
-             {% if weekend[f] %}checked{% endif %}> {{ label }}</label>
-    {% endfor %}
-    <div style="margin-top:.5rem"><button class="primary">Saglabāt</button></div>
+    <table style="margin-bottom:.6rem">
+      <tr><th>Diena</th><th>Formāts</th><th>Laiks</th><th>Uzdevums</th></tr>
+      {% for day, f, label, at, job in [
+          ('Pr', 'monday', 'Nedēļas nogales TOP 5 — karuselis + stāsts', '8:00', 'klikšķi pēc brīvdienām'),
+          ('Ot', 'number', '«Nedēļas skaitlis» — foto karte', '12:00', 'ritināšanas pārtraucējs'),
+          ('Tr', 'question', '«Trešdienas jautājums»', '19:00', 'komentāri, sarunas signāls'),
+          ('Ce', 'yearago', '«Šajā dienā pirms gada»', '15:00', 'arhīvs, dalīšanās'),
+          ('Pk', 'guide', '«Nedēļas nogales gids» — izklaide', '17:00', 'izklaides sadaļa, zīmols'),
+          ('Se', 'top5', 'Nedēļas TOP 5 karuselis (Se sports, Sv kopējais)', '10:00', 'klikšķi'),
+          ('Se', 'reel', '«Nedēļa 30 sekundēs» reels', '12:00', 'organiskā sasniedzamība'),
+          ('Se', 'icymi', 'Nepamanītā stāsta atkārtojums', '15:00', 'satura izmantošana'),
+          ('Sv', 'evergreen', 'Arhīva raksts, ko joprojām lasa', '9:00', 'ilgtermiņa trafiks'),
+          ('Sv', 'quiz', 'Nedēļas kvīzs', '19:00', 'iesaiste nedēļas pīķī'),
+          ('Pr–Pk', 'daily_story', '«Dienas TOP 3» stāsts', '20:00', 'stāstu auditorija')] %}
+      <tr>
+        <td class="muted">{{ day }}</td>
+        <td><label><input type="checkbox" name="{{ f }}" value="on"
+              {% if weekend[f] %}checked{% endif %}> {{ label }}</label></td>
+        <td class="n muted">{{ at }}</td>
+        <td class="muted">{{ job }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <button class="primary">Saglabāt</button>
+    <span class="muted">— katrai franšīzei savs slēdzis; izslēgtā vienkārši
+      neizpildās</span>
   </form>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Franšīžu sniegums ({{ d.franchises.days }} d)</h2>
+  <p class="muted">Vidējās GA4 sesijas uz vienu ierakstu pret parasto
+  redakcijas ierakstu ({{ '%.0f' % d.franchises.benchmark }} sesijas,
+  {{ d.franchises.baseline_posts }} ieraksti). Verdikts «vāji» nav pavēle
+  izslēgt: stāstu un gida uzdevums ir zīmols un sasniedzamība, ne klikšķi.</p>
+  <table>
+    <tr><th>Franšīze</th><th>Ieraksti</th><th>Sesijas</th>
+      <th>Uz ierakstu</th><th>Pret bāzi</th><th>Verdikts</th></tr>
+    {% for i in d.franchises['items'] %}
+    <tr><td>{{ i.label }}</td>
+      <td class="n">{{ i.posts }}</td>
+      <td class="n">{{ i.sessions }}</td>
+      <td class="n">{{ '%.0f' % i.per_post }}</td>
+      <td class="n">{% if i.vs_benchmark %}{{ '%.2f' % i.vs_benchmark }}×{% else %}—{% endif %}</td>
+      <td>{{ i.verdict }}</td></tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">vēl nav publicētu franšīžu ierakstu</td></tr>
+    {% endfor %}
+  </table>
 </div>
 
 <div class="card">

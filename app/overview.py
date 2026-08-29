@@ -117,11 +117,72 @@ def channel_economics(session, days: int = DAYS) -> dict:
     }
 
 
+FRANCHISE_LABELS = {
+    "mondaytop5": "Pr · Nogales TOP 5",
+    "mondaystory": "Pr · Nogales stāsts",
+    "number": "Ot · Nedēļas skaitlis",
+    "question": "Tr · Trešdienas jautājums",
+    "yearago": "Ce · Šajā dienā pirms gada",
+    "guide": "Pk · Nogales gids",
+    "digest": "Se/Sv · Nedēļas TOP 5",
+    "digestreel": "Se · Nedēļa 30 sekundēs",
+    "icymi": "Se · Nepamanītais stāsts",
+    "evergreen": "Sv · Arhīva raksts",
+    "quiz": "Sv · Nedēļas kvīzs",
+    "dailystory": "Pr–Pk · Dienas TOP 3",
+}
+
+
+def franchise_stats(session, days: int = 28) -> dict:
+    """Franšīžu «kill / keep» tabula: katra nosauktā formāta vidējās GA4
+    sesijas uz ierakstu pret parasto ierakstu vidējo tajā pašā kanālā.
+
+    Četru nedēļu logs ir apzināts — tik ilgi vajag, lai formāts sāktu
+    uzkrāt atgriezenisko auditoriju; ātrāks spriedums nogalinātu formātu,
+    kas tikai vēl nav pamanīts. Verdikts «vāji» nav pavēle izslēgt: stāstu
+    un gida uzdevums ir zīmols un sasniedzamība, ne klikšķi."""
+    from app.models import PostMetrics
+
+    since = utcnow() - timedelta(days=days)
+    rows = session.execute(
+        select(Post.hook_type, func.count(func.distinct(Post.id)),
+               func.coalesce(func.sum(PostMetrics.ga_sessions), 0))
+        .outerjoin(PostMetrics, PostMetrics.post_id == Post.id)
+        .where(Post.state == "published", Post.published_at >= since)
+        .group_by(Post.hook_type)
+    ).all()
+    baseline_posts = baseline_sessions = 0
+    items = []
+    for hook, n, sessions in rows:
+        if hook in FRANCHISE_LABELS:
+            items.append({"hook": hook, "label": FRANCHISE_LABELS[hook],
+                          "posts": n, "sessions": int(sessions or 0),
+                          "per_post": (sessions or 0) / n if n else 0.0})
+        else:   # parastie redakcijas ieraksti = bāzes līnija
+            baseline_posts += n
+            baseline_sessions += int(sessions or 0)
+    benchmark = (baseline_sessions / baseline_posts) if baseline_posts else 0.0
+    for it in items:
+        it["vs_benchmark"] = (it["per_post"] / benchmark) if benchmark else 0.0
+        if it["posts"] < 3:
+            it["verdict"] = "par agru"
+        elif not benchmark or it["vs_benchmark"] >= 1.0:
+            it["verdict"] = "turēt"
+        elif it["vs_benchmark"] >= 0.6:
+            it["verdict"] = "vērot"
+        else:
+            it["verdict"] = "vāji"
+    items.sort(key=lambda it: -it["per_post"])
+    return {"days": days, "benchmark": benchmark,
+            "baseline_posts": baseline_posts, "items": items}
+
+
 def build(session) -> dict:
     return {
         "funnel7": content_funnel(session, 7),
         "funnel1": content_funnel(session, 1),
         "economics": channel_economics(session),
+        "franchises": franchise_stats(session),
         "google_monthly": external_spend(session),
         "ai_report": get_setting(session, "overview:ai_report", ""),
         "ai_report_at": get_setting(session, "overview:ai_report_at", ""),
@@ -167,7 +228,10 @@ Kanālu ekonomika (30 d):
   {eco['our_ads']['spend']:.2f} €, {eco['our_ads']['sessions']} sesijas,
   {fmt_cps(eco['our_ads']['cps'])}
 - Organic Social: {eco['organic_social']['sessions']} sesijas (0 €)
-Visi GA4 kanāli: {[(c['channel'], c['sessions']) for c in eco['channels'][:8]]}"""
+Visi GA4 kanāli: {[(c['channel'], c['sessions']) for c in eco['channels'][:8]]}
+Satura franšīzes (28 d; vidējais parastam ierakstam
+{data['franchises']['benchmark']:.0f} sesijas): {[(i['label'], i['posts'],
+round(i['per_post']), i['verdict']) for i in data['franchises']['items']]}"""
     try:
         import anthropic
 
@@ -181,7 +245,9 @@ Visi GA4 kanāli: {[(c['channel'], c['sessions']) for c in eco['channels'][:8]]}
                 f"{context}\n\nUzraksti 3-5 konkrētus ieteikumus budžeta un "
                 f"satura izplatīšanas uzlabošanai. Katrs: ko darīt, kāpēc "
                 f"(ar skaitli no datiem), gaidāmais efekts. Ja kādam kanālam "
-                f"trūkst datu, pasaki, kas jāpieslēdz, lai to izmērītu."}],
+                f"trūkst datu, pasaki, kas jāpieslēdz, lai to izmērītu. "
+                f"Vienā punktā izvērtē satura franšīzes: kuras turēt, kuras "
+                f"izslēgt, kuras vēl par agru vērtēt."}],
         )
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         set_setting(session, "overview:ai_report", text)

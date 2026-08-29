@@ -542,3 +542,77 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
     finally:
         tmp.unlink(missing_ok=True)
     return paths
+
+
+def build_number_html(number: str, context: str, section: str,
+                      image_url: str = "", date_txt: str = "",
+                      width: int = 1080, height: int = 1350) -> str:
+    """«Nedēļas skaitlis»: viens liels skaitlis un viena konteksta rinda uz
+    aptumšota raksta foto. Pusdienlaika formāts — apstādina ritināšanu bez
+    lasīšanas, pilnais stāsts paliek rakstā."""
+    style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
+    color = style["color"]
+    esc = html.escape
+    bg = (f'background:url({html.escape(image_url, quote=True)}) center/cover, {color};'
+          if image_url else
+          f"background:linear-gradient(160deg,{_shade(color, .06)},"
+          f"{_shade(color, -.16)});")
+    # garš skaitlis («1 240 000») nedrīkst izplūst ārpus kartes
+    n = len(number)
+    size = 300 if n <= 3 else (230 if n <= 5 else (170 if n <= 8 else 120))
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+* {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
+.numcard {{ width:{width}px; height:{height}px; position:relative;
+  overflow:hidden; {bg} }}
+.shade {{ position:absolute; inset:0;
+  background:linear-gradient(to top, rgba(8,4,12,.92) 30%, rgba(8,4,12,.55) 100%); }}
+.kick {{ position:absolute; left:64px; top:150px; background:#e3000f; color:#fff;
+  font-weight:bold; font-size:30px; letter-spacing:.12em; padding:12px 24px; }}
+.num {{ position:absolute; left:64px; right:64px; top:260px; color:#fff;
+  font-size:{size}px; line-height:1; font-weight:bold; letter-spacing:-.02em;
+  text-shadow:0 8px 40px rgba(0,0,0,.45); }}
+.rule {{ position:absolute; left:64px; top:{260 + size + 40}px; width:180px;
+  height:10px; background:#e3000f; }}
+.ctx {{ position:absolute; left:64px; right:64px; bottom:230px; color:#fff;
+  font-size:52px; line-height:1.28; font-weight:bold; }}
+.brand {{ position:absolute; right:56px; bottom:56px; background:#fff;
+  border-radius:12px; padding:12px 20px; }}
+{DCHIP_CSS}
+</style></head><body>
+<div class="numcard">
+  <div class="shade"></div>
+  {date_chip(date_txt)}
+  <div class="kick">NEDĒĻAS SKAITLIS</div>
+  <div class="num">{esc(number)}</div>
+  <div class="rule"></div>
+  <div class="ctx">{esc(context)}</div>
+  <div class="brand">{_logo(44)}</div>
+</div>
+</body></html>"""
+
+
+def render_number_card(number: str, context: str, section: str,
+                       image_url: str = "", date_txt: str = "",
+                       out_dir: Path | None = None) -> str:
+    from playwright.sync_api import sync_playwright
+
+    out_dir = Path(out_dir or CARDS_DIR).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_hex(6)
+    tmp = out_dir / f"_n{token}.html"
+    tmp.write_text(build_number_html(number, context, section, image_url,
+                                     date_txt=date_txt), encoding="utf-8")
+    chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
+    try:
+        with sync_playwright() as pw:
+            browser = (pw.chromium.launch(executable_path=chromium) if chromium
+                       else pw.chromium.launch())
+            page = browser.new_page(viewport={"width": 1080, "height": 1350})
+            page.goto(tmp.as_uri(), timeout=30000)
+            page.wait_for_timeout(800)
+            out = out_dir / f"number_{token}.png"
+            page.locator(".numcard").screenshot(path=str(out), timeout=15000)
+            browser.close()
+    finally:
+        tmp.unlink(missing_ok=True)
+    return str(out)

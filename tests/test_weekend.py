@@ -147,9 +147,17 @@ def test_disabled_features_are_skipped(session, monkeypatch):
     assert [p.hook_type for p in posts] == ["digest"]
 
 
-def test_weekday_run_is_inert(session):
+def test_night_run_builds_nothing(session):
     _article(session, "wd-1", "Notikums", sessions=100)
-    assert weekend.run(session, datetime(2026, 8, 27, 10, 0)) == 0  # ceturtdiena
+    # 05:00 Rīgā — naktī nekas netiek būvēts nevienā dienā
+    assert weekend.run(session, datetime(2026, 8, 27, 2, 0)) == 0
+
+
+def test_weekday_without_data_builds_nothing(session):
+    """Ceturtdienā ir «pirms gada» franšīze, bet gadu vecu arhīva nav —
+    formāts klusē, nevis publicē tukšu ierakstu."""
+    _article(session, "wd-2", "Notikums", sessions=100)
+    assert weekend.run(session, datetime(2026, 8, 27, 10, 0)) == 0
 
 
 def test_evergreen_picks_old_still_read_article(session, monkeypatch):
@@ -340,11 +348,12 @@ MON = datetime(2026, 8, 31, 6, 0)   # pirmdiena 09:00 Rīgā
 
 
 def _dated_article(session, guid, title, published_at, sessions=0,
-                   images=None):
+                   images=None, section="news", sensitivity=None):
     """Raksts + publicēts posts ar FIKSĒTU laiku — pirmdienas loga testiem."""
     a = Article(guid=guid, url=f"https://tv3.lv/{guid}",
                 canonical_url=f"https://tv3.lv/{guid}", title=title,
-                section="news", ai_score=0.8,
+                section=section, ai_score=0.8,
+                sensitivity=sensitivity if sensitivity is not None else [],
                 images=images if images is not None
                 else [f"https://cdn/uploads/{guid}.jpg"],
                 published_at=published_at)
@@ -507,3 +516,214 @@ def test_photopost_graphics_never_reach_digest_visuals(session, monkeypatch):
     monkeypatch.setattr(cards, "render_cards", fake_cards)
     weekend.build_top5(session, SAT.date(), "sport")
     assert "photopost" not in rendered["image"]
+
+
+TUE = datetime(2026, 9, 1, 9, 0)    # otrdiena 12:00 Rīgā
+WED = datetime(2026, 9, 2, 17, 0)   # trešdiena 20:00 Rīgā
+THU = datetime(2026, 9, 3, 12, 0)   # ceturtdiena 15:00 Rīgā
+FRI = datetime(2026, 9, 4, 14, 0)   # piektdiena 17:00 Rīgā
+
+
+def _only(session, feature):
+    weekend.save_settings(session, {feature: True})
+
+
+def test_daily_story_uses_todays_window_only(session, monkeypatch):
+    from app import cards
+
+    for i in range(3):
+        _dated_article(session, f"ds-{i}", f"Trešdienas notikums numur {i}",
+                       datetime(2026, 9, 2, 9, 0), sessions=100 - i)
+    _dated_article(session, "ds-old", "Otrdienas hits",
+                   datetime(2026, 9, 1, 9, 0), sessions=9000)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_mosaic(title, section, images, **kwargs):
+        seen.update(title=title, images=images, date=kwargs.get("date_txt"))
+        return "data/cards/day.png"
+
+    monkeypatch.setattr(cards, "render_mosaic_story", fake_mosaic)
+    _only(session, "daily_story")
+
+    assert weekend.run(session, WED) == 1
+    post = session.execute(select(Post).where(
+        Post.hook_type == "dailystory")).scalars().one()
+    assert post.channel == "fb_stories" and post.format == "story"
+    assert post.media == ["data/cards/day.png"]
+    assert post.scheduled_at == datetime(2026, 9, 2, 17, 0)   # 20:00 Rīgā
+    assert seen["title"] == "Dienas TOP 3" and seen["date"] == "02.09.2026"
+    # vakardienas foto dienas mozaīkā neiekļūst
+    assert all("ds-old" not in u for u in seen["images"])
+
+
+def test_evening_formats_are_not_built_in_the_morning(session, monkeypatch):
+    from app import cards
+
+    for i in range(3):
+        _dated_article(session, f"dm-{i}", f"Rīta notikums numur {i}",
+                       datetime(2026, 9, 2, 5, 0), sessions=50)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_mosaic_story",
+                        lambda *a, **k: "data/cards/day.png")
+    _only(session, "daily_story")
+    # 09:00 Rīgā: dienas TOP no rīta datiem būtu meli — formāts gaida vakaru
+    assert weekend.run(session, datetime(2026, 9, 2, 6, 0)) == 0
+    assert weekend.run(session, WED) == 1
+
+
+def test_friday_guide_takes_entertainment_only(session, monkeypatch):
+    from app import cards
+
+    ents = [_dated_article(session, f"g-{i}", f"Izklaides notikums numur {i}",
+                           datetime(2026, 9, 1 + i, 9, 0), sessions=100 - i,
+                           section="entertainment") for i in range(3)]
+    _dated_article(session, "g-news", "Ziņu hits", datetime(2026, 9, 2, 9, 0),
+                   sessions=9000)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kwargs):
+        seen.update(title=title, section=section, tag=tag, points=points)
+        return ["c0.png", "c1.png", "c2.png", "end.png"]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    _only(session, "guide")
+
+    assert weekend.run(session, FRI) == 1
+    post = session.execute(select(Post).where(
+        Post.hook_type == "guide")).scalars().one()
+    assert post.format == "card_carousel"
+    assert post.link_url == "https://tv3.lv/izklaide"
+    assert post.scheduled_at == datetime(2026, 9, 4, 14, 0)   # 17:00 Rīgā
+    assert seen["section"] == "entertainment" and seen["tag"] == "#BRĪVDIENĀM"
+    # ziņu hits gidā neiekļūst, arī ja tam ir vairāk sesiju
+    assert all("Ziņu hits" not in pt for pt in seen["points"])
+    assert post.extra["card_links"][1] == ents[0].canonical_url
+
+
+def test_wednesday_question_is_a_photo_post_linking_to_the_article(
+        session, monkeypatch):
+    from app import cards
+
+    art = _dated_article(session, "qq-1", "Lielais notikums Rīgā",
+                         datetime(2026, 9, 1, 9, 0), sessions=500)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_share(title, section, image, kicker="", **kwargs):
+        seen.update(title=title, kicker=kicker, height=kwargs.get("height"))
+        return "data/cards/q.png"
+
+    monkeypatch.setattr(cards, "render_share_image", fake_share)
+    monkeypatch.setattr(weekend, "_ai_lines",
+                        lambda *a, **k: ["Vai tev šķiet, ka lēmums bija pareizs?"])
+    _only(session, "question")
+
+    assert weekend.run(session, datetime(2026, 9, 2, 16, 0)) == 1
+    post = session.execute(select(Post).where(
+        Post.hook_type == "question")).scalars().one()
+    # foto ieraksts -> saite gan tekstā, gan pirmajā komentārā (pipeline)
+    assert post.format == "photo" and post.article_id == art.id
+    assert post.link_url == art.canonical_url
+    assert post.scheduled_at == datetime(2026, 9, 2, 16, 0)   # 19:00 Rīgā
+    assert "Vai tev šķiet" in post.copy and "komentāros" in post.copy
+    assert seen["kicker"] == "JAUTĀJUMS" and seen["height"] == 1350
+
+
+def test_question_rejects_weak_ai_output(session, monkeypatch):
+    from app import cards
+
+    _dated_article(session, "qq-2", "Notikums", datetime(2026, 9, 1, 9, 0),
+                   sessions=500)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_share_image",
+                        lambda *a, **k: "data/cards/q.png")
+    # apgalvojums bez jautājuma zīmes
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: ["Interesants stāsts."])
+    assert weekend.build_question(session, WED.date()) is None
+    # jautājums ar relatīvu laika vārdu — novecojot melotu
+    monkeypatch.setattr(weekend, "_ai_lines",
+                        lambda *a, **k: ["Vai vakar redzēji, kas notika?"])
+    assert weekend.build_question(session, WED.date()) is None
+    # bez AI atslēgas (tukšs saraksts) formāts vienkārši izlaižas
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [])
+    assert weekend.build_question(session, WED.date()) is None
+
+
+def test_year_ago_picks_the_anniversary_and_skips_sensitive(session, monkeypatch):
+    hit = _dated_article(session, "ya-1", "Pirms gada atklāja jauno tiltu",
+                         datetime(2025, 9, 3, 10, 0), sessions=400)
+    # jutīga tēma nekad neatgriežas kā nostalģija
+    _dated_article(session, "ya-bad", "Traģēdija uz ceļa",
+                   datetime(2025, 9, 3, 11, 0), sessions=9000,
+                   sensitivity=["tragedy"])
+    # pusgadu vecs raksts nav gadadiena
+    _dated_article(session, "ya-mid", "Pavasara stāsts",
+                   datetime(2026, 3, 3, 10, 0), sessions=8000)
+    _only(session, "yearago")
+
+    assert weekend.run(session, THU) == 1
+    post = session.execute(select(Post).where(
+        Post.hook_type == "yearago")).scalars().one()
+    assert post.article_id == hit.id and post.format == "link"
+    assert post.scheduled_at == datetime(2026, 9, 3, 12, 0)   # 15:00 Rīgā
+    assert "Šajā dienā pirms gada" in post.copy
+    assert "2025. gada 3. septembrī" in post.copy
+    assert weekend.has_relative_words(post.copy) == ""
+
+
+def test_number_card_publishes_only_with_a_real_number(session, monkeypatch):
+    from app import cards
+
+    art = _dated_article(session, "nb-1", "Budžetā trūkst 47 miljoni eiro",
+                         datetime(2026, 9, 1, 6, 0), sessions=700)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_number(number, context, section, image="", **kwargs):
+        seen.update(number=number, context=context, section=section)
+        return "data/cards/n.png"
+
+    monkeypatch.setattr(cards, "render_number_card", fake_number)
+    # AI neatrod pārliecinošu skaitli -> diena paliek tukša
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: ["NAV"])
+    assert weekend.build_number(session, TUE.date()) is None
+
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "47 milj. €", "Tik daudz nākamgad trūkst pašvaldību budžetos"])
+    _only(session, "number")
+    assert weekend.run(session, TUE) == 1
+    post = session.execute(select(Post).where(
+        Post.hook_type == "number")).scalars().one()
+    assert post.format == "photo" and post.article_id == art.id
+    assert post.link_url == art.canonical_url
+    assert post.scheduled_at == datetime(2026, 9, 1, 9, 0)    # 12:00 Rīgā
+    assert seen["number"] == "47 milj. €"
+    assert post.copy.startswith("47 milj. €")
+
+
+def test_quiz_moved_to_the_sunday_evening_peak(session, monkeypatch):
+    from app import cards
+
+    for i in range(3):
+        _article(session, f"qz-{i}", f"Notikums numur {i}", sessions=50 + i)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards", lambda *a, **k: ["q0.png", "q1.png"])
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "Kurš uzvarēja 29. augustā?", "Cik punktus guva komanda?"])
+    post = weekend.build_quiz(session, SUN.date())
+    assert post is not None
+    assert post.scheduled_at == datetime(2026, 8, 30, 16, 0)  # 19:00 Rīgā
+
+
+def test_number_card_layout_scales_and_carries_the_date():
+    from app import cards
+
+    doc = cards.build_number_html("47 milj. €", "Tik daudz trūkst budžetos",
+                                  "news", "https://cdn/x.jpg", "01.09.2026")
+    assert "NEDĒĻAS SKAITLIS" in doc and "47 milj. €" in doc
+    assert "01.09.2026" in doc and "https://cdn/x.jpg" in doc
+    # garš skaitlis nedrīkst izplūst ārpus kartes -> mazāks fonts
+    assert "font-size:300px" in cards.build_number_html("47%", "K", "news")
+    assert "font-size:120px" in doc      # 10 rakstzīmes -> mazākais fonts

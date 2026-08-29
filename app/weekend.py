@@ -1,20 +1,30 @@
-"""Nedēļas nogales otrreizējie formāti: redakcija brīvdienās raksta mazāk,
-tāpēc sistēma no jau izmērītā satura uzbūvē svaigus ierakstus.
+"""Satura franšīzes: nosaukti, atkārtojami formāti fiksētos laikos, kas
+uzbūvēti no jau IZMĒRĪTĀ satura — bez papildu redakcijas darba.
 
-Pieci formāti, katrs ar savu slēdzi (Pārskata lapā):
-  top5       — «Nedēļas TOP 5» karuselis (sestdien sports, svētdien kopējais)
-  reel       — «Nedēļa 30 sekundēs» slaidrādes reels no TOP virsrakstiem
-  icymi      — «Nedēļas nepamanītais stāsts»: labs raksts, kam pirmajā reizē
-               klājās vāji, saņem vienu atkārtojumu ar citu leņķi
-  quiz       — nedēļas kvīza karuselis (jautājums kartītē, atbilde rakstā)
-  evergreen  — arhīva raksts, ko joprojām lasa, svētdienas rītā
-  monday     — pirmdienas rītā «Nedēļas nogales TOP 5» (karuselis + stāsts)
-               tiem, kas brīvdienās ziņām nesekoja
+Franšīze veido ieradumu: lasītājs atgriežas pie formāta, ko pazīst un gaida.
+Katram formātam savs slēdzis (Pārskata lapā), savs `hook_type` marķieris
+mērīšanai un sava diena nedēļas režģī:
+
+  Pr  monday       — «Nedēļas nogales TOP 5» karuselis (08:00) + stāsts (08:30)
+  Ot  number       — «Nedēļas skaitlis»: viens skaitlis uz kartes (12:00)
+  Tr  question     — «Trešdienas jautājums»: formāts, kas mērķē uz sarunu (19:00)
+  Ce  yearago      — «Šajā dienā pirms gada»: arhīvs ar gadadienas āķi (15:00)
+  Pk  guide        — «Nedēļas nogales gids»: izklaides izlase brīvdienām (17:00)
+  Se  top5         — «Nedēļas sports: 5 svarīgākie» karuselis (10:00)
+      reel         — «Nedēļa 30 sekundēs» slaidrādes reels (12:00)
+      icymi        — nepamanītais stāsts: labs raksts, kam klājās vāji (15:00)
+  Sv  evergreen    — arhīva raksts, ko joprojām lasa (09:00)
+      top5         — kopējais «Nedēļas TOP 5» karuselis (10:00)
+      quiz         — nedēļas kvīzs nedēļas lielākajā logā (19:00)
+  Pr–Pk daily_story — «Dienas TOP 3» foto mozaīkas stāsts (20:00), stāstu
+                      kanālā: atsevišķa auditorija, nulle konkurences ar plūsmu
+
+Maksimums viena plūsmas franšīze darba dienā + vakara stāsts ārpus plūsmas —
+pārstrādātais saturs paliek zem ~20% no plūsmas arī klusā ziņu dienā.
 
 Valodas disciplīna: visos tekstos datumi ir absolūti («26. augustā»), nekad
-relatīvi («vakar», «šonedēļ» ir pieļaujams tikai publicēšanas nedēļā pašā
-ierakstā, tāpēc arī to nelietojam) — vecs ieraksts, ko Facebook izceļ pēc
-mēneša, nedrīkst maldināt. Grafikās datums ir iededzināts (cards.date_chip).
+relatīvi — vecs ieraksts, ko Facebook izceļ pēc mēneša, nedrīkst maldināt.
+Grafikās datums ir iededzināts (cards.date_chip).
 """
 from __future__ import annotations
 
@@ -29,7 +39,8 @@ from app.models import Article, Post, PostMetrics, get_setting, set_setting, utc
 
 log = logging.getLogger(__name__)
 
-FEATURES = ("top5", "reel", "icymi", "quiz", "evergreen", "monday")
+FEATURES = ("top5", "reel", "icymi", "quiz", "evergreen", "monday",
+            "daily_story", "guide", "question", "yearago", "number")
 CHANNEL = "fb_tv3lv"
 STORY_CHANNEL = "fb_stories"   # story formāts dzīvo savā kanālā (savi limiti)
 
@@ -47,6 +58,12 @@ def lv_date(dt: datetime) -> str:
     """«26. augustā» — bez gada, ja tas ir šis gads."""
     base = f"{dt.day}. {MONTHS_LOC[dt.month]}"
     return base if dt.year == utcnow().year else f"{base} ({dt.year}. gads)"
+
+
+def lv_date_full(dt: datetime) -> str:
+    """«2025. gada 3. septembrī» — arhīva ierakstiem, kur gads ir daļa no
+    stāsta («pirms gada»), nevis iekavās pieliktā atruna."""
+    return f"{dt.year}. gada {dt.day}. {MONTHS_LOC[dt.month]}"
 
 
 def week_start(now: datetime | None = None) -> datetime:
@@ -86,6 +103,15 @@ def _ran_key(feature: str, day) -> str:
 
 
 # --- nedēļas dati ---------------------------------------------------------
+
+def day_start(now: datetime | None = None) -> datetime:
+    """Šodienas 00:00 pēc Rīgas laika (UTC naive) — dienas TOP logam."""
+    now = now or utcnow()
+    local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+        ZoneInfo(config.TIMEZONE))
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
 
 def weekend_start(now: datetime | None = None) -> datetime:
     """Tikko beigušās nedēļas nogales sestdienas 00:00 (Rīgas laiks, UTC
@@ -189,11 +215,35 @@ def _point_line(i: int, article: Article) -> str:
     return f"{title} ({date})" if date else title
 
 
+def _ai_lines(session, prompt: str, max_tokens: int = 400,
+              model: str | None = None) -> list[str]:
+    """Īss AI izsaukums, kas atgriež tīras teksta rindas (vai tukšu sarakstu).
+    Bez AI atslēgas vai pie jebkuras kļūmes formāts vienkārši izlaižas —
+    franšīze nekad negāž pārējo grafiku."""
+    from app import credentials
+
+    api_key = credentials.get("anthropic_api_key", session)
+    if not api_key:
+        return []
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=model or config.AI_MODEL_STRONG, max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in resp.content if b.type == "text")
+    except Exception as e:  # noqa: BLE001
+        log.warning("AI call failed: %s", e)
+        return []
+    return [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+
 # --- formāti --------------------------------------------------------------
 
 def _carousel_digest(session, day, articles: list[Article], title: str,
                      sec: str, link: str, copy: str, guid: str, marker: str,
-                     hour: int) -> Post | None:
+                     hour: int, tag: str = "#TOP5") -> Post | None:
     """Kopīgais TOP karuseļa celtnieks: kartītes ar rakstu saitēm un
     virsrakstiem, tīrs vāka foto, datuma čips."""
     from app import cards
@@ -204,7 +254,7 @@ def _carousel_digest(session, day, articles: list[Article], title: str,
     image = next((img for img in (_clean_image(a) for a in articles) if img), "")
     try:
         media = cards.render_cards(
-            title, sec, "#TOP5", points[:4], image,
+            title, sec, tag, points[:4], image,
             "Visi stāsti — tv3.lv", date_txt=day.strftime("%d.%m.%Y"))
     except Exception as e:  # noqa: BLE001
         log.warning("%s render failed: %s", marker, e)
@@ -264,6 +314,24 @@ def build_monday_top5(session, day, now: datetime | None = None) -> Post | None:
                             "mondaytop5", 8)
 
 
+def _mosaic_story(session, day, title: str, images: list[str], guid: str,
+                  marker: str, at: datetime) -> Post | None:
+    """Foto mozaīkas stāsts (9:16) ar CTA — stāstu kanālā, kur auditorija ir
+    cita nekā plūsmā un konkurences ar saviem plūsmas ierakstiem nav."""
+    from app import cards
+
+    try:
+        media = [cards.render_mosaic_story(title, "news", images,
+                                          date_txt=day.strftime("%d.%m.%Y"))]
+    except Exception as e:  # noqa: BLE001
+        log.warning("%s render failed: %s", marker, e)
+        return None
+    return _schedule(session, _digest_article(
+        session, guid, f"{title} (stāsts)", "news", "https://tv3.lv"),
+        "story", "", media, "https://tv3.lv", marker, at,
+        channel=STORY_CHANNEL)
+
+
 def build_monday_story(session, day, now: datetime | None = None) -> Post | None:
     """Pirmdienas rīta stāsts: nedēļas nogales foto mozaīka ar CTA — otrs
     pieskāriens citai auditorijai (stāstu skatītājiem) 24 h formātā."""
@@ -273,18 +341,24 @@ def build_monday_story(session, day, now: datetime | None = None) -> Post | None
     images = [i for i in (_clean_image(a) for a in articles) if i]
     if len(articles) < 3 or len(images) < 3 or not cards.renderer_available():
         return None
-    try:
-        media = [cards.render_mosaic_story(
-            "Nedēļas nogales TOP 5", "news", images,
-            date_txt=day.strftime("%d.%m.%Y"))]
-    except Exception as e:  # noqa: BLE001
-        log.warning("monday story render failed: %s", e)
+    return _mosaic_story(session, day, "Nedēļas nogales TOP 5", images,
+                         f"digest-monday-story-{day.isoformat()}", "mondaystory",
+                         _local_slot(day, 8) + timedelta(minutes=30))
+
+
+def build_daily_story(session, day, now: datetime | None = None) -> Post | None:
+    """«Dienas TOP 3» vakara stāsts (Pr–Pk 20:00): dienas lasītākais kā foto
+    mozaīka. Materiālam ņemam piecus dienas TOP rakstus — mozaīka ir kolāža,
+    ne saraksts, un tīru foto darba dienā ne vienmēr ir katram rakstam."""
+    from app import cards
+
+    articles = week_top(session, limit=5, since=day_start(now))
+    images = [i for i in (_clean_image(a) for a in articles) if i]
+    if len(articles) < 3 or len(images) < 3 or not cards.renderer_available():
         return None
-    return _schedule(session, _digest_article(
-        session, f"digest-monday-story-{day.isoformat()}",
-        "Nedēļas nogales TOP 5 (stāsts)", "news", "https://tv3.lv"),
-        "story", "", media, "https://tv3.lv", "mondaystory",
-        _local_slot(day, 8) + timedelta(minutes=30), channel=STORY_CHANNEL)
+    return _mosaic_story(session, day, "Dienas TOP 3", images,
+                         f"digest-daily-story-{day.isoformat()}", "dailystory",
+                         _local_slot(day, 20))
 
 
 def build_reel_digest(session, day) -> Post | None:
@@ -349,33 +423,22 @@ def build_icymi(session, day) -> Post | None:
 
 def build_quiz(session, day) -> Post | None:
     """Kvīza karuselis no nedēļas TOP — jautājumus raksta AI; bez AI atslēgas
-    formāts izlaižas (kvīzs bez īstiem jautājumiem nav publicējams)."""
-    from app import cards, credentials
+    formāts izlaižas (kvīzs bez īstiem jautājumiem nav publicējams).
+    Slots ir svētdienas vakars: nedēļas lielākais ritināšanas logs, kurā
+    cilvēkiem ir laiks atbildēt un komentēt."""
+    from app import cards
 
-    api_key = credentials.get("anthropic_api_key", session)
     articles = week_top(session, limit=5)
-    if not api_key or len(articles) < 3 or not cards.renderer_available():
+    if len(articles) < 3 or not cards.renderer_available():
         return None
     facts = "\n".join(f"- {a.title} ({lv_date(a.published_at or a.first_seen_at)})"
                       for a in articles)
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model=config.AI_MODEL_STRONG, max_tokens=500,
-            messages=[{"role": "user", "content":
-                f"No šiem tv3.lv nedēļas virsrakstiem uzraksti 3 īsus kvīza "
-                f"jautājumus latviski (katru jaunā rindā, bez numerācijas, "
-                f"bez atbildēm). Nevainojama pareizrakstība un galotnes. "
-                f"Datumus raksti absolūti (piem., «26. augustā»), nekad "
-                f"relatīvi.\n{facts}"}],
-        )
-        text = "".join(b.text for b in resp.content if b.type == "text")
-        questions = [q.strip() for q in text.splitlines() if q.strip()][:3]
-    except Exception as e:  # noqa: BLE001
-        log.warning("quiz generation failed: %s", e)
-        return None
+    questions = _ai_lines(session, max_tokens=500, prompt=(
+        f"No šiem tv3.lv nedēļas virsrakstiem uzraksti 3 īsus kvīza "
+        f"jautājumus latviski (katru jaunā rindā, bez numerācijas, "
+        f"bez atbildēm). Nevainojama pareizrakstība un galotnes. "
+        f"Datumus raksti absolūti (piem., «26. augustā»), nekad "
+        f"relatīvi.\n{facts}"))[:3]
     questions = [q for q in questions if not has_relative_words(q)]
     if len(questions) < 2:
         return None
@@ -392,7 +455,7 @@ def build_quiz(session, day) -> Post | None:
     return _schedule(session, _digest_article(
         session, f"digest-quiz-{day.isoformat()}", title, "news",
         "https://tv3.lv"), "card_carousel", copy, media, "https://tv3.lv",
-        "quiz", _local_slot(day, 12))
+        "quiz", _local_slot(day, 19))
 
 
 def build_evergreen(session, day) -> Post | None:
@@ -426,50 +489,199 @@ def build_evergreen(session, day) -> Post | None:
                      _local_slot(day, 9))
 
 
+def build_weekend_guide(session, day) -> Post | None:
+    """«Nedēļas nogales gids» (Pk 17:00): izklaides izlase brīvdienām —
+    vienīgā franšīze ar tiešu TV3 ētera un Go3 sinerģiju, un vienīgā, kas
+    apzināti izceļ izklaides sadaļu, kas darba dienās paliek ziņu ēnā."""
+    from app import cards
+
+    articles = week_top(session, section="entertainment")
+    if len(articles) < 3 or not cards.renderer_available():
+        return None
+    title = "Nedēļas nogales gids"
+    link = "https://tv3.lv/izklaide"
+    copy = ("Ko skatīties, ko lasīt un ko nepalaist garām brīvdienās — "
+            "izklaides izlase no tv3.lv. Pilnie stāsti portālā.")
+    return _carousel_digest(session, day, articles, title, "entertainment",
+                            link, copy, f"digest-guide-{day.isoformat()}",
+                            "guide", 17, tag="#BRĪVDIENĀM")
+
+
+def build_question(session, day) -> Post | None:
+    """«Trešdienas jautājums» (19:00): viens jautājums no nedēļas lasītākā
+    raksta. Vienīgā franšīze, kuras mērķis ir komentāri — jēgpilnas sarunas
+    signāls Facebook ranžēšanā sver vairāk nekā reakcijas. Atbilde ir rakstā,
+    saite iet gan tekstā, gan pirmajā komentārā (kā visiem foto ierakstiem)."""
+    from app import cards
+
+    articles = week_top(session, limit=3)
+    if not articles or not cards.renderer_available():
+        return None
+    art = articles[0]
+    dt = art.published_at or art.first_seen_at
+    lines = _ai_lines(session, max_tokens=200, prompt=(
+        f"tv3.lv raksta virsraksts: «{art.title}» "
+        f"(publicēts {lv_date(dt) if dt else 'nesen'}).\n"
+        f"Uzraksti VIENU īsu jautājumu latviski (līdz 90 rakstzīmēm), ko "
+        f"uzdot Facebook lasītājiem, lai viņi komentāros pastāsta savu "
+        f"viedokli par šo tēmu. Nevainojama pareizrakstība un galotnes. "
+        f"Bez emocijzīmēm, bez hashtagiem, bez relatīviem laika vārdiem "
+        f"(«vakar», «šonedēļ»). Atbildi tikai ar jautājumu."))
+    question = next((q for q in lines if q.endswith("?")
+                     and len(q) <= 110 and not has_relative_words(q)), "")
+    if not question:
+        return None
+    try:
+        media = [cards.render_share_image(
+            question, art.section or "news", _clean_image(art),
+            kicker="JAUTĀJUMS", width=1080, height=1350,
+            date_txt=day.strftime("%d.%m.%Y"))]
+    except Exception as e:  # noqa: BLE001
+        log.warning("question render failed: %s", e)
+        return None
+    copy = (f"{question}\n\nPastāsti komentāros, ko domā tu — bet vispirms "
+            f"izlasi, kas notika: {art.title.rstrip('.')}.")
+    return _schedule(session, art, "photo", copy, media,
+                     art.canonical_url or art.url, "question",
+                     _local_slot(day, 19))
+
+
+def build_year_ago(session, day, now: datetime | None = None) -> Post | None:
+    """«Šajā dienā pirms gada» (Ce 15:00): arhīva raksts ar gadadienas āķi.
+    Logs ir ±3 dienas ap gadu atpakaļ; jutīgas tēmas (traģēdijas, noziegumi)
+    nekad neatgriežas kā nostalģija."""
+    now = now or utcnow()
+    lo, hi = now - timedelta(days=368), now - timedelta(days=362)
+    rows = session.execute(
+        select(Article, func.coalesce(func.sum(PostMetrics.ga_sessions), 0)
+               .label("s"))
+        .join(Post, Post.article_id == Article.id)
+        .outerjoin(PostMetrics, PostMetrics.post_id == Post.id)
+        .where(Article.published_at >= lo, Article.published_at <= hi,
+               Article.sensitivity == [])
+        .group_by(Article.id)
+        .order_by(func.coalesce(func.sum(PostMetrics.ga_sessions), 0).desc())
+    ).all()
+    reposted = {p.article_id for p in session.execute(
+        select(Post).where(Post.hook_type.in_(("icymi", "evergreen", "yearago")))
+    ).scalars().all()}
+    pick = next((r.Article for r in rows
+                 if r.Article.id not in reposted
+                 and not (r.Article.raw_json or {}).get("_digest")), None)
+    if pick is None:
+        return None
+    dt = pick.published_at or pick.first_seen_at
+    copy = (f"Šajā dienā pirms gada: {pick.title.rstrip('.')}. "
+            f"Publicēts {lv_date_full(dt)} — atskaties, kā toreiz bija.")
+    return _schedule(session, pick, "link", copy, [],
+                     pick.canonical_url or pick.url, "yearago",
+                     _local_slot(day, 15))
+
+
+def build_number(session, day) -> Post | None:
+    """«Nedēļas skaitlis» (Ot 12:00): viens pārsteidzošs skaitlis no nedēļas
+    TOP raksta uz brendētas kartes, konteksts — rakstā. Ja AI pārliecinošu
+    skaitli neatrod, diena paliek tukša: labāk nekas nekā vājš ieraksts."""
+    from app import cards
+
+    articles = week_top(session, limit=3)
+    if not articles or not cards.renderer_available():
+        return None
+    for art in articles:
+        lines = _ai_lines(session, max_tokens=200, prompt=(
+            f"tv3.lv raksta virsraksts: «{art.title}».\n"
+            f"Ja virsrakstā ir konkrēts, pārsteidzošs skaitlis (summa, "
+            f"procenti, daudzums, gads nav skaitlis šajā nozīmē), atbildi "
+            f"ar DIVĀM rindām:\n"
+            f"1. rinda — pats skaitlis ar mērvienību, īsi (piem., «47%» vai "
+            f"«1,2 milj. €»).\n"
+            f"2. rinda — viena konteksta rindiņa latviski līdz 90 "
+            f"rakstzīmēm, nevainojama pareizrakstība un galotnes, bez "
+            f"relatīviem laika vārdiem.\n"
+            f"Ja pārliecinoša skaitļa nav, atbildi ar vienu vārdu: NAV."))
+        if len(lines) < 2 or lines[0].upper().startswith("NAV"):
+            continue
+        number, context = lines[0][:12].strip(), lines[1][:90].strip()
+        if not any(c.isdigit() for c in number) or has_relative_words(context):
+            continue
+        try:
+            media = [cards.render_number_card(
+                number, context, art.section or "news", _clean_image(art),
+                date_txt=day.strftime("%d.%m.%Y"))]
+        except Exception as e:  # noqa: BLE001
+            log.warning("number card render failed: %s", e)
+            return None
+        copy = (f"{number} — {context} Pilnais stāsts portālā: "
+                f"{art.title.rstrip('.')}.")
+        return _schedule(session, art, "photo", copy, media,
+                         art.canonical_url or art.url, "number",
+                         _local_slot(day, 12))
+    return None
+
+
 # --- orķestris ------------------------------------------------------------
 
+def plan_for(session, day, weekday: int, now: datetime) -> dict:
+    """Dienas franšīžu plāns: nosaukums -> (slēdzis, agrākā būvēšanas stunda,
+    celtnieks). Būvēšanas stunda nav publicēšanas laiks — vakara formātus
+    būvējam tikai vakarā, citādi «dienas TOP» taptu no rīta datiem."""
+    plan: dict[str, tuple[str, int, object]] = {}
+    if weekday == 0:      # pirmdiena — nedēļas nogales apkopojums rīta pīķim
+        plan["monday_top5"] = ("monday", 7,
+                               lambda: build_monday_top5(session, day, now))
+        plan["monday_story"] = ("monday", 7,
+                                lambda: build_monday_story(session, day, now))
+    elif weekday == 1:    # otrdiena
+        plan["number"] = ("number", 10, lambda: build_number(session, day))
+    elif weekday == 2:    # trešdiena
+        plan["question"] = ("question", 16, lambda: build_question(session, day))
+    elif weekday == 3:    # ceturtdiena
+        plan["yearago"] = ("yearago", 10,
+                           lambda: build_year_ago(session, day, now))
+    elif weekday == 4:    # piektdiena
+        plan["guide"] = ("guide", 12, lambda: build_weekend_guide(session, day))
+    elif weekday == 5:    # sestdiena
+        plan["top5_sport"] = ("top5", 7,
+                              lambda: build_top5(session, day, "sport"))
+        plan["reel"] = ("reel", 7, lambda: build_reel_digest(session, day))
+        plan["icymi"] = ("icymi", 7, lambda: build_icymi(session, day))
+    else:                 # svētdiena
+        plan["top5_all"] = ("top5", 7, lambda: build_top5(session, day, None))
+        plan["quiz"] = ("quiz", 7, lambda: build_quiz(session, day))
+        plan["evergreen"] = ("evergreen", 7,
+                             lambda: build_evergreen(session, day))
+    if weekday <= 4:      # vakara stāsts ārpus plūsmas, darba dienās
+        plan["daily_story"] = ("daily_story", 19,
+                               lambda: build_daily_story(session, day, now))
+    return plan
+
+
 def run(session, now: datetime | None = None) -> int:
-    """Stundas solis: brīvdienās izpilda ieslēgtos formātus, katru vienreiz
-    savā dienā. Sestdiena: sporta TOP 5 + reels + icymi; svētdiena:
-    kopējais TOP 5 + kvīzs + evergreen."""
+    """Stundas solis: izpilda dienas ieslēgtos formātus, katru vienreiz savā
+    dienā. Formāts, kas atgriež None (nepietiek datu, nav renderētāja, AI
+    neatrada skaitli), dienu tomēr atzīmē — franšīze nemēģina katru stundu."""
     now = now or utcnow()
     local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(
         ZoneInfo(config.TIMEZONE))
-    if local.weekday() not in (5, 6, 0) or local.hour < 7:
+    if local.hour < 7:    # naktī neko nebūvējam
         return 0
     day = local.date()
-    if local.weekday() == 5:
-        plan = {"top5_sport": lambda: build_top5(session, day, "sport"),
-                "reel": lambda: build_reel_digest(session, day),
-                "icymi": lambda: build_icymi(session, day)}
-    elif local.weekday() == 6:
-        plan = {"top5_all": lambda: build_top5(session, day, None),
-                "quiz": lambda: build_quiz(session, day),
-                "evergreen": lambda: build_evergreen(session, day)}
-    else:  # pirmdiena: nedēļas nogales apkopojums rīta pīķim
-        plan = {"monday_top5": lambda: build_monday_top5(session, day, now),
-                "monday_story": lambda: build_monday_story(session, day, now)}
     toggles = settings(session)
     created = 0
-    for name, builder in plan.items():
-        if name.startswith("top5"):
-            feature = "top5"
-        elif name.startswith("monday"):
-            feature = "monday"
-        else:
-            feature = name
-        if not toggles.get(feature, False):
+    for name, (feature, min_hour, builder) in plan_for(
+            session, day, local.weekday(), now).items():
+        if local.hour < min_hour or not toggles.get(feature, False):
             continue
         if get_setting(session, _ran_key(name, day)):
             continue
         try:
             post = builder()
-        except Exception as e:  # noqa: BLE001 — brīvdienu formāti negāž pārējo
-            log.warning("weekend %s failed: %s", name, e)
+        except Exception as e:  # noqa: BLE001 — franšīze negāž pārējo grafiku
+            log.warning("franchise %s failed: %s", name, e)
             continue
         set_setting(session, _ran_key(name, day), "done")
         if post is not None:
             created += 1
-            log.info("weekend %s scheduled as post %s", name, post.id)
+            log.info("franchise %s scheduled as post %s", name, post.id)
     session.commit()
     return created

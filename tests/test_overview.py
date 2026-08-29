@@ -66,6 +66,9 @@ def test_overview_page_renders(client, session, monkeypatch):
     r = client.get("/overview")
     assert r.status_code == 200
     assert "Kanālu ekonomika" in r.text and "AI mārketinga ieteikumi" in r.text
+    # franšīžu režģis ar slēdžiem un snieguma tabula
+    assert "Satura franšīzes" in r.text and "Franšīžu sniegums" in r.text
+    assert "Trešdienas jautājums" in r.text and "Dienas TOP 3" in r.text
     r = client.post("/overview/spend", data={"monthly_eur": "3000"},
                     follow_redirects=False)
     assert r.status_code == 303
@@ -79,3 +82,38 @@ def test_ai_report_without_key_returns_hint(session, monkeypatch):
     monkeypatch.setattr(ga4, "channel_economics", lambda days=30: [])
     out = overview.ai_report(session)
     assert "AI atslēga" in out
+
+
+def test_franchise_stats_scores_against_the_editorial_baseline(session):
+    from app.models import PostMetrics
+
+    a = _content(session)
+
+    def post(hook, sessions):
+        p = Post(article_id=a.id, channel="fb_tv3lv", format="photo",
+                 hook_type=hook, state="published",
+                 published_at=utcnow() - timedelta(days=1))
+        session.add(p)
+        session.flush()
+        session.add(PostMetrics(post_id=p.id, ga_sessions=sessions,
+                                collected_at=utcnow()))
+
+    for n in (100, 100, 100, 100):        # bāzes līnija: 100 sesijas/ierakstu
+        post("", n)
+    for n in (300, 300, 300):             # franšīze, kas pārspēj bāzi
+        post("quiz", n)
+    for n in (10, 10, 10):                # franšīze, kas atpaliek
+        post("guide", n)
+    post("number", 5)                     # tikai viens ieraksts -> par agru
+    session.commit()
+
+    stats = overview.franchise_stats(session, days=28)
+    by_hook = {i["hook"]: i for i in stats["items"]}
+    # _content() jau pievieno divus ierakstus bez hook_type -> 6 bāzes ieraksti
+    assert stats["baseline_posts"] == 6
+    assert by_hook["quiz"]["verdict"] == "turēt"
+    assert by_hook["quiz"]["vs_benchmark"] > 4
+    assert by_hook["guide"]["verdict"] == "vāji"
+    assert by_hook["number"]["verdict"] == "par agru"
+    # sakārtots pēc sesijām uz ierakstu
+    assert stats["items"][0]["hook"] == "quiz"
