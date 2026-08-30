@@ -24,6 +24,13 @@ log = logging.getLogger(__name__)
 # in production while tests (absolute tmp dirs) kept passing.
 CARDS_DIR = Path(os.environ.get("CARDS_DIR", "data/cards")).resolve()
 
+# Grafiku izkārtojuma versija. Attēlus renderējam LĒMUMA brīdī un glabājam uz
+# ieraksta, tāpēc ieraksts, kas jau stāv rindā, citādi izietu ēterā ar veco
+# dizainu vēl ilgi pēc labojuma. Paceļot šo skaitli, publicēšanas solis
+# pārrenderē katru rindā gaidošo foto/stāsta grafiku (app.pipeline
+# .refresh_missing_media). Paceļ to KATRU reizi, kad mainās izkārtojums.
+RENDER_VERSION = 2
+
 SECTION_STYLE = {
     "news": {"label": "ZIŅAS", "color": "#a5495a", "kicker": "SKAIDROJUMS"},
     "sport": {"label": "SPORTS", "color": "#3d6e94", "kicker": "SPORTS"},
@@ -133,20 +140,49 @@ def last_render_failure() -> str:
 SHOW_SPONSOR = os.environ.get("CARD_SPONSOR", "").lower() == "true"
 
 
+def _settle(page, ms: int = 600) -> None:
+    """Ļauj attēliem ienākt, pirms taisām ekrānuzņēmumu. Fiksēts miegs bija
+    par īsu lēnam CDN — tad kartīte iznāca kā tukšs krāsas laukums; tagad
+    gaidām, līdz tīkls norimst, un tikai pēc tam fiksēto brīdi."""
+    try:
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:  # noqa: BLE001 — lēns attēls nav iemesls nerenderēt
+        pass
+    page.wait_for_timeout(ms)
+
+
 def build_cards_html(title: str, section: str, tag: str, points: list[str],
                      image_url: str, end_question: str,
                      show_sponsor: bool | None = None,
                      cover_title: bool = True, point_bg: str = "",
-                     date_txt: str = "") -> str:
+                     date_txt: str = "", point_images: list[str] | None = None,
+                     point_dates: list[str] | None = None,
+                     include_cover: bool = True, include_end: bool = True,
+                     label: str = "") -> str:
     """cover_title=False: the cover image is a pre-branded graphic that
     already carries the headline — show it full-bleed without our plate.
     point_bg: photo used as a dimmed background on the content cards so the
-    gallery is visual, not flat color blocks."""
+    gallery is visual, not flat color blocks.
+
+    point_images: pa foto KATRAI kartītei (digest sarakstiem) — katrs stāsts
+    ar savu bildi. Tukša virkne krīt atpakaļ uz sadaļas gradientu, nekad uz
+    svešu attēlu.
+    include_cover / include_end: Facebook karuselī ir tikai 5 kartītes, tāpēc
+    «TOP 5» saraksts izlaiž vāka un CTA kartīti — piecas kartītes = pieci
+    stāsti, katrs ar savu saiti. Ievadu nes paša ieraksta teksts.
+    label: franšīzes lente uz pirmās kartītes, kad vāka kartītes nav."""
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     dark = _shade(color, -0.18)
-    total = len(points) + 2
     esc = html.escape
+
+    def attr(url: str) -> str:
+        return html.escape(url, quote=True)
+
+    listing = point_images is not None
+    imgs = list(point_images or [])
+    dates = list(point_dates or [])
+    total = len(points) + (1 if include_cover else 0) + (1 if include_end else 0)
 
     if show_sponsor is None:
         show_sponsor = SHOW_SPONSOR
@@ -162,16 +198,18 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
           <div class="lbl"><div class="sec"><span>/</span>{esc(style['label'])}</div>
           <div class="tag">{esc(tag)}</div></div></div>"""
 
-    cover_bg = (f'background:url({html.escape(image_url, quote=True)}) center/cover, {color};'
-                if image_url else f"background:{color};")
-    # the darkening gradient exists to keep the headline readable over a
-    # photo; on a flat color card it just muddies the brand color
-    shade = '<div class="shade"></div>' if image_url and cover_title else ""
-    cover_txt = (f"""<div class="cover-txt">
+    cards = []
+    if include_cover:
+        cover_bg = (f'background:url({attr(image_url)}) center/cover, {color};'
+                    if image_url else f"background:{color};")
+        # the darkening gradient exists to keep the headline readable over a
+        # photo; on a flat color card it just muddies the brand color
+        shade = '<div class="shade"></div>' if image_url and cover_title else ""
+        cover_txt = (f"""<div class="cover-txt">
           <div class="kicker" style="background:{dark}">{esc(style['kicker'])}</div>
           <h1>{esc(title)}</h1>
         </div>""" if cover_title else "")
-    cards = [f"""
+        cards.append(f"""
     <div class="card">
       <div class="art" style="{cover_bg}">
         {shade}{swoosh}
@@ -179,33 +217,59 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         <div class="page">1/{total} →</div>
         {cover_txt}
       </div>{bar(1)}
-    </div>"""]
-
-    if point_bg:
-        point_style = (f'background:url({html.escape(point_bg, quote=True)}) '
-                       f'center/cover, {color};')
-        point_shade = '<div class="pshade"></div>'
-        num_color = "rgba(255,255,255,.45)"
-    else:
-        point_style = f"background:{color};"
-        point_shade = ""
-        num_color = dark
-    for n, point in enumerate(points, start=1):
-        cards.append(f"""
-    <div class="card">
-      <div class="art" style="{point_style}">
-        {point_shade}{swoosh}
-        <div class="page">{n + 1}/{total} →</div>
-        <div class="point">
-          <div class="num" style="color:{num_color}">{n}</div>
-          <p>{esc(point)}</p>
-        </div>
-        <div class="dots">{''.join('<i class="on"></i>' if i == n else '<i></i>'
-                                    for i in range(total))}</div>
-      </div>{bar(n + 1)}
     </div>""")
 
-    cards.append(f"""
+    for n, point in enumerate(points, start=1):
+        pos = len(cards) + 1
+        photo = imgs[n - 1] if n - 1 < len(imgs) else ""
+        if listing:
+            # saraksta kartīte: teksts apakšā uz foto, kā izdevēju listiklos
+            point_cls = "point low"
+            num_color = "rgba(255,255,255,.55)"
+            if photo:
+                art_style = f'background:url({attr(photo)}) center/cover, {color};'
+                point_shade = '<div class="gshade"></div>'
+            else:   # bez tīra foto — sadaļas gradients, nevis sveša bilde
+                art_style = (f"background:linear-gradient(160deg,"
+                             f"{_shade(color, .06)},{_shade(color, -.2)});")
+                point_shade = ""
+        elif point_bg:
+            point_cls = "point"
+            num_color = "rgba(255,255,255,.45)"
+            art_style = f'background:url({attr(point_bg)}) center/cover, {color};'
+            point_shade = '<div class="pshade"></div>'
+        else:
+            point_cls = "point"
+            num_color = dark
+            art_style = f"background:{color};"
+            point_shade = ""
+        ribbon = (f'<div class="ribbon" style="background:{dark}">{esc(label)}</div>'
+                  if label and pos == 1 else "")
+        # saraksta kartītē datums ir sava maza rinda blakus numuram — iekavās
+        # aiz virsraksta tas lauza rindu un izskatījās pēc atrunas
+        point_date = dates[n - 1] if n - 1 < len(dates) else ""
+        num_html = f'<div class="num" style="color:{num_color}">{n}</div>'
+        head = (f'<div class="meta">{num_html}'
+                f'<span class="pdate">{esc(point_date)}</span></div>'
+                if listing and point_date else num_html)
+        cards.append(f"""
+    <div class="card">
+      <div class="art" style="{art_style}">
+        {point_shade}{swoosh}
+        {date_chip(date_txt)}
+        <div class="page">{pos}/{total} →</div>
+        {ribbon}
+        <div class="{point_cls}">
+          {head}
+          <p>{esc(point)}</p>
+        </div>
+        <div class="dots">{''.join('<i class="on"></i>' if i == pos - 1 else '<i></i>'
+                                    for i in range(total))}</div>
+      </div>{bar(pos)}
+    </div>""")
+
+    if include_end:
+        cards.append(f"""
     <div class="card">
       <div class="art end" style="background:{color}">
         <div class="endlogo">{_logo(150)}</div>
@@ -224,6 +288,9 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
 .pshade {{ position:absolute; inset:0;
   background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
+.gshade {{ position:absolute; inset:0;
+  background:linear-gradient(to top, rgba(10,5,15,.95) 24%,
+    rgba(10,5,15,.3) 64%, rgba(10,5,15,.5) 100%); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(10,5,15,.92) 18%, rgba(10,5,15,.1) 55%); }}
 .sw {{ position:absolute; top:0; right:0; width:100%; height:100%; }}
@@ -231,6 +298,9 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         letter-spacing:.06em; }}
 .page {{ position:absolute; top:44px; left:48px; color:#fff; font-size:30px;
          opacity:.9; font-weight:bold; }}
+.ribbon {{ position:absolute; top:104px; left:48px; color:#fff;
+           font-weight:bold; font-size:30px; letter-spacing:.12em;
+           padding:12px 26px; border-radius:8px; }}
 .cover-txt {{ position:absolute; bottom:0; left:0; right:0; padding:56px;
               color:#fff; }}
 .kicker {{ display:inline-block; color:#fff; font-weight:bold; font-size:28px;
@@ -241,6 +311,13 @@ h1 {{ font-size:66px; line-height:1.14; font-weight:bold; }}
           justify-content:center; padding:0 88px; color:#fff; }}
 .num {{ font-size:150px; font-weight:bold; line-height:1; margin-bottom:34px; }}
 .point p {{ font-size:54px; line-height:1.3; font-weight:bold; }}
+.point.low {{ justify-content:flex-end; padding:0 78px 104px; }}
+.meta {{ display:flex; align-items:baseline; gap:26px; margin-bottom:6px; }}
+.pdate {{ font-size:30px; font-weight:bold; letter-spacing:.16em;
+          text-transform:uppercase; color:rgba(255,255,255,.75); }}
+.point.low .num {{ font-size:96px; margin-bottom:0; }}
+.point.low p {{ font-size:50px; line-height:1.24;
+                text-shadow:0 4px 24px rgba(0,0,0,.55); }}
 .dots {{ position:absolute; bottom:44px; right:48px; display:flex; gap:13px; }}
 .dots i {{ width:17px; height:17px; border-radius:50%;
            background:rgba(255,255,255,.35); }}
@@ -319,7 +396,7 @@ def render_share_image(title: str, section: str, image_url: str,
                        else p.chromium.launch())
             page = browser.new_page(viewport={"width": width, "height": height})
             page.goto(tmp.as_uri(), timeout=30000)
-            page.wait_for_timeout(800)  # let the article photo load
+            _settle(page, 800)
             out = out_dir / f"share_{token}.png"
             page.locator(".share").screenshot(path=str(out), timeout=15000)
             browser.close()
@@ -472,7 +549,7 @@ def render_mosaic_story(title: str, section: str, images: list[str],
                        else pw.chromium.launch())
             page = browser.new_page(viewport={"width": 1080, "height": 1920})
             page.goto(tmp.as_uri(), timeout=30000)
-            page.wait_for_timeout(800)
+            _settle(page, 800)
             out = out_dir / f"mosaic_{token}.png"
             page.locator(".story").screenshot(path=str(out), timeout=15000)
             browser.close()
@@ -500,7 +577,7 @@ def render_story(title: str, section: str, image_url: str,
                        else p.chromium.launch())
             page = browser.new_page(viewport={"width": 1080, "height": 1920})
             page.goto(tmp.as_uri(), timeout=30000)
-            page.wait_for_timeout(800)
+            _settle(page, 800)
             out = out_dir / f"story_{token}.png"
             page.locator(".story").screenshot(path=str(out), timeout=15000)
             browser.close()
@@ -513,7 +590,10 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
                  image_url: str, end_question: str,
                  out_dir: Path | None = None,
                  cover_title: bool = True, point_bg: str = "",
-                 date_txt: str = "") -> list[str]:
+                 date_txt: str = "", point_images: list[str] | None = None,
+                 point_dates: list[str] | None = None,
+                 include_cover: bool = True, include_end: bool = True,
+                 label: str = "") -> list[str]:
     """Render carousel cards to PNG files; returns local file paths."""
     from playwright.sync_api import sync_playwright
 
@@ -521,7 +601,11 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
     out_dir.mkdir(parents=True, exist_ok=True)
     html_doc = build_cards_html(title, section, tag, points, image_url,
                                 end_question, cover_title=cover_title,
-                                point_bg=point_bg, date_txt=date_txt)
+                                point_bg=point_bg, date_txt=date_txt,
+                                point_images=point_images,
+                                point_dates=point_dates,
+                                include_cover=include_cover,
+                                include_end=include_end, label=label)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_{token}.html"
     tmp.write_text(html_doc, encoding="utf-8")
@@ -533,7 +617,7 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
                        else p.chromium.launch())
             page = browser.new_page(viewport={"width": 1080, "height": 1080})
             page.goto(tmp.as_uri(), timeout=30000)
-            page.wait_for_timeout(600)  # give the cover image a moment to load
+            _settle(page)
             for i, el in enumerate(page.locator(".card").all()):
                 f = out_dir / f"card_{token}_{i}.png"
                 el.screenshot(path=str(f), timeout=15000)
@@ -609,7 +693,7 @@ def render_number_card(number: str, context: str, section: str,
                        else pw.chromium.launch())
             page = browser.new_page(viewport={"width": 1080, "height": 1350})
             page.goto(tmp.as_uri(), timeout=30000)
-            page.wait_for_timeout(800)
+            _settle(page, 800)
             out = out_dir / f"number_{token}.png"
             page.locator(".numcard").screenshot(path=str(out), timeout=15000)
             browser.close()

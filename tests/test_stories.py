@@ -1,3 +1,4 @@
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from app import cards
@@ -190,6 +191,66 @@ def test_refresh_missing_media_regenerates_photo(session, monkeypatch):
     session.commit()
     pipeline.refresh_missing_media(session, p4, "facebook_page")
     assert p4.media == ["https://tv3.lv/i.jpg"]
+
+
+def test_queued_graphic_is_redrawn_after_a_layout_fix(session, monkeypatch):
+    """Attēlu renderējam lēmuma brīdī, bet ieraksts var nostāvēt rindā
+    stundas. Bez versijas zīmoga dizaina labojums šo ierakstu vairs
+    neskartu — tas izietu ēterā ar veco izkārtojumu."""
+    from app import cards, pipeline
+    from app.models import Article, Post
+
+    def render_v2(article, img):
+        Path("data/cards/story_v2.png").write_bytes(b"png")
+        return ["data/cards/story_v2.png"]
+
+    monkeypatch.setattr(pipeline, "story_media", render_v2)
+    a = Article(guid="rv-1", url="https://tv3.lv/rv", canonical_url="https://tv3.lv/rv",
+                title="T", section="news", images=["https://tv3.lv/i.jpg"])
+    session.add(a)
+    session.flush()
+    # fails ir uz vietas un nav neapstrādāts URL — vienīgā atšķirība ir versija
+    old = Path("data/cards/story_v1.png")
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_bytes(b"png")
+    p = Post(article_id=a.id, channel="fb_stories", format="story", copy="",
+             media=[str(old)], state="scheduled",
+             extra={"render_version": cards.RENDER_VERSION - 1})
+    session.add(p)
+    session.commit()
+    pipeline.refresh_missing_media(session, p, "facebook_page")
+    assert p.media == ["data/cards/story_v2.png"]
+    assert p.extra["render_version"] == cards.RENDER_VERSION
+
+    # otrreiz vairs nepārzīmē — versija ir aktuāla
+    monkeypatch.setattr(pipeline, "story_media",
+                        lambda article, img: ["data/cards/story_v3.png"])
+    pipeline.refresh_missing_media(session, p, "facebook_page")
+    assert p.media == ["data/cards/story_v2.png"]
+    old.unlink(missing_ok=True)
+    Path("data/cards/story_v2.png").unlink(missing_ok=True)
+
+
+def test_franchise_graphics_are_never_overwritten_by_a_plain_render(session,
+                                                                    monkeypatch):
+    """Franšīžu grafikas (foto mozaīka) būvē app.weekend no vairākiem
+    rakstiem — parasts stāsta renders tās aizstātu ar tukšu krāsas laukumu."""
+    from app import pipeline
+    from app.models import Article, Post
+
+    monkeypatch.setattr(pipeline, "story_media",
+                        lambda article, img: ["data/cards/plain.png"])
+    a = Article(guid="digest-x", url="https://tv3.lv", canonical_url="https://tv3.lv",
+                title="Dienas TOP 3", section="news", raw_json={"_digest": True})
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="fb_stories", format="story", copy="",
+             media=["data/cards/mosaic_gone.png"], hook_type="dailystory",
+             state="scheduled")
+    session.add(p)
+    session.commit()
+    pipeline.refresh_missing_media(session, p, "facebook_page")
+    assert p.media == ["data/cards/mosaic_gone.png"]
 
 
 def test_prebranded_story_shows_the_whole_graphic():

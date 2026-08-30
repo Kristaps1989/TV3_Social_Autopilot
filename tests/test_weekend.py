@@ -102,7 +102,8 @@ def test_saturday_builds_sport_top5_and_reel(session, monkeypatch):
     rendered = {}
 
     def fake_cards(title, section, tag, points, image, question, **kwargs):
-        rendered.update(title=title, points=points, date=kwargs.get("date_txt"))
+        rendered.update(title=title, points=points, date=kwargs.get("date_txt"),
+                        point_dates=kwargs.get("point_dates"))
         return ["data/cards/d1.png", "data/cards/d2.png"]
 
     monkeypatch.setattr(cards, "render_cards", fake_cards)
@@ -116,8 +117,8 @@ def test_saturday_builds_sport_top5_and_reel(session, monkeypatch):
         Post.hook_type.in_(("digest", "digestreel", "icymi")))).scalars().all()
     kinds = {p.hook_type: p for p in posts}
     assert set(kinds) == {"digest", "digestreel", "icymi"}
-    # karuselī punkti ar absolūtiem datumiem, vāka čipam šodienas datums
-    assert "augustā" in rendered["points"][0]
+    # karuselī punkti ar absolūtiem datumiem savā rindā, čipam šodienas datums
+    assert "augustā" in rendered["point_dates"][0]
     assert rendered["date"] == "29.08.2026"
     # icymi teksts satur publicēšanas datumu un nesatur relatīvus vārdus
     icymi = kinds["icymi"]
@@ -191,25 +192,43 @@ def test_quiz_skipped_without_ai_key(session, monkeypatch):
     assert weekend.build_quiz(session, SUN.date()) is None
 
 
-def test_top5_stores_per_card_links(session, monkeypatch):
+def test_top5_carousel_is_five_stories_each_with_photo_and_link(session,
+                                                                monkeypatch):
+    """FB karuselī ir 5 kartītes. Vāks + CTA aizņēma divas no tām, un no
+    «TOP 5» reāli palika trīs stāsti — tāpēc tagad piecas kartītes = pieci
+    stāsti, katrs ar savu foto un savu saiti."""
     from app import cards
 
     arts = [_article(session, f"cl-{i}", f"Notikums numur {i}", sessions=100 - i)
-            for i in range(4)]
+            for i in range(5)]
+    arts[2].images = ["https://cdn/photopost/grafika.jpg"]   # nav tīra foto
+    session.commit()
     monkeypatch.setattr(cards, "renderer_available", lambda: True)
-    monkeypatch.setattr(cards, "render_cards", lambda *a, **k: [
-        "c0.png", "c1.png", "c2.png", "c3.png", "c4.png", "end.png"])
+    seen = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kwargs):
+        seen.update(points=points, kwargs=kwargs)
+        return [f"c{i}.png" for i in range(5)]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
     post = weekend.build_top5(session, SAT.date(), "sport")
+
+    assert len(seen["points"]) == 5
+    assert seen["kwargs"]["include_cover"] is False
+    assert seen["kwargs"]["include_end"] is False
+    assert seen["kwargs"]["label"] == "NEDĒĻAS SPORTA TOP 5"
+    # katrai kartītei sava raksta bilde; photopost grafika netiek lietota
+    imgs = seen["kwargs"]["point_images"]
+    assert len(imgs) == 5 and imgs[0] == "https://cdn/cl-0.jpg"
+    assert imgs[2] == ""
+    # visas piecas kartītes ved uz SAVIEM rakstiem, nevis uz sadaļas lapu
     links = post.extra["card_links"]
-    assert len(links) == 6
-    assert links[0] == "https://tv3.lv/sports" and links[-1] == "https://tv3.lv/sports"
-    # punktu kartītes ved uz SAVIEM rakstiem TOP secībā
-    assert links[1] == arts[0].canonical_url
-    assert links[4] == arts[3].canonical_url
-    # katrai kartītei savs virsraksts FB teksta joslai zem attēla
     titles = post.extra["card_titles"]
-    assert len(titles) == 6
-    assert titles[1] == arts[0].title and titles[-1] == "Visi stāsti — tv3.lv"
+    assert links == [a.canonical_url for a in arts]
+    assert titles == [a.title for a in arts]
+    assert "https://tv3.lv/sports" not in links
+    # ieraksta teksts joprojām ved uz sadaļu un nes ievadu
+    assert post.link_url == "https://tv3.lv/sports"
 
 
 def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
@@ -422,11 +441,11 @@ def test_monday_builds_weekend_top5_and_story(session, monkeypatch):
     # loga datumi tekstā absolūti; nekādu relatīvo vārdu
     assert "29. augustā" in top5.copy and "30. augustā" in top5.copy
     assert weekend.has_relative_words(top5.copy) == ""
-    # kartītes ved uz nogales rakstiem TOP secībā; piektdienas hits ārpusē
+    # katra kartīte ved uz savu nogales rakstu; piektdienas hits ārpusē
     links = top5.extra["card_links"]
-    assert links[1] == wk[0].canonical_url
+    assert links[0] == wk[0].canonical_url
     assert friday.canonical_url not in links
-    assert links[0] == "https://tv3.lv" and links[-1] == "https://tv3.lv"
+    assert "https://tv3.lv" not in links
     # 08:00 Rīgā = 05:00 UTC (vasaras laiks)
     assert top5.scheduled_at == datetime(2026, 8, 31, 5, 0)
     assert rendered["date"] == "31.08.2026"
@@ -599,7 +618,7 @@ def test_friday_guide_takes_entertainment_only(session, monkeypatch):
     assert seen["section"] == "entertainment" and seen["tag"] == "#BRĪVDIENĀM"
     # ziņu hits gidā neiekļūst, arī ja tam ir vairāk sesiju
     assert all("Ziņu hits" not in pt for pt in seen["points"])
-    assert post.extra["card_links"][1] == ents[0].canonical_url
+    assert post.extra["card_links"][0] == ents[0].canonical_url
 
 
 def test_wednesday_question_is_a_photo_post_linking_to_the_article(

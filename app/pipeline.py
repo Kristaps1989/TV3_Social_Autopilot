@@ -165,12 +165,18 @@ def run_decisions(session, limit: int = 20) -> int:
                 media = images[:10]
             else:
                 media = []
+            from app import cards as cards_mod
+
             post = Post(
                 article_id=article.id, channel=channel, format=fmt,
                 copy=copy, hashtags=hashtags, media=media,
                 hook_type=str(ch_dec.get("hook_type") or ""),
                 link_url=article.canonical_url or article.url,
                 scheduled_at=slot, state="scheduled", dry_run=runtime.is_dry_run(session),
+                # ar kādu grafiku izkārtojumu šis attēls uzzīmēts: ieraksts var
+                # nostāvēt rindā stundas, un dizaina labojums citādi to vairs
+                # neskartu (sk. refresh_missing_media)
+                extra=({"render_version": cards_mod.RENDER_VERSION} if media else {}),
             )
             session.add(post)
             session.flush()
@@ -404,36 +410,6 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     return fmt, []
 
 
-def refresh_missing_media(session, post, platform: str) -> None:
-    """Re-render photo/story media just before publishing when needed:
-    the rendered file was wiped (deploy without the volume), or the stored
-    media is the raw article URL because rendering failed at decision time —
-    a later-recovered renderer then still gets the branded version out."""
-    from pathlib import Path
-
-    if post.article is None or post.format not in ("photo", "story"):
-        # card_carousel and reel can't be regenerated here (the AI's card
-        # points aren't stored on the post) — the adapter fails with a clear
-        # message and the editor can cancel or let the article be re-decided
-        return
-    article = post.article
-    media = post.media or []
-    current = str(media[0]) if media else ""
-    local_gone = bool(current) and not current.startswith("http") and not Path(current).exists()
-    raw_fallback = current.startswith("http")
-    if not (local_gone or raw_fallback or not media):
-        return
-    if post.format == "photo":
-        image = photo_base_image(article)
-        new = [branded_photo(article, image, platform)] if image else []
-    else:
-        image = (article.images or [""])[0]
-        new = story_media(article, image)
-    if new and new != media:
-        post.media = new
-        session.commit()
-
-
 def repost_offset(article, cfg: dict, existing: list) -> datetime | None:
     """When a second post for this article may go out on the channel, or None.
 
@@ -471,6 +447,49 @@ def compose_text(post, platform: str, shown_link: str,
     text = assemble_post_text(post.copy, post.hashtags or [],
                               shown_link if in_caption else "", platform)
     return text, in_comment
+
+
+def refresh_missing_media(session, post, platform: str) -> None:
+    """Re-render photo/story media just before publishing when needed:
+    the rendered file was wiped (deploy without the volume), the stored
+    media is the raw article URL because rendering failed at decision time,
+    or the graphic was drawn with an older layout version — a post can sit
+    in the queue for hours, and without this a design fix would reach only
+    the posts decided after it, not the ones already waiting."""
+    from pathlib import Path
+
+    from app import cards
+
+    if post.article is None or post.format not in ("photo", "story"):
+        # card_carousel and reel can't be regenerated here (the AI's card
+        # points aren't stored on the post) — the adapter fails with a clear
+        # message and the editor can cancel or let the article be re-decided
+        return
+    article = post.article
+    if (article.raw_json or {}).get("_digest"):
+        # franšīžu grafikas (foto mozaīka u.c.) būvē app.weekend no vairākiem
+        # rakstiem — šeit tās pārzīmēt nevar, un parasts stāsta renders tās
+        # aizstātu ar tukšu krāsas laukumu
+        return
+    media = post.media or []
+    current = str(media[0]) if media else ""
+    local_gone = bool(current) and not current.startswith("http") and not Path(current).exists()
+    raw_fallback = current.startswith("http")
+    stale_layout = (post.extra or {}).get("render_version") != cards.RENDER_VERSION
+    if not (local_gone or raw_fallback or not media or stale_layout):
+        return
+    if post.format == "photo":
+        image = photo_base_image(article)
+        new = [branded_photo(article, image, platform)] if image else []
+    else:
+        image = (article.images or [""])[0]
+        new = story_media(article, image)
+    if not new:
+        return
+    if new != media:
+        post.media = new
+    post.extra = {**(post.extra or {}), "render_version": cards.RENDER_VERSION}
+    session.commit()
 
 
 def publish_due(session) -> int:

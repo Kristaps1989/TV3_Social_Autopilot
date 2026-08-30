@@ -174,9 +174,9 @@ def _schedule(session, article: Article, fmt: str, copy: str, media: list,
               card_links: list[str] | None = None,
               card_titles: list[str] | None = None,
               channel: str = CHANNEL) -> Post:
-    from app import runtime
+    from app import cards, runtime
 
-    extra = {}
+    extra = {"render_version": cards.RENDER_VERSION} if media else {}
     if card_links:
         extra["card_links"] = card_links
     if card_titles:
@@ -243,29 +243,38 @@ def _ai_lines(session, prompt: str, max_tokens: int = 400,
 
 def _carousel_digest(session, day, articles: list[Article], title: str,
                      sec: str, link: str, copy: str, guid: str, marker: str,
-                     hour: int, tag: str = "#TOP5") -> Post | None:
-    """Kopīgais TOP karuseļa celtnieks: kartītes ar rakstu saitēm un
-    virsrakstiem, tīrs vāka foto, datuma čips."""
+                     hour: int, tag: str = "#TOP5",
+                     ribbon: str = "") -> Post | None:
+    """Kopīgais TOP karuseļa celtnieks.
+
+    Facebook karuselī ir tikai 5 kartītes, tāpēc vāka un CTA kartītes te nav:
+    piecas kartītes = pieci stāsti, katrs ar savu foto, savu virsrakstu FB
+    teksta joslā un savu saiti. Agrāk vāks + CTA aizņēma divas vietas, FB
+    nogrieza pārpalikumu, un no «TOP 5» reāli redzami palika trīs stāsti.
+    Ievadu nes paša ieraksta teksts, aicinājumu — pēdējās kartītes saite."""
     from app import cards
 
-    points = [_point_line(i, a) for i, a in enumerate(articles, 1)][:5]
-    # vāka foto ar mūsu virsraksta plāksni pa virsu — tikai tīrs foto,
-    # photopost grafika te dubultotu tekstu
-    image = next((img for img in (_clean_image(a) for a in articles) if img), "")
+    used = articles[:5]
+    # virsraksts un datums iet atsevišķi: kartītē datums ir sava maza rinda
+    points = [a.title.rstrip(".") for a in used]
+    point_dates = [lv_date(a.published_at or a.first_seen_at)
+                   if (a.published_at or a.first_seen_at) else "" for a in used]
+    # katrai kartītei SAVA raksta bilde; photopost grafikas izlaižam, jo tām
+    # ir iestrādāts virsraksts, kas dublētos ar mūsu tekstu
+    images = [_clean_image(a) for a in used]
     try:
         media = cards.render_cards(
-            title, sec, tag, points[:4], image,
-            "Visi stāsti — tv3.lv", date_txt=day.strftime("%d.%m.%Y"))
+            title, sec, tag, points, "", "",
+            date_txt=day.strftime("%d.%m.%Y"), point_images=images,
+            point_dates=point_dates, include_cover=False, include_end=False,
+            label=ribbon or title.upper())
     except Exception as e:  # noqa: BLE001
         log.warning("%s render failed: %s", marker, e)
         return None
-    # kartīte -> SAVS raksts: media ir [vāks, punkti..., CTA kartīte], tāpēc
-    # saites sarindojam tāpat — vāks un CTA ved uz sadaļu, punkti uz rakstiem
-    used = articles[:max(0, len(media) - 2)]
-    card_links = ([link] + [a.canonical_url or a.url for a in used]
-                  + [link])[:len(media)]
-    card_titles = ([title] + [a.title for a in used]
-                   + ["Visi stāsti — tv3.lv"])[:len(media)]
+    if not media:
+        return None
+    card_links = [a.canonical_url or a.url for a in used][:len(media)]
+    card_titles = [a.title for a in used][:len(media)]
     return _schedule(session, _digest_article(session, guid, title, sec, link),
                      "card_carousel", copy, media, link, marker,
                      _local_slot(day, hour),
@@ -290,7 +299,9 @@ def build_top5(session, day, section: str | None) -> Post | None:
     copy = (f"{label} — pieci notikumi, par kuriem visvairāk lasīja tv3.lv "
             f"({week_from} – {week_to}). Pilnie stāsti portālā.")
     return _carousel_digest(session, day, articles, title, sec, link, copy,
-                            f"digest-top5-{sec}-{day.isoformat()}", "digest", 10)
+                            f"digest-top5-{sec}-{day.isoformat()}", "digest", 10,
+                            ribbon=("NEDĒĻAS SPORTA TOP 5" if section == "sport"
+                                    else "NEDĒĻAS TOP 5"))
 
 
 def build_monday_top5(session, day, now: datetime | None = None) -> Post | None:
@@ -311,7 +322,7 @@ def build_monday_top5(session, day, now: datetime | None = None) -> Post | None:
     return _carousel_digest(session, day, articles, title, "news",
                             "https://tv3.lv", copy,
                             f"digest-monday-{day.isoformat()}",
-                            "mondaytop5", 8)
+                            "mondaytop5", 8, ribbon="NOGALES TOP 5")
 
 
 def _mosaic_story(session, day, title: str, images: list[str], guid: str,
@@ -504,7 +515,8 @@ def build_weekend_guide(session, day) -> Post | None:
             "izklaides izlase no tv3.lv. Pilnie stāsti portālā.")
     return _carousel_digest(session, day, articles, title, "entertainment",
                             link, copy, f"digest-guide-{day.isoformat()}",
-                            "guide", 17, tag="#BRĪVDIENĀM")
+                            "guide", 17, tag="#BRĪVDIENĀM",
+                            ribbon="NOGALES GIDS")
 
 
 def build_question(session, day) -> Post | None:
