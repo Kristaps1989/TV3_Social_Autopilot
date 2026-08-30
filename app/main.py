@@ -400,6 +400,7 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
             "can_regenerate": regen.can_regenerate(post),
+            "photos": ((post.extra or {}).get("recipe") or {}).get("photos"),
             "msg": msg, "msg_ok": ok == "1",
         })
     finally:

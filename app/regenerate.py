@@ -95,7 +95,7 @@ def regenerate(session, post) -> tuple[bool, str]:
     renders tiešām sanāca — neizdevies mēģinājums nedrīkst atstāt ierakstu
     bez attēla."""
     from app import cards, reels
-    from app.weekend import _clean_image
+    from app.weekend import _any_image, _clean_image
 
     if not can_regenerate(post):
         return False, "Šim ierakstam grafiku pārģenerēt nevar."
@@ -115,16 +115,21 @@ def regenerate(session, post) -> tuple[bool, str]:
                 [a.title.rstrip(".") for a in arts], "", "",
                 date_txt=date_txt,
                 point_images=[_clean_image(a) for a in arts],
+                point_blur=[("" if _clean_image(a) else _any_image(a))
+                            for a in arts],
                 point_dates=recipe.get("dates") or [],
                 include_cover=False, include_end=False,
                 label=recipe.get("ribbon", ""))
         elif kind == "quiz":
             cover = _articles(session, recipe.get("articles"))
             image = next((i for i in (_clean_image(a) for a in cover) if i), "")
+            blur = "" if image else next(
+                (i for i in (_any_image(a) for a in cover) if i), "")
             media = cards.render_cards(
                 recipe.get("title", ""), section, recipe.get("tag", "#KVĪZS"),
                 recipe.get("questions") or [], image,
-                recipe.get("question", "Atbildes — tv3.lv"), date_txt=date_txt)
+                recipe.get("question", "Atbildes — tv3.lv"),
+                cover_blur=blur, date_txt=date_txt)
         elif kind == "article_cards":
             art = session.get(Article, recipe.get("article"))
             if art is None:

@@ -248,3 +248,39 @@ def test_old_franchise_post_without_a_recipe_can_be_rebuilt(session,
     # pagaidu ieraksts netiek atstāts rindā
     quizzes = session.query(Post).filter_by(hook_type="quiz").all()
     assert len(quizzes) == 1
+
+
+def test_cards_fall_back_to_a_blurred_photopost_graphic(session, monkeypatch):
+    """Daudziem tv3.lv rakstiem cita attēla par photopost grafiku nav. Tīrā
+    veidā to likt nedrīkst (dublētos virsraksts), bet izpludinātu — drīkst:
+    teksts vairs nav salasāms, un kartīte nav plakans krāsas laukums."""
+    arts = [_art(session, f"bl-{i}", f"Notikums numur {i}", sessions=100 - i)
+            for i in range(3)]
+    for a in arts[:2]:                      # tikai photopost grafika
+        a.images = [f"https://cdn/photopost/{a.guid}.jpg"]
+    session.commit()
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kwargs):
+        seen.update(kwargs)
+        return ["c0.png", "c1.png", "c2.png"]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    post = weekend.build_top5(session, weekend.utcnow().date(), None)
+
+    assert seen["point_images"][0] == ""            # photopost nav tīrs foto
+    assert "photopost" in seen["point_blur"][0]     # bet der kā faktūra
+    assert seen["point_images"][2].startswith("https://cdn/uploads/")
+    assert seen["point_blur"][2] == ""              # tīram foto rezerve nav vajadzīga
+    # priekšskatījums parāda, cik kartītēm sanāca īsts foto
+    assert post.extra["recipe"]["photos"] == {"total": 3, "clean": 1, "blurred": 2}
+
+
+def test_blurred_layer_hides_the_baked_in_headline():
+    doc = cards.build_cards_html(
+        "T", "news", "#TOP5", ["Punkts"], "", "",
+        point_images=[""], point_blur=["https://cdn/photopost/g.jpg"],
+        include_cover=False, include_end=False)
+    assert "photopost/g.jpg" in doc and "blurbg" in doc
+    assert "blur(30px)" in doc          # virsraksts izšķīst faktūrā

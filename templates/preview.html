@@ -133,6 +133,16 @@ Jauniem šādiem rakstiem sistēma automātiski izvēlas photo formātu ar savu
 brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
 {% endif %}
 
+{% if photos and photos.total %}
+<div class="muted" style="max-width:520px;margin:.4rem 0 .8rem">
+  Grafikas foto: <strong>{{ photos.clean }}/{{ photos.total }}</strong> kartītes
+  ar raksta foto{% if photos.blurred %},
+  {{ photos.blurred }} ar izpludinātu photopost grafiku fonā{% endif %}{%
+  if photos.clean == 0 and not photos.blurred %} — rakstiem sistēmā nav neviena
+  attēla, tāpēc kartītes ir vienkrāsainas{% endif %}.
+</div>
+{% endif %}
+
 {% if can_regenerate %}
 <form method="post" action="/post/{{ post.id }}/regenerate"
       style="max-width:520px;margin:0 0 1rem">

@@ -262,6 +262,14 @@ def _clean_image(article: Article) -> str:
                  if img and not prebranded(img)), "")
 
 
+def _any_image(article: Article) -> str:
+    """Pirmais raksta attēls neatkarīgi no veida — der TIKAI izpludinātam
+    fonam (cards.point_blur), kur iestrādātais virsraksts vairs nav
+    salasāms. Daudziem tv3.lv rakstiem cita attēla par photopost grafiku
+    vienkārši nav, un plakana krāsas kartīte plūsmā zaudē."""
+    return next((img for img in (article.images or []) if img), "")
+
+
 def _point_line(i: int, article: Article) -> str:
     dt = article.published_at or article.first_seen_at
     date = lv_date(dt) if dt else ""
@@ -295,6 +303,15 @@ def _ai_lines(session, prompt: str, max_tokens: int = 400,
 
 # --- formāti --------------------------------------------------------------
 
+def _photo_stats(images: list[str], blurs: list[str]) -> dict:
+    """Cik kartītēm sanāca īsts foto — priekšskatījumā redaktors uzreiz redz,
+    vai plakanās kartītes ir datu problēma (rakstiem nav tīra foto) vai
+    renderētāja problēma."""
+    return {"total": len(images),
+            "clean": sum(1 for i in images if i),
+            "blurred": sum(1 for i, b in zip(images, blurs) if not i and b)}
+
+
 def _carousel_digest(session, day, articles: list[Article], title: str,
                      sec: str, link: str, copy: str, guid: str, marker: str,
                      hour: int, tag: str = "#TOP5",
@@ -316,11 +333,13 @@ def _carousel_digest(session, day, articles: list[Article], title: str,
     # katrai kartītei SAVA raksta bilde; photopost grafikas izlaižam, jo tām
     # ir iestrādāts virsraksts, kas dublētos ar mūsu tekstu
     images = [_clean_image(a) for a in used]
+    blurs = [("" if img else _any_image(a)) for img, a in zip(images, used)]
     try:
         media = cards.render_cards(
             title, sec, tag, points, "", "",
             date_txt=day.strftime("%d.%m.%Y"), point_images=images,
-            point_dates=point_dates, include_cover=False, include_end=False,
+            point_blur=blurs, point_dates=point_dates,
+            include_cover=False, include_end=False,
             label=ribbon or title.upper())
     except Exception as e:  # noqa: BLE001
         log.warning("%s render failed: %s", marker, e)
@@ -337,7 +356,8 @@ def _carousel_digest(session, day, articles: list[Article], title: str,
                              "tag": tag, "ribbon": ribbon or title.upper(),
                              "articles": [a.id for a in used],
                              "dates": point_dates,
-                             "date": day.strftime("%d.%m.%Y")})
+                             "date": day.strftime("%d.%m.%Y"),
+                             "photos": _photo_stats(images, blurs)})
 
 
 def build_top5(session, day, section: str | None) -> Post | None:
@@ -533,11 +553,14 @@ def build_quiz(session, day) -> Post | None:
         return None
     title = "Nedēļas kvīzs: vai sekoji notikumiem?"
     image = next((i for i in (_clean_image(a) for a in articles) if i), "")
+    blur = "" if image else next(
+        (i for i in (_any_image(a) for a in articles) if i), "")
     try:
         # vāks ar foto; jautājumu kartītes paliek bez attēla apzināti —
         # raksta bilde blakus jautājumam nodotu atbildi
         media = cards.render_cards(title, "news", "#KVĪZS", questions,
                                    image, "Atbildes — tv3.lv",
+                                   cover_blur=blur,
                                    date_txt=day.strftime("%d.%m.%Y"))
     except Exception as e:  # noqa: BLE001
         log.warning("quiz render failed: %s", e)
@@ -552,7 +575,9 @@ def build_quiz(session, day) -> Post | None:
                 "tag": "#KVĪZS", "questions": questions,
                 "question": "Atbildes — tv3.lv",
                 "articles": [a.id for a in articles],
-                "date": day.strftime("%d.%m.%Y")})
+                "date": day.strftime("%d.%m.%Y"),
+                "photos": {"total": 1, "clean": 1 if image else 0,
+                           "blurred": 1 if blur else 0}})
 
 
 def build_evergreen(session, day) -> Post | None:

@@ -156,6 +156,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
                      show_sponsor: bool | None = None,
                      cover_title: bool = True, point_bg: str = "",
                      date_txt: str = "", point_images: list[str] | None = None,
+                     point_blur: list[str] | None = None,
+                     cover_blur: str = "",
                      point_dates: list[str] | None = None,
                      include_cover: bool = True, include_end: bool = True,
                      label: str = "") -> str:
@@ -165,8 +167,13 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
     gallery is visual, not flat color blocks.
 
     point_images: pa foto KATRAI kartītei (digest sarakstiem) — katrs stāsts
-    ar savu bildi. Tukša virkne krīt atpakaļ uz sadaļas gradientu, nekad uz
-    svešu attēlu.
+    ar savu bildi. Tukša virkne krīt atpakaļ uz point_blur, tad uz sadaļas
+    gradientu, nekad uz svešu attēlu.
+    point_blur / cover_blur: raksta paša attēls, ko drīkst likt TIKAI stipri
+    izpludinātu un aptumšotu — tā ir photopost grafika ar iestrādātu
+    virsrakstu, un daudziem tv3.lv rakstiem cita attēla nav. Izpludināts tas
+    kļūst par krāsu faktūru: teksts vairs nav salasāms un nedublējas, bet
+    kartīte vairs nav plakans krāsas laukums.
     include_cover / include_end: Facebook karuselī ir tikai 5 kartītes, tāpēc
     «TOP 5» saraksts izlaiž vāka un CTA kartīti — piecas kartītes = pieci
     stāsti, katrs ar savu saiti. Ievadu nes paša ieraksta teksts.
@@ -181,6 +188,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
 
     listing = point_images is not None
     imgs = list(point_images or [])
+    blurs = list(point_blur or [])
     dates = list(point_dates or [])
     total = len(points) + (1 if include_cover else 0) + (1 if include_end else 0)
 
@@ -200,8 +208,16 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
 
     cards = []
     if include_cover:
-        cover_bg = (f'background:url({attr(image_url)}) center/cover, {color};'
-                    if image_url else f"background:{color};")
+        cover_blur_layer = ""
+        if image_url:
+            cover_bg = f'background:url({attr(image_url)}) center/cover, {color};'
+        elif cover_blur:
+            cover_bg = (f"background:linear-gradient(160deg,"
+                        f"{_shade(color, .06)},{_shade(color, -.2)});")
+            cover_blur_layer = (f'<div class="blurbg" style="background-image:'
+                                f'url({attr(cover_blur)})"></div>')
+        else:
+            cover_bg = f"background:{color};"
         # the darkening gradient exists to keep the headline readable over a
         # photo; on a flat color card it just muddies the brand color
         shade = '<div class="shade"></div>' if image_url and cover_title else ""
@@ -212,7 +228,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         cards.append(f"""
     <div class="card">
       <div class="art" style="{cover_bg}">
-        {shade}{swoosh}
+        {cover_blur_layer}{shade}{swoosh}
         {date_chip(date_txt)}
         <div class="page">1/{total} →</div>
         {cover_txt}
@@ -222,6 +238,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
     for n, point in enumerate(points, start=1):
         pos = len(cards) + 1
         photo = imgs[n - 1] if n - 1 < len(imgs) else ""
+        blur = blurs[n - 1] if n - 1 < len(blurs) else ""
+        blur_layer = ""
         if listing:
             # saraksta kartīte: teksts apakšā uz foto, kā izdevēju listiklos
             point_cls = "point low"
@@ -229,7 +247,13 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
             if photo:
                 art_style = f'background:url({attr(photo)}) center/cover, {color};'
                 point_shade = '<div class="gshade"></div>'
-            else:   # bez tīra foto — sadaļas gradients, nevis sveša bilde
+            elif blur:   # tikai photopost grafika — der vienīgi kā faktūra
+                art_style = (f"background:linear-gradient(160deg,"
+                             f"{_shade(color, .06)},{_shade(color, -.2)});")
+                blur_layer = (f'<div class="blurbg" style="background-image:'
+                              f'url({attr(blur)})"></div>')
+                point_shade = '<div class="gshade"></div>'
+            else:
                 art_style = (f"background:linear-gradient(160deg,"
                              f"{_shade(color, .06)},{_shade(color, -.2)});")
                 point_shade = ""
@@ -259,7 +283,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         cards.append(f"""
     <div class="card">
       <div class="art" style="{art_style}">
-        {point_shade}{swoosh}
+        {blur_layer}{point_shade}{swoosh}
         {date_chip(date_txt)}
         <div class="page">{pos}/{total} →</div>
         {ribbon}
@@ -292,6 +316,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
 .pshade {{ position:absolute; inset:0;
   background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
+.blurbg {{ position:absolute; inset:-60px; background-size:cover;
+  background-position:center; filter:blur(30px) brightness(.78) saturate(1.15); }}
 .gshade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(10,5,15,.95) 24%,
     rgba(10,5,15,.3) 64%, rgba(10,5,15,.5) 100%); }}
@@ -595,6 +621,7 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
                  out_dir: Path | None = None,
                  cover_title: bool = True, point_bg: str = "",
                  date_txt: str = "", point_images: list[str] | None = None,
+                 point_blur: list[str] | None = None, cover_blur: str = "",
                  point_dates: list[str] | None = None,
                  include_cover: bool = True, include_end: bool = True,
                  label: str = "") -> list[str]:
@@ -607,6 +634,7 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
                                 end_question, cover_title=cover_title,
                                 point_bg=point_bg, date_txt=date_txt,
                                 point_images=point_images,
+                                point_blur=point_blur, cover_blur=cover_blur,
                                 point_dates=point_dates,
                                 include_cover=include_cover,
                                 include_end=include_end, label=label)
