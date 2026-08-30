@@ -67,7 +67,8 @@ def test_quiz_skips_tragedies_even_when_they_are_the_most_read(session,
     monkeypatch.setattr(cards, "render_cards", fake_cards)
     monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
         "Kurš uzvarēja sporta notikumā numur 0?",
-        "Cik punktus guva komanda?"])
+        "Cik punktus guva komanda?",
+        "Kurā pilsētā notika sacensības?"])
     post = weekend.build_quiz(session, weekend.utcnow().date())
     assert post is not None
     # traģēdija nav ne jautājumos, ne receptes rakstu sarakstā
@@ -238,7 +239,8 @@ def test_old_franchise_post_without_a_recipe_can_be_rebuilt(session,
     monkeypatch.setattr(cards, "render_cards",
                         lambda *a, **k: ["jauns0.png", "jauns1.png"])
     monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
-        "Kurš uzvarēja 26. augustā?", "Cik punktus guva komanda?"])
+        "Kurš uzvarēja 26. augustā?", "Cik punktus guva komanda?",
+        "Kurā pilsētā notika spēle?"])
     when = old.scheduled_at
     ok, message = regenerate.regenerate(session, old)
     assert ok and "pārbūvēts" in message
@@ -284,3 +286,31 @@ def test_blurred_layer_hides_the_baked_in_headline():
         include_cover=False, include_end=False)
     assert "photopost/g.jpg" in doc and "blurbg" in doc
     assert "blur(30px)" in doc          # virsraksts izšķīst faktūrā
+
+
+def test_quiz_needs_three_questions_and_short_ones(session, monkeypatch):
+    for i in range(3):
+        _art(session, f"q3-{i}", f"Notikums numur {i}")
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards", lambda *a, **k: ["c0.png"])
+    # divi derīgi jautājumi -> kvīzs izskatītos pēc pusfabrikāta, tāpēc nekā
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "Kurš uzvarēja 26. augustā?", "Cik punktus guva komanda?"])
+    assert weekend.build_quiz(session, weekend.utcnow().date()) is None
+    # pārāk garš jautājums kartītē neietilpst -> ārā
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "Kurš uzvarēja 26. augustā?", "Cik punktus guva komanda?",
+        "Ko " + "ļoti gari paskaidrojot " * 8 + "atklāja pētījums?",
+        "Kurā pilsētā notika spēle?"])
+    post = weekend.build_quiz(session, weekend.utcnow().date())
+    assert post is not None
+    assert len(post.extra["recipe"]["questions"]) == 3
+    assert all(len(q) <= 130 for q in post.extra["recipe"]["questions"])
+
+
+def test_long_card_text_shrinks_instead_of_being_cut_off():
+    short, long = "Kurš uzvarēja?", "Ko atklāja " + "gari " * 30 + "pētījums?"
+    assert cards.fit_size(short, 54) == 54
+    assert cards.fit_size(long, 54) < 40
+    doc = cards.build_cards_html("T", "news", "#KVĪZS", [long], "", "J?")
+    assert f"font-size:{cards.fit_size(long, 54)}px" in doc

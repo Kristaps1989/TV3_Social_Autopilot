@@ -140,6 +140,17 @@ def last_render_failure() -> str:
 SHOW_SPONSOR = os.environ.get("CARD_SPONSOR", "").lower() == "true"
 
 
+def fit_size(text: str, base: int) -> int:
+    """Fonta izmērs, kas garam tekstam neļauj iziet ārpus kartītes. Kartīte ir
+    fiksēta (1080×940 attēla daļa) un grieztu pārpalikumu nost — labāk mazāki
+    burti nekā vārds uz pusēm."""
+    n = len(text or "")
+    for limit, scale in ((60, 1.0), (90, .88), (120, .78), (160, .68)):
+        if n <= limit:
+            return round(base * scale)
+    return round(base * .6)
+
+
 def _settle(page, ms: int = 600) -> None:
     """Ļauj attēliem ienākt, pirms taisām ekrānuzņēmumu. Fiksēts miegs bija
     par īsu lēnam CDN — tad kartīte iznāca kā tukšs krāsas laukums; tagad
@@ -289,7 +300,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         {ribbon}
         <div class="{point_cls}">
           {head}
-          <p>{esc(point)}</p>
+          <p style="font-size:{fit_size(point, 50 if listing else 54)}px">
+            {esc(point)}</p>
         </div>
         <div class="dots">{''.join('<i class="on"></i>' if i == pos - 1 else '<i></i>'
                                     for i in range(total))}</div>

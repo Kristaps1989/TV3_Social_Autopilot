@@ -74,13 +74,18 @@ def _rebuild_franchise(session, post) -> tuple[bool, str]:
     if fresh is None:
         return False, ("Nepietiek datu, lai formātu uzbūvētu no jauna "
                        "(par maz rakstu, nav AI atslēgas vai renderētājs klusē).")
-    # pārceļam saturu uz esošo ierakstu un jauno metam ārā
-    post.media = fresh.media
-    post.copy = fresh.copy
-    post.article_id = fresh.article_id
-    post.link_url = fresh.link_url
-    post.extra = dict(fresh.extra or {})
+    # nolasām rezultātu, jauno ierakstu izmetam, un tikai tad pārrakstām
+    # esošo — citādi abi ieraksti īsu brīdi konkurē par vienu un to pašu vietu
+    built = {"media": list(fresh.media or []), "copy": fresh.copy,
+             "article_id": fresh.article_id, "link_url": fresh.link_url,
+             "extra": dict(fresh.extra or {})}
     session.delete(fresh)
+    session.flush()
+    post.media = built["media"]
+    post.copy = built["copy"]
+    post.article_id = built["article_id"]
+    post.link_url = built["link_url"]
+    post.extra = built["extra"]
     session.commit()
     return True, "Formāts pārbūvēts no jauna ar pašreizējiem noteikumiem."
 

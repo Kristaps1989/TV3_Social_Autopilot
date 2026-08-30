@@ -175,6 +175,8 @@ def week_top(session, section: str | None = None,
     """Perioda (noklusēti — šīs kalendārās nedēļas no pirmdienas) raksti ar
     visvairāk izmērītajām sesijām (GA4 caur post_metrics); kamēr metriku
     nav, krīt atpakaļ uz AI vērtējumu."""
+    from app import runtime
+
     since = since or week_start(now)
     q = (select(Article,
                 func.coalesce(func.sum(PostMetrics.ga_sessions), 0).label("s"),
@@ -184,6 +186,10 @@ def week_top(session, section: str | None = None,
          .where(Post.state == "published", Post.published_at >= since,
                 Article.title != "")
          .group_by(Article.id))
+    if not runtime.is_dry_run():
+        # sausās skrējiena ieraksti nekur neaizgāja — tie nav «nedēļas TOP».
+        # (Pašā dry-run režīmā tos paturam, citādi franšīzes testējot klusē.)
+        q = q.where(Post.dry_run.is_(False))
     if section:
         q = q.where(Article.section == section)
     if max_age_days:
@@ -535,9 +541,10 @@ def build_quiz(session, day) -> Post | None:
     facts = "\n".join(f"- {a.title} ({lv_date(a.published_at or a.first_seen_at)})"
                       for a in articles)
     questions = _ai_lines(session, max_tokens=500, prompt=(
-        f"No šiem tv3.lv nedēļas virsrakstiem uzraksti 3 īsus kvīza "
+        f"No šiem tv3.lv nedēļas virsrakstiem uzraksti 5 īsus kvīza "
         f"jautājumus latviski (katru jaunā rindā, bez numerācijas, "
-        f"bez atbildēm). Nevainojama pareizrakstība un galotnes. "
+        f"bez atbildēm). KATRS jautājums līdz 90 rakstzīmēm — garāks "
+        f"kartītē neietilpst. Nevainojama pareizrakstība un galotnes. "
         f"Datumus raksti absolūti (piem., «26. augustā»), nekad "
         f"relatīvi. NEKAD neveido jautājumu par cietušajiem, "
         f"bojāgājušajiem, noziegumiem, karu vai katastrofām — kvīzs ir "
@@ -545,11 +552,14 @@ def build_quiz(session, day) -> Post | None:
         f"Jautā TIKAI par jau notikušu, noslēgtu faktu («kas notika», "
         f"«kurš uzvarēja», «cik»), nekad par to, kas vēl varētu notikt, "
         f"par izredzēm, kvalifikāciju vai situāciju, kas dažās dienās "
-        f"var mainīties — ieraksts plūsmā dzīvo ilgāk nekā ziņa.\n{facts}"))[:3]
+        f"var mainīties — ieraksts plūsmā dzīvo ilgāk nekā ziņa.\n{facts}"))
+    # prasām piecus, lai pēc filtriem paliktu trīs: kvīzs ar diviem
+    # jautājumiem izskatās pēc pusfabrikāta
     questions = [q for q in questions
-                 if not has_relative_words(q) and not grim_words(q)
-                 and not open_ended(q)]
-    if len(questions) < 2:
+                 if q.endswith("?") and len(q) <= 130
+                 and not has_relative_words(q) and not grim_words(q)
+                 and not open_ended(q)][:3]
+    if len(questions) < 3:
         return None
     title = "Nedēļas kvīzs: vai sekoji notikumiem?"
     image = next((i for i in (_clean_image(a) for a in articles) if i), "")

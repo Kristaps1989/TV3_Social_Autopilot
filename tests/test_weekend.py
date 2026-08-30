@@ -730,7 +730,8 @@ def test_quiz_moved_to_the_sunday_evening_peak(session, monkeypatch):
     monkeypatch.setattr(cards, "renderer_available", lambda: True)
     monkeypatch.setattr(cards, "render_cards", lambda *a, **k: ["q0.png", "q1.png"])
     monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
-        "Kurš uzvarēja 29. augustā?", "Cik punktus guva komanda?"])
+        "Kurš uzvarēja 29. augustā?", "Cik punktus guva komanda?",
+        "Kurā pilsētā notika spēle?"])
     post = weekend.build_quiz(session, SUN.date())
     assert post is not None
     assert post.scheduled_at == datetime(2026, 8, 30, 16, 0)  # 19:00 Rīgā
