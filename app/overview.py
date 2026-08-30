@@ -219,7 +219,7 @@ FRANCHISE_LABELS = {
     "digestreel": "Se · Nedēļa 30 sekundēs",
     "icymi": "Se · Nepamanītais stāsts",
     "evergreen": "Sv · Arhīva raksts",
-    "quiz": "Sv · Nedēļas kvīzs",
+    "quiz": "Sv · Nedēļas QUIZ",
     "dailystory": "Pr–Pk · Dienas TOP 3",
 }
 

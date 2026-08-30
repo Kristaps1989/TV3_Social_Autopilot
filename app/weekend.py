@@ -15,7 +15,7 @@ mērīšanai un sava diena nedēļas režģī:
       icymi        — nepamanītais stāsts: labs raksts, kam klājās vāji (15:00)
   Sv  evergreen    — arhīva raksts, ko joprojām lasa (09:00)
       top5         — kopējais «Nedēļas TOP 5» karuselis (10:00)
-      quiz         — nedēļas kvīzs nedēļas lielākajā logā (19:00)
+      quiz         — nedēļas QUIZ nedēļas lielākajā logā (19:00)
   Pr–Pk daily_story — «Dienas TOP 3» foto mozaīkas stāsts (20:00), stāstu
                       kanālā: atsevišķa auditorija, nulle konkurences ar plūsmu
 
@@ -583,14 +583,16 @@ def build_quiz(session, day) -> Post | None:
     if len(pairs) < 3:
         return None
     questions = [q for q, _ in pairs]
-    title = "Nedēļas kvīzs: vai sekoji notikumiem?"
+    # formāta nosaukums paliek angliskais «QUIZ» — tā to sauc
+    # redakcija; jautājumi un viss pārējais teksts ir latviski
+    title = "Nedēļas QUIZ: vai sekoji notikumiem?"
     image = next((i for i in (_clean_image(a) for a in articles) if i), "")
     blur = "" if image else next(
         (i for i in (_any_image(a) for a in articles) if i), "")
     try:
         # vāks ar foto; jautājumu kartītes paliek bez attēla apzināti —
         # raksta bilde blakus jautājumam nodotu atbildi
-        media = cards.render_cards(title, "news", "#KVĪZS", questions,
+        media = cards.render_cards(title, "news", "#QUIZ", questions,
                                    image, "Atbildes — tv3.lv",
                                    cover_blur=blur,
                                    date_txt=day.strftime("%d.%m.%Y"))
@@ -605,7 +607,7 @@ def build_quiz(session, day) -> Post | None:
                               for _, a in pairs] + [portal])[:len(media)]
     card_titles = ([title] + ["Atbilde — tv3.lv"] * len(pairs)
                    + ["Atbildes — tv3.lv"])[:len(media)]
-    copy = ("Nedēļas kvīzs — trīs jautājumi par notikumiem, par kuriem "
+    copy = ("Nedēļas QUIZ — trīs jautājumi par notikumiem, par kuriem "
             "rakstīja tv3.lv. Atbildes atradīsi portālā.")
     return _schedule(session, _digest_article(
         session, f"digest-quiz-{day.isoformat()}", title, "news",
@@ -613,7 +615,7 @@ def build_quiz(session, day) -> Post | None:
         "quiz", _local_slot(day, 19),
         card_links=card_links, card_titles=card_titles,
         recipe={"kind": "quiz", "title": title, "section": "news",
-                "tag": "#KVĪZS", "questions": questions,
+                "tag": "#QUIZ", "questions": questions,
                 "question": "Atbildes — tv3.lv",
                 "articles": [a.id for a in articles],
                 "answer_articles": [a.id if a else 0 for _, a in pairs],

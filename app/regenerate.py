@@ -131,7 +131,7 @@ def regenerate(session, post) -> tuple[bool, str]:
             blur = "" if image else next(
                 (i for i in (_any_image(a) for a in cover) if i), "")
             media = cards.render_cards(
-                recipe.get("title", ""), section, recipe.get("tag", "#KVĪZS"),
+                recipe.get("title", ""), section, recipe.get("tag", "#QUIZ"),
                 recipe.get("questions") or [], image,
                 recipe.get("question", "Atbildes — tv3.lv"),
                 cover_blur=blur, date_txt=date_txt)

@@ -312,7 +312,7 @@ def test_long_card_text_shrinks_instead_of_being_cut_off():
     short, long = "Kurš uzvarēja?", "Ko atklāja " + "gari " * 30 + "pētījums?"
     assert cards.fit_size(short, 54) == 54
     assert cards.fit_size(long, 54) < 40
-    doc = cards.build_cards_html("T", "news", "#KVĪZS", [long], "", "J?")
+    doc = cards.build_cards_html("T", "news", "#QUIZ", [long], "", "J?")
     assert f"font-size:{cards.fit_size(long, 54)}px" in doc
 
 
@@ -330,3 +330,29 @@ def test_preview_lists_card_destinations_and_utm(client, session):
     assert r.status_code == 200
     assert "Kartīšu galamērķi" in r.text
     assert "quiz-karte2" in r.text and a.canonical_url in r.text
+
+
+def test_quiz_keeps_the_english_format_name_but_latvian_questions(session,
+                                                                  monkeypatch):
+    for i in range(3):
+        _art(session, f"en-{i}", f"Notikums numur {i}")
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kwargs):
+        seen.update(title=title, tag=tag, points=points)
+        return ["c0.png", "c1.png", "c2.png", "c3.png", "c4.png"]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "1 | Kurš uzvarēja 26. augustā?", "2 | Cik punktus guva komanda?",
+        "3 | Kurā pilsētā notika spēle?"])
+    post = weekend.build_quiz(session, weekend.utcnow().date())
+    assert post is not None
+    # formāta nosaukums angliski
+    assert seen["tag"] == "#QUIZ" and "QUIZ" in seen["title"]
+    assert "kvīz" not in (seen["title"] + post.copy).lower()
+    assert "QUIZ" in post.copy
+    # jautājumi joprojām latviski
+    assert all("uzvarēja" in q or "punktus" in q or "pilsētā" in q
+               for q in seen["points"])
