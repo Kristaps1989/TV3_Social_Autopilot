@@ -540,8 +540,19 @@ def publish_due(session) -> int:
             text, first_comment_link = compose_text(post, platform, shown, rules)
             adapter = get_adapter(platform)
             raw_card_links = (post.extra or {}).get("card_links") or []
-            card_links = [add_utm(u, platform, post.id, hook=f"karte{i + 1}")
-                          if u else "" for i, u in enumerate(raw_card_links)]
+            if not raw_card_links and post.format == "card_carousel":
+                # viena raksta karuselim visas kartītes ved uz to pašu rakstu,
+                # bet KATRA ar savu utm_term — tikai tā var pateikt, kura
+                # kartīte īsti nopelnīja klikšķi
+                raw_card_links = [post.link_url] * len(post.media or [])
+            # utm_term nes gan franšīzi, gan kartītes numuru («quiz-karte2»),
+            # citādi GA4 visu karuseļu otrās kartītes saplūst vienā rindā
+            hook_base = (post.hook_type or "").strip()
+            card_links = [
+                add_utm(u, platform, post.id,
+                        hook=f"{hook_base}-karte{i + 1}" if hook_base
+                        else f"karte{i + 1}")
+                if u else "" for i, u in enumerate(raw_card_links)]
             card_titles = (post.extra or {}).get("card_titles") or []
             if (not card_titles and post.format == "card_carousel"
                     and post.article is not None):

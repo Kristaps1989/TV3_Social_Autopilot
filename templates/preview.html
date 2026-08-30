@@ -133,6 +133,22 @@ Jauniem šādiem rakstiem sistēma automātiski izvēlas photo formātu ar savu
 brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
 {% endif %}
 
+{% if card_targets %}
+<details style="max-width:520px;margin:.4rem 0 .8rem">
+  <summary class="muted">Kartīšu galamērķi un UTM ({{ card_targets|length }})</summary>
+  <table style="margin-top:.4rem">
+    <tr><th>Kartīte</th><th>Ved uz</th><th>utm_term</th></tr>
+    {% for c in card_targets %}
+    <tr><td class="n">{{ c.n }}</td>
+      <td style="word-break:break-all">{{ c.url or '— (galvenā saite)' }}</td>
+      <td><code>{{ c.term }}</code></td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="margin:.4rem 0 0">GA4: <code>utm_content</code> ir
+    ieraksta numurs, <code>utm_term</code> — franšīze un kartītes numurs.</p>
+</details>
+{% endif %}
+
 {% if photos and photos.total %}
 <div class="muted" style="max-width:520px;margin:.4rem 0 .8rem">
   Grafikas foto: <strong>{{ photos.clean }}/{{ photos.total }}</strong> kartītes

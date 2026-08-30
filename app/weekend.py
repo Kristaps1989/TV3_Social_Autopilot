@@ -525,6 +525,24 @@ def build_icymi(session, day) -> Post | None:
                      _local_slot(day, 15))
 
 
+def _parse_quiz_lines(lines: list[str], articles: list[Article]
+                      ) -> list[tuple[str, Article | None]]:
+    """AI atbild formātā «3 | Jautājums?» — cipars ir raksts, no kura
+    jautājums nāk. Atbilde ir TAJĀ rakstā, tāpēc kartītei jāved uz to, nevis
+    uz portāla sākumlapu. Ja numura nav vai tas ir ārpus saraksta, kartīte
+    paliek bez sava raksta (ved uz portālu)."""
+    out: list[tuple[str, Article | None]] = []
+    for line in lines:
+        idx, sep, text = line.partition("|")
+        if sep and idx.strip().isdigit():
+            n = int(idx.strip())
+            art = articles[n - 1] if 1 <= n <= len(articles) else None
+            out.append((text.strip(), art))
+        else:
+            out.append((line.strip(), None))
+    return out
+
+
 def build_quiz(session, day) -> Post | None:
     """Kvīza karuselis no nedēļas TOP — jautājumus raksta AI; bez AI atslēgas
     formāts izlaižas (kvīzs bez īstiem jautājumiem nav publicējams).
@@ -538,13 +556,16 @@ def build_quiz(session, day) -> Post | None:
     articles = [a for a in week_top(session, limit=8) if playful_safe(a)][:5]
     if len(articles) < 3 or not cards.renderer_available():
         return None
-    facts = "\n".join(f"- {a.title} ({lv_date(a.published_at or a.first_seen_at)})"
-                      for a in articles)
-    questions = _ai_lines(session, max_tokens=500, prompt=(
-        f"No šiem tv3.lv nedēļas virsrakstiem uzraksti 5 īsus kvīza "
-        f"jautājumus latviski (katru jaunā rindā, bez numerācijas, "
-        f"bez atbildēm). KATRS jautājums līdz 90 rakstzīmēm — garāks "
-        f"kartītē neietilpst. Nevainojama pareizrakstība un galotnes. "
+    facts = "\n".join(
+        f"{i}. {a.title} ({lv_date(a.published_at or a.first_seen_at)})"
+        for i, a in enumerate(articles, 1))
+    lines = _ai_lines(session, max_tokens=500, prompt=(
+        f"No šiem numurētajiem tv3.lv nedēļas virsrakstiem uzraksti 5 īsus "
+        f"kvīza jautājumus latviski. Katru jaunā rindā formātā "
+        f"«numurs | jautājums», kur numurs ir tā virsraksta numurs, no kura "
+        f"jautājums nāk (atbilde ir tajā rakstā). Bez atbildēm. "
+        f"KATRS jautājums līdz 90 rakstzīmēm — garāks kartītē neietilpst. "
+        f"Nevainojama pareizrakstība un galotnes. "
         f"Datumus raksti absolūti (piem., «26. augustā»), nekad "
         f"relatīvi. NEKAD neveido jautājumu par cietušajiem, "
         f"bojāgājušajiem, noziegumiem, karu vai katastrofām — kvīzs ir "
@@ -555,12 +576,13 @@ def build_quiz(session, day) -> Post | None:
         f"var mainīties — ieraksts plūsmā dzīvo ilgāk nekā ziņa.\n{facts}"))
     # prasām piecus, lai pēc filtriem paliktu trīs: kvīzs ar diviem
     # jautājumiem izskatās pēc pusfabrikāta
-    questions = [q for q in questions
-                 if q.endswith("?") and len(q) <= 130
-                 and not has_relative_words(q) and not grim_words(q)
-                 and not open_ended(q)][:3]
-    if len(questions) < 3:
+    pairs = [(q, art) for q, art in _parse_quiz_lines(lines, articles)
+             if q.endswith("?") and len(q) <= 130
+             and not has_relative_words(q) and not grim_words(q)
+             and not open_ended(q)][:3]
+    if len(pairs) < 3:
         return None
+    questions = [q for q, _ in pairs]
     title = "Nedēļas kvīzs: vai sekoji notikumiem?"
     image = next((i for i in (_clean_image(a) for a in articles) if i), "")
     blur = "" if image else next(
@@ -575,16 +597,26 @@ def build_quiz(session, day) -> Post | None:
     except Exception as e:  # noqa: BLE001
         log.warning("quiz render failed: %s", e)
         return None
+    portal = "https://tv3.lv"
+    # media = [vāks, jautājumi..., CTA]. Katra jautājuma kartīte ved uz SAVU
+    # rakstu, kur ir atbilde; virsrakstu joslā liekam neitrālu aicinājumu —
+    # raksta virsraksts blakus jautājumam nodotu atbildi.
+    card_links = ([portal] + [(a.canonical_url or a.url) if a else portal
+                              for _, a in pairs] + [portal])[:len(media)]
+    card_titles = ([title] + ["Atbilde — tv3.lv"] * len(pairs)
+                   + ["Atbildes — tv3.lv"])[:len(media)]
     copy = ("Nedēļas kvīzs — trīs jautājumi par notikumiem, par kuriem "
             "rakstīja tv3.lv. Atbildes atradīsi portālā.")
     return _schedule(session, _digest_article(
         session, f"digest-quiz-{day.isoformat()}", title, "news",
-        "https://tv3.lv"), "card_carousel", copy, media, "https://tv3.lv",
+        portal), "card_carousel", copy, media, portal,
         "quiz", _local_slot(day, 19),
+        card_links=card_links, card_titles=card_titles,
         recipe={"kind": "quiz", "title": title, "section": "news",
                 "tag": "#KVĪZS", "questions": questions,
                 "question": "Atbildes — tv3.lv",
                 "articles": [a.id for a in articles],
+                "answer_articles": [a.id if a else 0 for _, a in pairs],
                 "date": day.strftime("%d.%m.%Y"),
                 "photos": {"total": 1, "clean": 1 if image else 0,
                            "blurred": 1 if blur else 0}})

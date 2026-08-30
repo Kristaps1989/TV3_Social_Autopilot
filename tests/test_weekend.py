@@ -747,3 +747,67 @@ def test_number_card_layout_scales_and_carries_the_date():
     # garš skaitlis nedrīkst izplūst ārpus kartes -> mazāks fonts
     assert "font-size:300px" in cards.build_number_html("47%", "K", "news")
     assert "font-size:120px" in doc      # 10 rakstzīmes -> mazākais fonts
+
+
+def test_quiz_cards_link_to_the_article_that_holds_the_answer(session,
+                                                              monkeypatch):
+    from app import cards
+
+    arts = [_article(session, f"ql-{i}", f"Notikums numur {i}", sessions=100 - i)
+            for i in range(3)]
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards",
+                        lambda *a, **k: ["cover.png", "q1.png", "q2.png",
+                                         "q3.png", "end.png"])
+    # AI atbild «numurs | jautājums» — numurs norāda rakstu ar atbildi
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "2 | Kurš uzvarēja 26. augustā?",
+        "1 | Cik punktus guva komanda?",
+        "9 | Kurā pilsētā notika spēle?"])          # ārpus saraksta
+    post = weekend.build_quiz(session, SUN.date())
+    assert post is not None
+
+    links = post.extra["card_links"]
+    assert links[0] == "https://tv3.lv"                  # vāks -> portāls
+    assert links[1] == arts[1].canonical_url             # «2 |» -> otrais
+    assert links[2] == arts[0].canonical_url             # «1 |» -> pirmais
+    assert links[3] == "https://tv3.lv"                  # nezināms -> portāls
+    assert links[4] == "https://tv3.lv"                  # CTA -> portāls
+    # virsrakstu josla nenodod atbildi: neitrāls aicinājums, ne raksta virsraksts
+    titles = post.extra["card_titles"]
+    assert titles[1] == "Atbilde — tv3.lv"
+    assert all(a.title not in titles for a in arts)
+
+
+def test_every_carousel_card_gets_its_own_utm_term(session, monkeypatch):
+    """Bez kartīšu saitēm visas kartītes dalījās vienā UTM — nevarēja pateikt,
+    kura kartīte nopelnīja klikšķi."""
+    import app.pipeline as pl
+
+    captured = {}
+
+    class FakeAdapter:
+        def publish(self, *, text, link, images, fmt, card_links=None,
+                    card_titles=None):
+            captured.update(card_links=card_links)
+            return "fb-1"
+
+        def comment(self, post_id, message):
+            return "c1"
+
+    monkeypatch.setattr(pl, "get_adapter", lambda platform: FakeAdapter())
+    a = _article(session, "utm-1", "Viena raksta karuselis")
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="card_carousel",
+             copy="Teksts", link_url=a.canonical_url, hook_type="quiz",
+             media=["c0.png", "c1.png", "c2.png"],
+             state="scheduled", scheduled_at=utcnow() - timedelta(minutes=1))
+    session.add(p)
+    session.commit()
+    assert pl.publish_due(session) == 1
+
+    links = captured["card_links"]
+    assert len(links) == 3
+    # katra kartīte ved uz to pašu rakstu, bet ar savu numuru UN franšīzi
+    assert all(a.canonical_url in u for u in links)
+    assert "utm_term=quiz-karte1" in links[0]
+    assert "utm_term=quiz-karte3" in links[2]

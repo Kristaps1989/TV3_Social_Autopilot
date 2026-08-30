@@ -401,6 +401,11 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "img_portrait": img_portrait,
             "can_regenerate": regen.can_regenerate(post),
             "photos": ((post.extra or {}).get("recipe") or {}).get("photos"),
+            "card_targets": [
+                {"n": i + 1, "url": u,
+                 "term": (f"{post.hook_type}-karte{i + 1}" if post.hook_type
+                          else f"karte{i + 1}")}
+                for i, u in enumerate((post.extra or {}).get("card_links") or [])],
             "msg": msg, "msg_ok": ok == "1",
         })
     finally:

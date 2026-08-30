@@ -314,3 +314,19 @@ def test_long_card_text_shrinks_instead_of_being_cut_off():
     assert cards.fit_size(long, 54) < 40
     doc = cards.build_cards_html("T", "news", "#KVĪZS", [long], "", "J?")
     assert f"font-size:{cards.fit_size(long, 54)}px" in doc
+
+
+def test_preview_lists_card_destinations_and_utm(client, session):
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    a = _art(session, "ct-1", "Raksts")
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="card_carousel",
+             copy="Teksts", link_url="https://tv3.lv", hook_type="quiz",
+             media=["c0.png", "c1.png"], state="scheduled",
+             scheduled_at=utcnow() + timedelta(hours=1),
+             extra={"card_links": ["https://tv3.lv", a.canonical_url]})
+    session.add(p)
+    session.commit()
+    r = client.get(f"/post/{p.id}/preview")
+    assert r.status_code == 200
+    assert "Kartīšu galamērķi" in r.text
+    assert "quiz-karte2" in r.text and a.canonical_url in r.text
