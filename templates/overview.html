@@ -23,6 +23,30 @@ Viena atbilde uz jautājumu «kur eiro atved visvairāk lasītāju».</p>
 </div>
 
 <div class="card" style="margin-bottom:1rem">
+  <h2>Kas notiek ar rakstiem ({{ d.publication.days }} d)</h2>
+  <p class="muted">«Publicēti raksti» pats par sevi maldina: saucējā ir arī
+  raksti, kas tikko ienāca un vēl gaida savu rindu. Šeit katrs raksts ir
+  vienā kastē — redzams, cik ir īsts atteikums un cik vēl neizšķirts.</p>
+  <table>
+    <tr><th>Kas ar to notika</th><th>Raksti</th><th>Daļa</th></tr>
+    {% for b in d.publication.buckets %}
+    <tr><td>{{ b.label }}</td>
+      <td class="n">{{ b.n }}</td>
+      <td class="n">{{ '%.0f' % b.pct }}%</td></tr>
+    {% else %}
+    <tr><td colspan="3" class="muted">nav rakstu šajā periodā</td></tr>
+    {% endfor %}
+  </table>
+  {% if d.publication.reasons %}
+  <p class="muted" style="margin-top:.6rem"><strong>Biežākie atteikuma
+    iemesli:</strong>
+    {% for r in d.publication.reasons %}{{ r.label }} ({{ r.n }}){%
+      if not loop.last %} · {% endif %}{% endfor %}</p>
+  {% endif %}
+  <p class="muted">Konkrētam rakstam: <a href="/why">Kāpēc nav publicēts?</a></p>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
   <h2>Kanālu ekonomika (30 d) — cena par sesiju</h2>
   {% if d.economics.configured %}
   <table>

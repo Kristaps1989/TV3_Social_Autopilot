@@ -15,7 +15,8 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
-from app.models import AdEntry, Article, Post, get_setting, set_setting, utcnow
+from app.models import (AdEntry, Article, Evaluation, Post, get_setting,
+                        set_setting, utcnow)
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +118,96 @@ def channel_economics(session, days: int = DAYS) -> dict:
     }
 
 
+# Iemeslu grupas «kāpēc raksts nepublicējās». Neapstrādāti reason teksti ir
+# pārāk sīki (katrs ar savu stundu skaitu), tāpēc grupējam pēc atslēgvārda.
+REASON_GROUPS = (
+    ("editor status: don't", "Redaktors atzīmēja «nepublicēt»"),
+    ("too old", "Raksts par vecu kanāla svaiguma limitam"),
+    ("not routed", "Sadaļa netiek raidīta uz šo kanālu"),
+    ("blocklist", "Term ID kanāla melnajā sarakstā"),
+    ("allowlist", "Term ID nav kanāla baltajā sarakstā"),
+    ("nav derīga laika", "Rinda bija pilna — nav derīga laika slota"),
+    ("atkārtojums tajā pašā formātā", "Otrais vilnis tajā pašā formātā"),
+    ("story needs an image", "Stāstam trūkst attēla vai renderētāja"),
+    ("sensitivity", "Jutīga tēma pēc noteikumiem"),
+)
+
+
+def _reason_label(reason: str) -> str:
+    low = (reason or "").lower()
+    for needle, label in REASON_GROUPS:
+        if needle.lower() in low:
+            return label
+    return (reason or "cits iemesls")[:80]
+
+
+def publication_funnel(session, days: int = 7) -> dict:
+    """Kāpēc daļa rakstu nepublicējas: katrs perioda raksts vienā kastē.
+
+    Skaitītājs «publicēti raksti / raksti» pats par sevi maldina — saucējā ir
+    arī raksti, kas tikko ienāca un vēl gaida savu rindu. Šis sadalījums
+    parāda, cik daudz ir īsts atteikums un cik — vēl neizšķirts."""
+    since = utcnow() - timedelta(days=days)
+    articles = session.execute(
+        select(Article).where(Article.first_seen_at >= since)
+    ).scalars().all()
+    if not articles:
+        return {"days": days, "total": 0, "buckets": [], "reasons": []}
+    ids = [a.id for a in articles]
+    states: dict[int, set[str]] = {}
+    for aid, state in session.execute(
+            select(Post.article_id, Post.state).where(Post.article_id.in_(ids))):
+        states.setdefault(aid, set()).add(state)
+    evals: dict[int, list[tuple[str, str]]] = {}
+    for aid, outcome, reason in session.execute(
+            select(Evaluation.article_id, Evaluation.outcome, Evaluation.reason)
+            .where(Evaluation.article_id.in_(ids))):
+        evals.setdefault(aid, []).append((outcome, reason))
+
+    buckets: dict[str, int] = {}
+    reasons: dict[str, int] = {}
+    for a in articles:
+        st = states.get(a.id, set())
+        outcomes = evals.get(a.id, [])
+        if "published" in st:
+            key = "Publicēts"
+        elif st & {"scheduled", "publishing", "proposed"}:
+            key = "Vēl rindā (ieplānots)"
+        elif st & {"failed"}:
+            key = "Publicēšana neizdevās"
+        elif a.editor_status == "dont":
+            key = "Redaktors atzīmēja «nepublicēt»"
+        elif a.decided_at is None:
+            key = "Vēl nav izvērtēts"
+        elif any(o == "ai_skip" for o, _ in outcomes):
+            key = "AI izlēma nepublicēt"
+            for o, r in outcomes:
+                if o == "ai_skip" and r:
+                    reasons[_reason_label(r)] = reasons.get(_reason_label(r), 0) + 1
+                    break
+        elif any(o == "blocked" for o, _ in outcomes):
+            key = "Noteikumi bloķēja"
+            for o, r in outcomes:
+                if o == "blocked":
+                    reasons[_reason_label(r)] = reasons.get(_reason_label(r), 0) + 1
+                    break
+        elif "cancelled" in st:
+            key = "Atcelts"
+        else:
+            key = "Cits"
+        buckets[key] = buckets.get(key, 0) + 1
+    total = len(articles)
+    order = ["Publicēts", "Vēl rindā (ieplānots)", "Vēl nav izvērtēts",
+             "AI izlēma nepublicēt", "Noteikumi bloķēja",
+             "Redaktors atzīmēja «nepublicēt»", "Publicēšana neizdevās",
+             "Atcelts", "Cits"]
+    rows = [{"label": k, "n": buckets[k], "pct": buckets[k] / total * 100}
+            for k in order if k in buckets]
+    return {"days": days, "total": total, "buckets": rows,
+            "reasons": sorted(({"label": k, "n": v} for k, v in reasons.items()),
+                              key=lambda r: -r["n"])[:6]}
+
+
 FRANCHISE_LABELS = {
     "mondaytop5": "Pr · Nogales TOP 5",
     "mondaystory": "Pr · Nogales stāsts",
@@ -183,6 +274,7 @@ def build(session) -> dict:
         "funnel1": content_funnel(session, 1),
         "economics": channel_economics(session),
         "franchises": franchise_stats(session),
+        "publication": publication_funnel(session, 7),
         "google_monthly": external_spend(session),
         "ai_report": get_setting(session, "overview:ai_report", ""),
         "ai_report_at": get_setting(session, "overview:ai_report_at", ""),

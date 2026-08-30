@@ -68,6 +68,7 @@ def test_overview_page_renders(client, session, monkeypatch):
     assert "Kanālu ekonomika" in r.text and "AI mārketinga ieteikumi" in r.text
     # franšīžu režģis ar slēdžiem un snieguma tabula
     assert "Satura franšīzes" in r.text and "Franšīžu sniegums" in r.text
+    assert "Kas notiek ar rakstiem" in r.text
     assert "Trešdienas jautājums" in r.text and "Dienas TOP 3" in r.text
     r = client.post("/overview/spend", data={"monthly_eur": "3000"},
                     follow_redirects=False)
@@ -117,3 +118,47 @@ def test_franchise_stats_scores_against_the_editorial_baseline(session):
     assert by_hook["number"]["verdict"] == "par agru"
     # sakārtots pēc sesijām uz ierakstu
     assert stats["items"][0]["hook"] == "quiz"
+
+
+def test_publication_funnel_separates_refusals_from_work_in_progress(session):
+    from app.models import Evaluation
+
+    def article(guid, **kw):
+        a = Article(guid=guid, url=f"https://tv3.lv/{guid}",
+                    canonical_url=f"https://tv3.lv/{guid}", title=guid,
+                    section="news", **kw)
+        session.add(a)
+        session.flush()
+        return a
+
+    published = article("pf-1", decided_at=utcnow())
+    session.add(Post(article_id=published.id, channel="fb_tv3lv", format="link",
+                     state="published", published_at=utcnow()))
+    queued = article("pf-2", decided_at=utcnow())
+    session.add(Post(article_id=queued.id, channel="fb_tv3lv", format="link",
+                     state="scheduled", scheduled_at=utcnow() + timedelta(hours=1)))
+    fresh = article("pf-3")                       # vēl nav izvērtēts
+    skipped = article("pf-4", decided_at=utcnow())
+    session.add(Evaluation(article_id=skipped.id, channel="fb_tv3lv",
+                           outcome="ai_skip", reason="tēma neatbilst kanālam"))
+    blocked = article("pf-5", decided_at=utcnow())
+    session.add(Evaluation(article_id=blocked.id, channel="fb_tv3lv",
+                           outcome="blocked",
+                           reason="too old: 52h > 24h limit for news"))
+    dont = article("pf-6", editor_status="dont", decided_at=utcnow())
+    session.commit()
+
+    f = overview.publication_funnel(session, days=7)
+    assert f["total"] == 6
+    labels = {b["label"]: b["n"] for b in f["buckets"]}
+    assert labels["Publicēts"] == 1
+    assert labels["Vēl rindā (ieplānots)"] == 1
+    assert labels["Vēl nav izvērtēts"] == 1
+    assert labels["AI izlēma nepublicēt"] == 1
+    assert labels["Noteikumi bloķēja"] == 1
+    assert labels["Redaktors atzīmēja «nepublicēt»"] == 1
+    # sīkie iemeslu teksti sagrupēti lasāmās grupās
+    assert {"Raksts par vecu kanāla svaiguma limitam"} <= {
+        r["label"] for r in f["reasons"]}
+    assert all(b["pct"] > 0 for b in f["buckets"])
+    assert fresh.id and queued.id and dont.id     # nav neizmantotu mainīgo
