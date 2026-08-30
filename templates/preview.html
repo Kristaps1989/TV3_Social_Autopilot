@@ -5,6 +5,11 @@
 Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
 {% if post.scheduled_at %} · plānots {{ post.scheduled_at | local }}{% endif %}</p>
 
+{% if msg %}
+<div class="notice {{ 'ok' if msg_ok else 'err' }}" style="max-width:520px">
+  {{ msg }}</div>
+{% endif %}
+
 <style>
 .mock { max-width:520px; background:#fff; border:1px solid var(--line);
         border-radius:12px; overflow:hidden; margin-bottom:1rem;
@@ -126,6 +131,15 @@ attēlu renderētājs (Chromium) nenostrādā — pārbaudi rindu
 uz 1.91:1 (kā redzams augstāk), un iestrādātā titula plāksne tiek nogriezta.
 Jauniem šādiem rakstiem sistēma automātiski izvēlas photo formātu ar savu
 brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
+{% endif %}
+
+{% if can_regenerate %}
+<form method="post" action="/post/{{ post.id }}/regenerate"
+      style="max-width:520px;margin:0 0 1rem">
+  <button>Pārģenerēt grafiku</button>
+  <span class="muted">— uzzīmē attēlus no jauna ar pašreizējo noformējumu
+    (pēc dizaina labojuma vai ja attēls neielādējās)</span>
+</form>
 {% endif %}
 
 <div class="muted" style="max-width:520px">

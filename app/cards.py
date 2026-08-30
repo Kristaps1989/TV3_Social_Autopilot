@@ -239,9 +239,13 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
             art_style = f'background:url({attr(point_bg)}) center/cover, {color};'
             point_shade = '<div class="pshade"></div>'
         else:
+            # bez foto: sadaļas gradients, nevis plakans krāsas laukums —
+            # vienlīdz drošs kvīza jautājumam (foto nodotu atbildi), bet
+            # plūsmā izskatās kā noformēta kartīte, ne kā tukšums
             point_cls = "point"
-            num_color = dark
-            art_style = f"background:{color};"
+            num_color = "rgba(255,255,255,.4)"
+            art_style = (f"background:linear-gradient(160deg,"
+                         f"{_shade(color, .06)},{_shade(color, -.2)});")
             point_shade = ""
         ribbon = (f'<div class="ribbon" style="background:{dark}">{esc(label)}</div>'
                   if label and pos == 1 else "")

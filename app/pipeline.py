@@ -91,7 +91,8 @@ def run_decisions(session, limit: int = 20) -> int:
             if existing and repost_at is None:
                 continue
 
-            fmt, card_media = resolve_format(session, channel, cfg, article, ch_dec)
+            fmt, card_media, recipe = resolve_format(session, channel, cfg,
+                                                     article, ch_dec)
             if any(p.format == fmt for p in existing):
                 # the second wave only earns its place as a different format
                 session.add(Evaluation(article_id=article.id, channel=channel,
@@ -176,7 +177,9 @@ def run_decisions(session, limit: int = 20) -> int:
                 # ar kādu grafiku izkārtojumu šis attēls uzzīmēts: ieraksts var
                 # nostāvēt rindā stundas, un dizaina labojums citādi to vairs
                 # neskartu (sk. refresh_missing_media)
-                extra=({"render_version": cards_mod.RENDER_VERSION} if media else {}),
+                extra=(({"render_version": cards_mod.RENDER_VERSION}
+                        | ({"recipe": recipe} if recipe else {}))
+                       if media else {}),
             )
             session.add(post)
             session.flush()
@@ -333,9 +336,11 @@ def story_media(article, image_url: str) -> list[str]:
 
 
 def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
-    """Format for this post. A carousel happens only when the AI proposed it
-    AND provided usable card points AND the renderer works; otherwise the
-    diversity-aware chooser decides and media is derived from the article."""
+    """(format, media, recipe) for this post. A carousel happens only when the
+    AI proposed it AND provided usable card points AND the renderer works;
+    otherwise the diversity-aware chooser decides and media is derived from
+    the article. The recipe records what the graphic was built from, so an
+    editor can redraw it later without cancelling the post."""
     from app import cards
 
     ai_fmt = ch_dec.get("format")
@@ -359,7 +364,12 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                                            cover_title=cover_title,
                                            point_bg=point_bg,
                                            date_txt=article_date(article))
-                return "card_carousel", media
+                # recepte, lai redaktors grafiku var pārzīmēt vēlāk: AI
+                # kartīšu punkti pēc lēmuma citur nekur nepaliek
+                return "card_carousel", media, {
+                    "kind": "article_cards", "article": article.id,
+                    "tag": tag, "points": points, "question": question,
+                    "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("card render failed for article %s: %s", article.id, e)
                 cards.record_render_failure("card_carousel", e)
@@ -372,7 +382,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         video = reels.article_video(article)
         if video and reels.available():
             try:
-                return "reel", [reels.build_video_reel(video)]
+                return "reel", [reels.build_video_reel(video)], {}
             except Exception as e:  # noqa: BLE001
                 log.warning("video reel failed for article %s: %s", article.id, e)
                 from app import cards as _cards
@@ -387,7 +397,10 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
             try:
                 media = reels.build_reel(article.title, article.section,
                                          image, points)
-                return "reel", [media]
+                return "reel", [media], {
+                    "kind": "article_reel", "article": article.id,
+                    "points": points, "image": image,
+                    "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)
         ai_fmt = None
@@ -407,7 +420,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
 
         if imageinfo.orientation(article) == "portrait":
             fmt = "photo"
-    return fmt, []
+    return fmt, [], {}
 
 
 def repost_offset(article, cfg: dict, existing: list) -> datetime | None:

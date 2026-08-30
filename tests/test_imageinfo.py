@@ -53,7 +53,7 @@ def test_portrait_og_image_switches_link_to_photo(session, monkeypatch):
     session.add(a)
     session.flush()
     cfg = {"formats": ["link", "photo"], "platform": "facebook_page"}
-    fmt, _ = resolve_format(session, "fb_x", cfg, a, {"format": "link"})
+    fmt, _, _r = resolve_format(session, "fb_x", cfg, a, {"format": "link"})
     assert fmt == "photo"
 
     # landscape image keeps the link format the AI asked for
@@ -63,7 +63,7 @@ def test_portrait_og_image_switches_link_to_photo(session, monkeypatch):
                 images=["https://tv3.lv/wide.jpg"], raw_json={})
     session.add(b)
     session.flush()
-    fmt, _ = resolve_format(session, "fb_x", cfg, b, {"format": "link"})
+    fmt, _, _r = resolve_format(session, "fb_x", cfg, b, {"format": "link"})
     assert fmt == "link"
 
 

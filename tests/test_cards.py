@@ -109,7 +109,7 @@ def test_resolve_format_renders_carousel(session, monkeypatch):
     ch_dec = {"format": "card_carousel",
               "card_points": ["viens", "divi", "trīs"],
               "card_end_question": "Kas notiks tālāk?"}
-    fmt, media = resolve_format(session, "fb_x", CFG, a, ch_dec)
+    fmt, media, _r = resolve_format(session, "fb_x", CFG, a, ch_dec)
     assert fmt == "card_carousel"
     assert len(media) == 2
 
@@ -118,7 +118,7 @@ def test_resolve_format_falls_back_without_points(session, monkeypatch):
     monkeypatch.setattr(cards, "renderer_available", lambda: True)
     a = _article(session, guid="card-2", url="https://tv3.lv/c2",
                  canonical_url="https://tv3.lv/c2")
-    fmt, media = resolve_format(session, "fb_x", CFG, a,
+    fmt, media, _r = resolve_format(session, "fb_x", CFG, a,
                                 {"format": "card_carousel", "card_points": ["tikai viens"]})
     assert fmt != "card_carousel"
     assert media == []
@@ -133,7 +133,7 @@ def test_resolve_format_falls_back_on_render_error(session, monkeypatch):
     monkeypatch.setattr(cards, "render_cards", boom)
     a = _article(session, guid="card-3", url="https://tv3.lv/c3",
                  canonical_url="https://tv3.lv/c3")
-    fmt, media = resolve_format(session, "fb_x", CFG, a,
+    fmt, media, _r = resolve_format(session, "fb_x", CFG, a,
                                 {"format": "card_carousel",
                                  "card_points": ["a", "b", "c"]})
     assert fmt != "card_carousel"

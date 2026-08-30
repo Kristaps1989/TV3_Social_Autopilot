@@ -26,14 +26,14 @@ def test_resolve_format_builds_reel(session, monkeypatch):
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
     cfg = {"formats": ["photo", "reel"], "platform": "instagram"}
-    fmt, media = pipeline.resolve_format(session, "ig", cfg, _article(session), {
+    fmt, media, _r = pipeline.resolve_format(session, "ig", cfg, _article(session), {
         "format": "reel", "card_points": ["Pirmais āķis", "Otrais āķis"]})
     assert fmt == "reel"
     assert media == ["/data/cards/reel_x.mp4"]
     assert built["points"] == ["Pirmais āķis", "Otrais āķis"]
 
     # too few points -> falls back to a normal format
-    fmt, media = pipeline.resolve_format(session, "ig", cfg, _article(session, "r-2"),
+    fmt, media, _r = pipeline.resolve_format(session, "ig", cfg, _article(session, "r-2"),
                                          {"format": "reel", "card_points": ["Viens"]})
     assert fmt != "reel"
 
@@ -144,7 +144,7 @@ def test_resolve_format_prefers_real_video(session, monkeypatch):
     a = _article(session, "v-4")
     a.raw_json = {"video_url": "https://cdn/klips.mp4"}
     cfg = {"formats": ["photo", "reel"], "platform": "instagram"}
-    fmt, media = pipeline.resolve_format(session, "ig", cfg, a,
+    fmt, media, _r = pipeline.resolve_format(session, "ig", cfg, a,
                                          {"format": "reel", "card_points": []})
     assert fmt == "reel"
     assert media == ["/data/cards/reel_v.mp4"]

@@ -211,7 +211,7 @@ def test_carousel_uses_prebranded_cover_and_photo_points(session, monkeypatch):
     session.add(a)
     session.flush()
     cfg = {"formats": ["photo", "card_carousel"], "platform": "facebook_page"}
-    fmt, media = pipeline.resolve_format(session, "fb", cfg, a, {
+    fmt, media, _r = pipeline.resolve_format(session, "fb", cfg, a, {
         "format": "card_carousel",
         "card_points": ["Fakts 1 ar 59 eiro", "Fakts 2", "Fakts 3"]})
     assert fmt == "card_carousel"

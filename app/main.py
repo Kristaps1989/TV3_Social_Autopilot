@@ -285,6 +285,27 @@ def cancel_post(post_id: int):
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/post/{post_id}/regenerate")
+def regenerate_post(post_id: int):
+    """Uzzīmē ieraksta grafiku no jauna ar pašreizējo izkārtojumu — pēc
+    dizaina labojuma, pēc renderētāja kļūmes vai kad attēls neielādējās."""
+    from urllib.parse import quote
+
+    from app import regenerate as regen
+
+    session = get_session()
+    try:
+        post = session.get(Post, post_id)
+        if post is None:
+            return RedirectResponse("/", status_code=303)
+        ok, message = regen.regenerate(session, post)
+    finally:
+        session.close()
+    return RedirectResponse(
+        f"/post/{post_id}/preview?msg={quote(message)}&ok={'1' if ok else '0'}",
+        status_code=303)
+
+
 @app.post("/post/{post_id}/publish-now")
 def publish_now(post_id: int):
     session = get_session()
@@ -338,7 +359,7 @@ def edit_copy(post_id: int, copy: str = Form(...)):
 
 
 @app.get("/post/{post_id}/preview", response_class=HTMLResponse)
-def post_preview(request: Request, post_id: int):
+def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
     session = get_session()
     try:
         post = session.get(Post, post_id)
@@ -365,6 +386,7 @@ def post_preview(request: Request, post_id: int):
                 session.commit()  # keep the probed size cached
             except Exception:  # noqa: BLE001
                 img_portrait = False
+        from app import regenerate as regen
         from app.pipeline import prebranded
 
         media_prebranded = bool((post.media or [""])[0]
@@ -377,6 +399,8 @@ def post_preview(request: Request, post_id: int):
             "link_in_comment": in_comment,
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
+            "can_regenerate": regen.can_regenerate(post),
+            "msg": msg, "msg_ok": ok == "1",
         })
     finally:
         session.close()

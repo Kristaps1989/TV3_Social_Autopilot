@@ -120,7 +120,7 @@ def test_portrait_conversion_does_not_eat_the_link_quota(session, monkeypatch):
     session.commit()
     cfg = {"formats": ["link", "photo"], "platform": "facebook_page",
            "format_mix": {"link": 0.4}}
-    fmt, _media = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
+    fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "link"
 
     # kad link kvota ir izpildīta, portreta noteikums atkal strādā
@@ -129,5 +129,5 @@ def test_portrait_conversion_does_not_eat_the_link_quota(session, monkeypatch):
         session.add(Post(article_id=a.id, channel="fb_mix2", format=fmt_name,
                          state="published"))
     session.commit()
-    fmt, _media = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
+    fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "photo"

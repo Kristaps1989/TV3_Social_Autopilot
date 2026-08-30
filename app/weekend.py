@@ -54,6 +54,37 @@ RELATIVE_WORDS = ("vakar", "šodien", "šorīt", "šovakar", "rīt", "parīt",
                   "aizvakar", "šonedēļ", "pagājušonedēļ", "nupat", "tikko")
 
 
+# Vārdi, kas rakstu izslēdz no IZKLAIDĒJOŠAJIEM formātiem (kvīzs, jautājums,
+# «nedēļas skaitlis»). Bojāgājušo skaits nav kvīza jautājums, un traģēdija nav
+# spēle — arī tad, ja tieši šo rakstu lasīja visvairāk. AI jutīguma birkas
+# («tragedy», «crime») ir pirmā aizsardzība, šī saraksta ir otrā: ārzemju
+# katastrofu AI dažkārt atzīmē kā parastu ziņu.
+GRIM_STEMS = (
+    "bojā gāj", "bojāgājuš", "gāja bojā", "gājuši bojā", "upuri", "upuru",
+    "dzīvīb", "mirus", "miruš", "nāve", "nāves", "nāvējoš", "pašnāvīb",
+    "cietuš", "ievainot", "avārij", "sadursm", "katastrof", "traģēdij",
+    "slepkav", "uzbruk", "vardarb", "izvaroš", "terora", "terorist",
+    "karš", "karā", "kara ", "plūdi", "plūdos", "plūdu", "zemestrīc",
+    "ugunsgrēk", "sprādzien", "nogruvum", "pazudis", "pazuduš",
+)
+
+
+def grim_words(text: str) -> str:
+    """Pirmais atrastais «smagais» vārds tekstā, vai tukša virkne."""
+    low = (text or "").lower()
+    return next((st for st in GRIM_STEMS if st in low), "")
+
+
+def playful_safe(article) -> bool:
+    """Vai par šo rakstu drīkst taisīt kvīzu, sarunas jautājumu vai «nedēļas
+    skaitli». Traģēdijas un noziegumi izklaidējošos formātos nenonāk nekad —
+    ne tāpēc, ka to aizliegtu platforma, bet tāpēc, ka tā ir necieņa pret
+    cilvēkiem, par kuriem raksts ir, un tiešs zīmola risks."""
+    if any(s in ("tragedy", "crime") for s in (article.sensitivity or [])):
+        return False
+    return not grim_words(article.title or "")
+
+
 def lv_date(dt: datetime) -> str:
     """«26. augustā» — bez gada, ja tas ir šis gads."""
     base = f"{dt.day}. {MONTHS_LOC[dt.month]}"
@@ -173,10 +204,15 @@ def _schedule(session, article: Article, fmt: str, copy: str, media: list,
               link: str, marker: str, at: datetime,
               card_links: list[str] | None = None,
               card_titles: list[str] | None = None,
-              channel: str = CHANNEL) -> Post:
+              channel: str = CHANNEL,
+              recipe: dict | None = None) -> Post:
     from app import cards, runtime
 
     extra = {"render_version": cards.RENDER_VERSION} if media else {}
+    if recipe:
+        # recepte = no kā grafika bija uzbūvēta, lai redaktors to var
+        # pārģenerēt (app.regenerate) bez ieraksta atcelšanas
+        extra["recipe"] = recipe
     if card_links:
         extra["card_links"] = card_links
     if card_titles:
@@ -278,7 +314,12 @@ def _carousel_digest(session, day, articles: list[Article], title: str,
     return _schedule(session, _digest_article(session, guid, title, sec, link),
                      "card_carousel", copy, media, link, marker,
                      _local_slot(day, hour),
-                     card_links=card_links, card_titles=card_titles)
+                     card_links=card_links, card_titles=card_titles,
+                     recipe={"kind": "cards", "title": title, "section": sec,
+                             "tag": tag, "ribbon": ribbon or title.upper(),
+                             "articles": [a.id for a in used],
+                             "dates": point_dates,
+                             "date": day.strftime("%d.%m.%Y")})
 
 
 def build_top5(session, day, section: str | None) -> Post | None:
@@ -326,7 +367,8 @@ def build_monday_top5(session, day, now: datetime | None = None) -> Post | None:
 
 
 def _mosaic_story(session, day, title: str, images: list[str], guid: str,
-                  marker: str, at: datetime) -> Post | None:
+                  marker: str, at: datetime,
+                  articles: list[Article] | None = None) -> Post | None:
     """Foto mozaīkas stāsts (9:16) ar CTA — stāstu kanālā, kur auditorija ir
     cita nekā plūsmā un konkurences ar saviem plūsmas ierakstiem nav."""
     from app import cards
@@ -340,7 +382,10 @@ def _mosaic_story(session, day, title: str, images: list[str], guid: str,
     return _schedule(session, _digest_article(
         session, guid, f"{title} (stāsts)", "news", "https://tv3.lv"),
         "story", "", media, "https://tv3.lv", marker, at,
-        channel=STORY_CHANNEL)
+        channel=STORY_CHANNEL,
+        recipe={"kind": "mosaic", "title": title, "section": "news",
+                "articles": [a.id for a in (articles or [])],
+                "date": day.strftime("%d.%m.%Y")})
 
 
 def build_monday_story(session, day, now: datetime | None = None) -> Post | None:
@@ -354,7 +399,8 @@ def build_monday_story(session, day, now: datetime | None = None) -> Post | None
         return None
     return _mosaic_story(session, day, "Nedēļas nogales TOP 5", images,
                          f"digest-monday-story-{day.isoformat()}", "mondaystory",
-                         _local_slot(day, 8) + timedelta(minutes=30))
+                         _local_slot(day, 8) + timedelta(minutes=30),
+                         articles=articles)
 
 
 def build_daily_story(session, day, now: datetime | None = None) -> Post | None:
@@ -369,7 +415,7 @@ def build_daily_story(session, day, now: datetime | None = None) -> Post | None:
         return None
     return _mosaic_story(session, day, "Dienas TOP 3", images,
                          f"digest-daily-story-{day.isoformat()}", "dailystory",
-                         _local_slot(day, 20))
+                         _local_slot(day, 20), articles=articles)
 
 
 def build_reel_digest(session, day) -> Post | None:
@@ -397,7 +443,10 @@ def build_reel_digest(session, day) -> Post | None:
     return _schedule(session, _digest_article(
         session, f"digest-reel-{day.isoformat()}", title, "news",
         "https://tv3.lv"), "reel", copy, media, "https://tv3.lv",
-        "digestreel", _local_slot(day, 12))
+        "digestreel", _local_slot(day, 12),
+        recipe={"kind": "reel", "title": title, "section": "news",
+                "points": points, "articles": [a.id for a in articles],
+                "date": day.strftime("%d.%m.%Y")})
 
 
 def build_icymi(session, day) -> Post | None:
@@ -436,10 +485,13 @@ def build_quiz(session, day) -> Post | None:
     """Kvīza karuselis no nedēļas TOP — jautājumus raksta AI; bez AI atslēgas
     formāts izlaižas (kvīzs bez īstiem jautājumiem nav publicējams).
     Slots ir svētdienas vakars: nedēļas lielākais ritināšanas logs, kurā
-    cilvēkiem ir laiks atbildēt un komentēt."""
+    cilvēkiem ir laiks atbildēt un komentēt.
+
+    Kvīzs tiek būvēts TIKAI no rakstiem, par kuriem drīkst spēlēties
+    (playful_safe): bojāgājušo skaits nav kvīza jautājums."""
     from app import cards
 
-    articles = week_top(session, limit=5)
+    articles = [a for a in week_top(session, limit=8) if playful_safe(a)][:5]
     if len(articles) < 3 or not cards.renderer_available():
         return None
     facts = "\n".join(f"- {a.title} ({lv_date(a.published_at or a.first_seen_at)})"
@@ -449,14 +501,20 @@ def build_quiz(session, day) -> Post | None:
         f"jautājumus latviski (katru jaunā rindā, bez numerācijas, "
         f"bez atbildēm). Nevainojama pareizrakstība un galotnes. "
         f"Datumus raksti absolūti (piem., «26. augustā»), nekad "
-        f"relatīvi.\n{facts}"))[:3]
-    questions = [q for q in questions if not has_relative_words(q)]
+        f"relatīvi. NEKAD neveido jautājumu par cietušajiem, "
+        f"bojāgājušajiem, noziegumiem, karu vai katastrofām — kvīzs ir "
+        f"izklaide, un cilvēku ciešanas nav spēle.\n{facts}"))[:3]
+    questions = [q for q in questions
+                 if not has_relative_words(q) and not grim_words(q)]
     if len(questions) < 2:
         return None
     title = "Nedēļas kvīzs: vai sekoji notikumiem?"
+    image = next((i for i in (_clean_image(a) for a in articles) if i), "")
     try:
+        # vāks ar foto; jautājumu kartītes paliek bez attēla apzināti —
+        # raksta bilde blakus jautājumam nodotu atbildi
         media = cards.render_cards(title, "news", "#KVĪZS", questions,
-                                   "", "Atbildes — tv3.lv",
+                                   image, "Atbildes — tv3.lv",
                                    date_txt=day.strftime("%d.%m.%Y"))
     except Exception as e:  # noqa: BLE001
         log.warning("quiz render failed: %s", e)
@@ -466,7 +524,12 @@ def build_quiz(session, day) -> Post | None:
     return _schedule(session, _digest_article(
         session, f"digest-quiz-{day.isoformat()}", title, "news",
         "https://tv3.lv"), "card_carousel", copy, media, "https://tv3.lv",
-        "quiz", _local_slot(day, 19))
+        "quiz", _local_slot(day, 19),
+        recipe={"kind": "quiz", "title": title, "section": "news",
+                "tag": "#KVĪZS", "questions": questions,
+                "question": "Atbildes — tv3.lv",
+                "articles": [a.id for a in articles],
+                "date": day.strftime("%d.%m.%Y")})
 
 
 def build_evergreen(session, day) -> Post | None:
@@ -526,7 +589,9 @@ def build_question(session, day) -> Post | None:
     saite iet gan tekstā, gan pirmajā komentārā (kā visiem foto ierakstiem)."""
     from app import cards
 
-    articles = week_top(session, limit=3)
+    # sarunas jautājums par traģēdiju ir necieņa pret cietušajiem un tiešs
+    # zīmola risks — tādus rakstus šis formāts neaiztiek
+    articles = [a for a in week_top(session, limit=6) if playful_safe(a)]
     if not articles or not cards.renderer_available():
         return None
     art = articles[0]
@@ -540,7 +605,8 @@ def build_question(session, day) -> Post | None:
         f"Bez emocijzīmēm, bez hashtagiem, bez relatīviem laika vārdiem "
         f"(«vakar», «šonedēļ»). Atbildi tikai ar jautājumu."))
     question = next((q for q in lines if q.endswith("?")
-                     and len(q) <= 110 and not has_relative_words(q)), "")
+                     and len(q) <= 110 and not has_relative_words(q)
+                     and not grim_words(q)), "")
     if not question:
         return None
     try:
@@ -555,7 +621,11 @@ def build_question(session, day) -> Post | None:
             f"izlasi, kas notika: {art.title.rstrip('.')}.")
     return _schedule(session, art, "photo", copy, media,
                      art.canonical_url or art.url, "question",
-                     _local_slot(day, 19))
+                     _local_slot(day, 19),
+                     recipe={"kind": "share", "title": question,
+                             "kicker": "JAUTĀJUMS", "article": art.id,
+                             "section": art.section or "news",
+                             "date": day.strftime("%d.%m.%Y")})
 
 
 def build_year_ago(session, day, now: datetime | None = None) -> Post | None:
@@ -596,7 +666,8 @@ def build_number(session, day) -> Post | None:
     skaitli neatrod, diena paliek tukša: labāk nekas nekā vājš ieraksts."""
     from app import cards
 
-    articles = week_top(session, limit=3)
+    # bojāgājušo skaits nekad nav «nedēļas skaitlis»
+    articles = [a for a in week_top(session, limit=6) if playful_safe(a)][:3]
     if not articles or not cards.renderer_available():
         return None
     for art in articles:
@@ -614,7 +685,8 @@ def build_number(session, day) -> Post | None:
         if len(lines) < 2 or lines[0].upper().startswith("NAV"):
             continue
         number, context = lines[0][:12].strip(), lines[1][:90].strip()
-        if not any(c.isdigit() for c in number) or has_relative_words(context):
+        if (not any(c.isdigit() for c in number) or has_relative_words(context)
+                or grim_words(context)):
             continue
         try:
             media = [cards.render_number_card(
@@ -627,7 +699,11 @@ def build_number(session, day) -> Post | None:
                 f"{art.title.rstrip('.')}.")
         return _schedule(session, art, "photo", copy, media,
                          art.canonical_url or art.url, "number",
-                         _local_slot(day, 12))
+                         _local_slot(day, 12),
+                         recipe={"kind": "number", "number": number,
+                                 "context": context, "article": art.id,
+                                 "section": art.section or "news",
+                                 "date": day.strftime("%d.%m.%Y")})
     return None
 
 
