@@ -191,3 +191,60 @@ def test_preview_page_offers_the_button_and_the_route_works(client, session,
     assert r.status_code == 303 and "msg=" in r.headers["location"]
     session.expire_all()
     assert session.get(Post, p.id).media == ["jaunais.png"]
+
+
+# --- kvīza jautājumam jābūt par noslēgtu faktu ---------------------------
+
+def test_open_ended_questions_are_rejected():
+    assert weekend.open_ended(
+        "Kas nepieciešams Latvijas basketbola izlasei, lai 28. augustā "
+        "tiktu uz Pasaules kausa izcīņu?") == "nepiecieš"
+    assert weekend.open_ended("Kurš uzvarēja spēlē 28. augustā?") == ""
+
+
+def test_quiz_drops_questions_about_unfinished_situations(session, monkeypatch):
+    for i in range(3):
+        _art(session, f"oe-{i}", f"Sporta notikums numur {i}")
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards", lambda *a, **k: ["c0.png"])
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "Kas nepieciešams izlasei, lai tiktu uz Pasaules kausu?",
+        "Vai komandai izdosies kvalificēties?",
+        "Kurš guva visvairāk punktu 26. augustā?"])
+    # paliek viens noslēgts jautājums -> kvīzs netiek publicēts
+    assert weekend.build_quiz(session, weekend.utcnow().date()) is None
+
+
+# --- vecie franšīžu ieraksti bez receptes -------------------------------
+
+def test_old_franchise_post_without_a_recipe_can_be_rebuilt(session,
+                                                            monkeypatch):
+    """Ieraksti, kas tapa pirms receptēm, joprojām jāvar salabot — kvīzam
+    pārbūve turklāt nozīmē JAUNUS jautājumus pēc pašreizējiem noteikumiem."""
+    for i in range(3):
+        _art(session, f"ob-{i}", f"Notikums numur {i}")
+    old = Post(article_id=None, channel="fb_tv3lv", format="card_carousel",
+               copy="Vecais kvīzs", link_url="https://tv3.lv",
+               media=["vecais0.png", "vecais1.png"], hook_type="quiz",
+               state="scheduled", scheduled_at=utcnow() + timedelta(hours=2),
+               extra={"card_titles": ["x"]})
+    a = _art(session, "ob-host", "Sintētiskais")
+    old.article_id = a.id
+    session.add(old)
+    session.commit()
+    assert regenerate.can_regenerate(old) is True
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards",
+                        lambda *a, **k: ["jauns0.png", "jauns1.png"])
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "Kurš uzvarēja 26. augustā?", "Cik punktus guva komanda?"])
+    when = old.scheduled_at
+    ok, message = regenerate.regenerate(session, old)
+    assert ok and "pārbūvēts" in message
+    assert old.media == ["jauns0.png", "jauns1.png"]
+    assert old.scheduled_at == when          # publicēšanas laiks nemainās
+    assert old.extra["recipe"]["kind"] == "quiz"   # turpmāk ir recepte
+    # pagaidu ieraksts netiek atstāts rindā
+    quizzes = session.query(Post).filter_by(hook_type="quiz").all()
+    assert len(quizzes) == 1

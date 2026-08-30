@@ -69,6 +69,24 @@ GRIM_STEMS = (
 )
 
 
+# Kvīza jautājumam jābūt par NOSLĒGTU faktu. «Kas nepieciešams izlasei, lai
+# 28. augustā tiktu uz Pasaules kausu» divas dienas vēlāk ir bezjēdzīgs: spēle
+# jau ir aizvadīta, situācija mainījusies. Kvīzs iet ēterā svētdienas vakarā un
+# plūsmā dzīvo dienām — atvērtiem jautājumiem tur nav vietas.
+OPEN_ENDED_STEMS = (
+    "nepiecieš", "vajadzīg", "kas jādara", "jāizdara", "lai tiktu",
+    "lai iekļūtu", "lai kvalificētos", "izdosies", "vai spēs", "spēs ",
+    "prognoz", "varētu ", "plāno ", "gaidām", "nākotn", "nākamaj", "cerīb",
+    "turpmāk", "vai uzvarēs", "kad notiks", "vai notiks", "kas sagaida",
+)
+
+
+def open_ended(text: str) -> str:
+    """Pirmais atrastais «vēl nezināms iznākums» vārds, vai tukša virkne."""
+    low = (text or "").lower()
+    return next((st for st in OPEN_ENDED_STEMS if st in low), "")
+
+
 def grim_words(text: str) -> str:
     """Pirmais atrastais «smagais» vārds tekstā, vai tukša virkne."""
     low = (text or "").lower()
@@ -503,9 +521,14 @@ def build_quiz(session, day) -> Post | None:
         f"Datumus raksti absolūti (piem., «26. augustā»), nekad "
         f"relatīvi. NEKAD neveido jautājumu par cietušajiem, "
         f"bojāgājušajiem, noziegumiem, karu vai katastrofām — kvīzs ir "
-        f"izklaide, un cilvēku ciešanas nav spēle.\n{facts}"))[:3]
+        f"izklaide, un cilvēku ciešanas nav spēle. "
+        f"Jautā TIKAI par jau notikušu, noslēgtu faktu («kas notika», "
+        f"«kurš uzvarēja», «cik»), nekad par to, kas vēl varētu notikt, "
+        f"par izredzēm, kvalifikāciju vai situāciju, kas dažās dienās "
+        f"var mainīties — ieraksts plūsmā dzīvo ilgāk nekā ziņa.\n{facts}"))[:3]
     questions = [q for q in questions
-                 if not has_relative_words(q) and not grim_words(q)]
+                 if not has_relative_words(q) and not grim_words(q)
+                 and not open_ended(q)]
     if len(questions) < 2:
         return None
     title = "Nedēļas kvīzs: vai sekoji notikumiem?"

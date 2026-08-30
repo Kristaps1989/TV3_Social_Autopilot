@@ -14,12 +14,20 @@ from __future__ import annotations
 
 import logging
 
-from app.models import Article
+from app.models import Article, utcnow
 
 log = logging.getLogger(__name__)
 
 KINDS = ("cards", "quiz", "mosaic", "reel", "number", "share",
          "article_cards", "article_reel")
+
+
+# Franšīzes, kuras var uzbūvēt no jauna arī BEZ receptes — vienkārši palaižot
+# to pašu celtnieku vēlreiz. Vecajiem ierakstiem (uzbūvētiem pirms receptēm)
+# tas ir vienīgais ceļš, un kvīzam tas turklāt ir pareizais: jaunie jautājumi
+# tiek ģenerēti pēc pašreizējiem noteikumiem.
+REBUILDABLE = ("digest", "mondaytop5", "mondaystory", "dailystory",
+               "digestreel", "quiz", "guide", "number", "question")
 
 
 def can_regenerate(post) -> bool:
@@ -29,8 +37,52 @@ def can_regenerate(post) -> bool:
     kind = ((post.extra or {}).get("recipe") or {}).get("kind")
     if kind in KINDS:
         return True
+    if (post.hook_type or "") in REBUILDABLE:
+        return True
     # photo/story bez receptes: pārzīmējam no paša raksta
     return post.format in ("photo", "story") and post.article is not None
+
+
+def _rebuild_franchise(session, post) -> tuple[bool, str]:
+    """Franšīzes ieraksts bez receptes: palaižam to pašu celtnieku vēlreiz un
+    pārceļam rezultātu uz esošo ierakstu. Publicēšanas laiku saglabājam — to
+    redaktors jau zina; mainās saturs, ne grafiks."""
+    from app import weekend
+
+    marker = post.hook_type or ""
+    day = (post.scheduled_at or post.created_at or utcnow()).date()
+    builders = {
+        "digest": lambda: weekend.build_top5(
+            session, day, "sport" if "sport" in (post.link_url or "") else None),
+        "mondaytop5": lambda: weekend.build_monday_top5(session, day),
+        "mondaystory": lambda: weekend.build_monday_story(session, day),
+        "dailystory": lambda: weekend.build_daily_story(session, day),
+        "digestreel": lambda: weekend.build_reel_digest(session, day),
+        "quiz": lambda: weekend.build_quiz(session, day),
+        "guide": lambda: weekend.build_weekend_guide(session, day),
+        "number": lambda: weekend.build_number(session, day),
+        "question": lambda: weekend.build_question(session, day),
+    }
+    builder = builders.get(marker)
+    if builder is None:
+        return False, "Šo franšīzi pārbūvēt nevar."
+    try:
+        fresh = builder()
+    except Exception as e:  # noqa: BLE001
+        log.warning("rebuild %s failed for post %s: %s", marker, post.id, e)
+        return False, f"Pārbūve neizdevās: {e}"
+    if fresh is None:
+        return False, ("Nepietiek datu, lai formātu uzbūvētu no jauna "
+                       "(par maz rakstu, nav AI atslēgas vai renderētājs klusē).")
+    # pārceļam saturu uz esošo ierakstu un jauno metam ārā
+    post.media = fresh.media
+    post.copy = fresh.copy
+    post.article_id = fresh.article_id
+    post.link_url = fresh.link_url
+    post.extra = dict(fresh.extra or {})
+    session.delete(fresh)
+    session.commit()
+    return True, "Formāts pārbūvēts no jauna ar pašreizējiem noteikumiem."
 
 
 def _articles(session, ids: list) -> list[Article]:
@@ -49,6 +101,8 @@ def regenerate(session, post) -> tuple[bool, str]:
         return False, "Šim ierakstam grafiku pārģenerēt nevar."
     recipe = (post.extra or {}).get("recipe") or {}
     kind = recipe.get("kind", "")
+    if not kind and (post.hook_type or "") in REBUILDABLE:
+        return _rebuild_franchise(session, post)
     date_txt = recipe.get("date", "")
     section = recipe.get("section", "news")
     try:
