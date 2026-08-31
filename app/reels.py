@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 
 FPS = 25
 FRAME_SECONDS = 2.8
+SECTION_FRAME_SECONDS = 5.5  # sadaļas kadrā ir teikumi, ne viens punkts
 # Ken Burns tuvinājums apgriež kadru no malām: pie z redzama ir 1/z daļa,
 # tāpēc mala pazūd. 1.08 nozīmē ~40 px no 1080 katrā pusē — un kadru
 # izkārtojums tur malās SAFE_INSET brīvu vietu, lai tur nekas nav.
@@ -160,6 +161,54 @@ def _point_frame_html(section: str, number: int, point: str,
   <div class="brand">{cards._logo(52)}</div>
   <div class="num">{number}</div>
   <div class="point">{_html.escape(point)}</div>
+  <div class="linkpill">{cards._LINK_ICON}tv3.lv</div>
+</div>
+</body></html>"""
+
+
+def _section_frame_html(section: str, number: int, title: str, body: str,
+                        bg_image: str = "") -> str:
+    """Sadaļas kadrs lentei: foto fonā, balts panelis ar virsrakstu un
+    teikumiem — tas pats izkārtojums, kas sadaļu karuselī, lai franšīze
+    izskatās vienādi visur. Viss teksts SAFE_INSET drošajā zonā, jo Ken
+    Burns tuvinājums malas apgriež."""
+    import html as _html
+
+    style = cards.SECTION_STYLE.get(section) or cards.SECTION_STYLE["news"]
+    color = style["color"]
+    bg = (f"background:url({_html.escape(bg_image, quote=True)}) "
+          f"center/cover, {color};" if bg_image
+          else f"background:linear-gradient(160deg, {color} 0%, #1c0d12 85%);")
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+* {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
+.story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
+  {bg} }}
+.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.2); }}
+.brand {{ position:absolute; top:200px; right:{SAFE_INSET + 48}px;
+          background:#fff; border-radius:14px; padding:14px 22px; }}
+.panelwrap {{ position:absolute; top:420px; bottom:520px;
+              left:{SAFE_INSET + 40}px; right:{SAFE_INSET + 40}px;
+              display:flex; align-items:center; justify-content:center; }}
+.panel {{ background:rgba(255,255,255,.92); border-radius:22px;
+          padding:64px 58px; text-align:center;
+          box-shadow:0 16px 60px rgba(0,0,0,.32); }}
+.panel h3 {{ color:#111; font-size:{cards.fit_size(title, 62)}px;
+             line-height:1.18; font-weight:bold; margin-bottom:34px; }}
+.panel p {{ color:#20242c; font-size:{cards.body_fit(body, 46)}px;
+            line-height:1.42; font-weight:600; }}
+.linkpill {{ position:absolute; bottom:252px; left:{SAFE_INSET + 56}px;
+             background:#fff; color:#e3000f; font-size:48px; font-weight:bold;
+             padding:22px 52px; border-radius:99px;
+             box-shadow:0 8px 30px rgba(0,0,0,.35); }}
+.linkpill svg {{ vertical-align:-7px; margin-right:16px; }}
+</style></head><body>
+<div class="story">
+  <div class="veil"></div>
+  <div class="brand">{cards._logo(52)}</div>
+  <div class="panelwrap"><div class="panel">
+    <h3>{_html.escape(title)}</h3>
+    <p>{_html.escape(body)}</p>
+  </div></div>
   <div class="linkpill">{cards._LINK_ICON}tv3.lv</div>
 </div>
 </body></html>"""
@@ -364,7 +413,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                include_end: bool = True,
                cover_images: list[str] | None = None,
                point_images: list[str] | None = None,
-               voice: str | Path | None = None) -> str:
+               voice: str | Path | None = None,
+               sections: list[dict] | None = None) -> str:
     """Render frames and assemble the MP4; returns the local file path.
 
     Teaseri: vāks + īsi punkti + CTA kadrs, 2.8 s kadrā. Digest (nedēļas
@@ -384,10 +434,19 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                                                inset=SAFE_INSET))
         durations.append(edge)
     point_images = point_images or []
-    for i, p in enumerate(points[:max_points], start=1):
-        bg = point_images[i - 1] if i - 1 < len(point_images) else ""
-        docs.append(_point_frame_html(section, i, p, bg_image=bg))
-        durations.append(frame_seconds)
+    if sections:
+        # sadaļu kadri: virsraksts + teikumi — tekstam vajag vairāk laika
+        # nekā vienam punktam, un balss stiepj kadrus vēl garākus
+        for i, sec in enumerate(sections[:max_points], start=1):
+            bg = point_images[(i - 1) % len(point_images)] if point_images else ""
+            docs.append(_section_frame_html(section, i, sec.get("title", ""),
+                                            sec.get("body", ""), bg_image=bg))
+            durations.append(max(frame_seconds, SECTION_FRAME_SECONDS))
+    else:
+        for i, p in enumerate(points[:max_points], start=1):
+            bg = point_images[i - 1] if i - 1 < len(point_images) else ""
+            docs.append(_point_frame_html(section, i, p, bg_image=bg))
+            durations.append(frame_seconds)
     if include_end:
         docs.append(_end_frame_html())
         durations.append(edge)

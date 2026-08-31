@@ -139,15 +139,26 @@ def regenerate(session, post) -> tuple[bool, str]:
             art = session.get(Article, recipe.get("article"))
             if art is None:
                 return False, "Raksts vairs nav pieejams."
-            from app.pipeline import photo_base_image, prebranded
+            from app.pipeline import (photo_base_image, prebranded,
+                                      section_backgrounds)
 
             image = photo_base_image(art)
-            media = cards.render_cards(
-                art.title, art.section or section, recipe.get("tag", ""),
-                recipe.get("points") or [], image,
-                recipe.get("question", "Uzzini visu stāstu tv3.lv"),
-                cover_title=not prebranded(image),
-                point_bg=_clean_image(art), date_txt=date_txt)
+            sections = recipe.get("sections") or []
+            if sections:
+                bgs, blur = section_backgrounds(art)
+                media = cards.render_section_cards(
+                    art.title, art.section or section, recipe.get("tag", ""),
+                    sections, bgs,
+                    recipe.get("question", "Uzzini visu stāstu tv3.lv"),
+                    cover_image=image, cover_title=not prebranded(image),
+                    blur_image=blur, date_txt=date_txt)
+            else:   # vecā recepte ar punktiem — zīmējam kā toreiz
+                media = cards.render_cards(
+                    art.title, art.section or section, recipe.get("tag", ""),
+                    recipe.get("points") or [], image,
+                    recipe.get("question", "Uzzini visu stāstu tv3.lv"),
+                    cover_title=not prebranded(image),
+                    point_bg=_clean_image(art), date_txt=date_txt)
         elif kind == "mosaic":
             arts = _articles(session, recipe.get("articles"))
             images = [i for i in (_clean_image(a) for a in arts) if i]
@@ -182,10 +193,15 @@ def regenerate(session, post) -> tuple[bool, str]:
                 return False, "Raksts vairs nav pieejams."
             # ieruna nāk no receptes teksta: pārzīmējot to pašu reelu, Azure
             # atbilde jau ir kešā, tāpēc otrreiz par to nemaksājam
+            from app.pipeline import section_backgrounds
+
             audio = tts.reel_voice(recipe, session=session)
+            bgs, _blur = section_backgrounds(art)
             media = [reels.build_reel(art.title, art.section or section,
                                       recipe.get("image", ""),
                                       recipe.get("points") or [],
+                                      sections=recipe.get("sections") or None,
+                                      point_images=bgs,
                                       voice=audio or None)]
             recipe = {**recipe, "voiced": bool(audio)}
         else:   # photo / story bez receptes — zīmējam no paša raksta

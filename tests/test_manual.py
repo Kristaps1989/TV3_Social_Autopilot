@@ -56,9 +56,13 @@ def _article(session, guid="m-1", body=True, images=True, status="can"):
     return a
 
 
-def _fake_points(monkeypatch, lines=("Jumts daļēji iebruka",
-                                     "Lēmums vēl nav pieņemts",
-                                     "Eksperti vērtē konstrukcijas")):
+def _fake_points(monkeypatch, lines=(
+        "Jumts daļēji iebruka | Sprādziena vilnis norāva daļu jumta un "
+        "izsita logus trīs stāvos. Nams pagaidām nav apdzīvojams.",
+        "Lēmums vēl nav pieņemts | Pašvaldība joprojām vērtē ēkas nākotni. "
+        "Eksperti turpina mērīt konstrukciju noturību.",
+        "Iedzīvotāji gaida atbildes | Daļa dzīvokļu īpašnieku joprojām dzīvo "
+        "pie radiem un gaida pašvaldības lēmumu.")):
     from app import weekend
 
     monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: list(lines))
@@ -98,8 +102,9 @@ def test_editor_can_ask_for_a_reel(session, monkeypatch):
     assert post.state == "scheduled" and post.scheduled_at is not None
     assert post.media == ["/data/cards/reel_manual.mp4"]
     assert (post.extra or {}).get("manual") is True
-    # punkti nāk no raksta teksta un paliek receptē pārzīmēšanai
-    assert post.extra["recipe"]["points"][0] == "Jumts daļēji iebruka"
+    # sadaļas nāk no raksta teksta un paliek receptē pārzīmēšanai
+    assert post.extra["recipe"]["sections"][0]["title"] == "Jumts daļēji iebruka"
+    assert "Sprādziena vilnis" in post.extra["recipe"]["sections"][0]["body"]
 
 
 def test_manual_post_shows_up_in_the_decision_history(session, monkeypatch):
@@ -149,14 +154,15 @@ def test_refuses_when_the_editor_said_dont(session):
 def test_refuses_a_reel_without_enough_points(session, monkeypatch):
     from app import weekend
 
-    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: ["Viens punkts"])
+    monkeypatch.setattr(weekend, "_ai_lines",
+                        lambda *a, **k: ["Viens virsraksts bez teksta"])
     monkeypatch.setattr(reels, "available", lambda: True)
     article = _article(session, "m-thin")
     session.commit()
 
     post, msg = manual.build(session, article, "fb_tv3lv", "reel")
     assert post is None
-    assert "2 kartīšu punktus" in msg
+    assert "2 kartīšu sadaļas" in msg
 
 
 def test_says_so_when_the_renderer_is_missing(session, monkeypatch):

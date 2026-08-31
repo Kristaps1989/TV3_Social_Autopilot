@@ -164,7 +164,8 @@ def test_reel_build_speaks_the_script(session, monkeypatch, tmp_path):
                         lambda text, voice, out_dir: tmp_path / "voice.mp3")
     built = {}
 
-    def fake_build(title, section, image, points, out_dir=None, voice=None):
+    def fake_build(title, section, image, points, out_dir=None, voice=None,
+                   sections=None, point_images=None):
         built["voice"] = voice
         return "/data/cards/reel_v.mp4"
 
@@ -195,7 +196,8 @@ def test_reel_stays_silent_when_the_script_is_a_stub(session, monkeypatch):
     monkeypatch.setattr(httpx, "post", lambda *a, **k: _never_called())
     built = {}
 
-    def fake_build(title, section, image, points, out_dir=None, voice=None):
+    def fake_build(title, section, image, points, out_dir=None, voice=None,
+                   sections=None, point_images=None):
         built["voice"] = voice
         return "/data/cards/reel_v2.mp4"
 

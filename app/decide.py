@@ -69,11 +69,27 @@ DECISION_TOOL = {
                         "card_points": {
                             "type": "array", "items": {"type": "string"},
                             "maxItems": 5,
-                            "description": "For card_carousel (2-4) un reel (2-3): "
-                                           "KONKRĒTI FAKTI no raksta — katrs ar "
-                                           "skaitli, vārdu vai detaļu, pašpietiekams "
-                                           "un vērtīgs. Tik, cik rakstā tiešām ir "
-                                           "spēcīgu faktu — NE uzpildi, NE miglaini āķīši.",
+                            "description": "Rezerves variants, kad card_sections "
+                                           "nesanāk (piem., nav raksta teksta): "
+                                           "2-4 īsi fakti pa vienam kartītē.",
+                        },
+                        "card_sections": {
+                            "type": "array", "maxItems": 5,
+                            "description": "card_carousel un reel GALVENAIS saturs: "
+                                           "raksts, sadalīts sadaļās. Katra kartīte = "
+                                           "trekns virsraksts + 2-4 teikumi ar "
+                                           "KONKRĒTIEM faktiem no raksta teksta "
+                                           "(skaitļi, vārdi, ieteikumi). 3-4 sadaļas; "
+                                           "labāk 3 spēcīgas nekā 5 uzpildītas. Ja "
+                                           "rakstā ir praktiskā daļa (kur zvanīt, ko "
+                                           "darīt), tā ir laba pēdējā sadaļa.",
+                            "items": {"type": "object", "properties": {
+                                "title": {"type": "string",
+                                          "description": "līdz 60 zīmēm, bez punkta"},
+                                "body": {"type": "string",
+                                         "description": "2-4 pilni teikumi, "
+                                                        "70-300 zīmes"}},
+                                "required": ["title", "body"]},
                         },
                         "card_end_question": {
                             "type": "string",
@@ -173,22 +189,27 @@ Izmērītā veiktspēja (izmanto formāta un laika izvēlē):
 
 Formāts card_carousel (ja kanāls to atbalsta): svaipojams kartīšu
 karuselis, kur KATRA kartīte ir klikšķināma saite uz rakstu — izmanto
-skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. card_points =
-2-4 KONKRĒTI FAKTI no raksta — tik, cik tiešām ir spēcīgu (labāk 2 trāpīgi
-nekā 4 uzpildīti); katrs ar skaitli, nosaukumu vai spilgtu detaļu, un
-katrs vērtīgs pats par sevi. Piemērs labam punktam: "Diena
-Bukarestē maksā 59 eiro — Parīzē tā pati programma maksā 180". Piemērs
-sliktam (NELIETO): "Kāpēc cenas tik krasi atšķiras". Drīksti atklāt
-būtību — vērtība dzen dalīšanos; card_end_question ved uz pilno rakstu ar
-to niansi, kas kartītēs palika neatbildēta. Ātrām īsziņām labāks parasts
-saites/foto ieraksts.
+skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. Saturu dod
+card_sections: raksts, sadalīts sadaļās — katra kartīte ir trekns
+virsraksts plus 2-4 pilni teikumi ar konkrētiem faktiem no RAKSTA TEKSTA
+(skaitļi, vārdi, ieteikumi), nevis viens punkts lielā fontā. Tā strādā
+labākie ziņu konti: kartīte pati izstāsta savu daļu, un tieši tāpēc ar to
+dalās. Piemērs labai sadaļai: title "Spēcīgas vēja brāzmas", body "Vēja
+ātrums vietām var sasniegt 30 m/s. Vētras laikā ieteicams neapmeklēt
+parkus un bērnu rotaļu laukumus." Ja rakstā ir praktiskā daļa (kur zvanīt,
+ko darīt), tā ir laba pēdējā sadaļa. Drīksti atklāt būtību — vērtība dzen
+dalīšanos; card_end_question ved uz pilno rakstu ar to niansi, kas
+kartītēs palika neatbildēta. Ja raksta teksta nav, card_points ar īsiem
+faktiem ir rezerves variants. Ātrām īsziņām labāks parasts saites/foto
+ieraksts.
 
 Formāts reel (ja kanāls to atbalsta): vertikāls video ar CTA beigu kadru
 "lasi tv3.lv". Ja rakstam IR videoklips, reel izmanto īsto video — dod tam
 priekšroku vizuāliem stāstiem, tas ir spēcīgākais formāts; arī story
 formāts tad automātiski iznāk kā video stāsts ar CTA beigu kadru. Ja video nav,
-reel ir 10-15 s slideshow (vāks → 2-3 punkti → CTA); tad aizpildi
-card_points (2-3 punkti). Ne biežāk kā ~2x dienā kanālā.
+reel ir slideshow (vāks → 2-3 sadaļu kadri → CTA); tad aizpildi
+card_sections (2-3 sadaļas — tie paši virsraksts + teikumi kā karuselī;
+bez raksta teksta der card_points). Ne biežāk kā ~2x dienā kanālā.
 
 Ja rakstam ir teksts (skat. "Raksta teksts"), reel formātam aizpildi arī
 voice_script — ierunas tekstu, ko nolasa balss. Tas nav virsraksta

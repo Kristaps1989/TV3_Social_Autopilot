@@ -116,3 +116,99 @@ def test_retryable_carousel_error_is_raised_not_swallowed(adapter, monkeypatch):
         adapter.publish(text="", link="https://tv3.lv/a", images=CARDS,
                         fmt="card_carousel")
     assert exc.value.retryable is True
+
+
+# --- sadaļu karuselis (virsraksts + teksts katrā kartītē) -------------------
+
+def test_clean_sections_filters_junk():
+    from app.pipeline import clean_sections
+
+    good = {"title": "Spēcīgas vēja brāzmas",
+            "body": "Vēja ātrums vietām var sasniegt 30 m/s. Ieteicams "
+                    "neapmeklēt parkus un rotaļu laukumus."}
+    out = clean_sections([
+        good,
+        {"title": "X", "body": "Par īsu."},              # miglains
+        {"title": "Virsraksts bez teksta", "body": ""},   # tukšs
+        "nav vārdnīca",
+        {"title": "Otrā laba sadaļa.", "body": "Pietiekami garš teksts ar "
+         "konkrētu saturu, lai kartīte būtu tā vērta un izietu cauri."},
+    ])
+    assert len(out) == 2
+    assert out[0] == good
+    assert out[1]["title"] == "Otrā laba sadaļa"   # punkts beigās nokopts
+
+
+def test_section_backgrounds_skip_prebranded(session):
+    from app.models import Article
+    from app.pipeline import section_backgrounds
+
+    a = Article(guid="sb-1", url="u", canonical_url="u", title="T",
+                section="news", raw_json={},
+                images=["https://cdn/photopost-x.jpg",
+                        "https://cdn/tirs-foto.jpg",
+                        "https://cdn/otrs-foto.jpg"])
+    session.add(a)
+    session.flush()
+    clean, blur = section_backgrounds(a)
+    assert clean == ["https://cdn/tirs-foto.jpg", "https://cdn/otrs-foto.jpg"]
+    assert blur == ""    # tīrie foto ir -> blur rezerve nevajag
+
+    a.images = ["https://cdn/photopost-x.jpg"]
+    clean, blur = section_backgrounds(a)
+    assert clean == [] and blur == "https://cdn/photopost-x.jpg"
+
+
+def test_section_cards_html_structure():
+    from app import cards
+
+    sections = [{"title": "Palikt mājās", "body": "Prognozēta ielu applūšana "
+                 "un satiksmes traucējumi visā pilsētā."},
+                {"title": "Kur zvanīt", "body": "Briesmu gadījumā zvanīt 112, "
+                 "Rīgā par postījumiem — 1201."}]
+    doc = cards.build_section_cards_html(
+        "Vētra tuvojas", "news", "#SKAIDROJUMS", sections,
+        ["https://cdn/a.jpg", "https://cdn/b.jpg"], "Ko vēl gaidīt?",
+        cover_image="https://cdn/cover.jpg", date_txt="31.08.2026")
+    assert doc.count('<div class="card">') == 4        # vāks + 2 + CTA
+    assert "Palikt mājās" in doc and "1201" in doc
+    assert doc.count("chev") >= 3                      # švīkošanas bultas
+    assert "1/4" in doc and "3/4" in doc
+    # katrai sadaļai savs foto pēc kārtas
+    assert "https://cdn/a.jpg" in doc and "https://cdn/b.jpg" in doc
+
+
+def test_resolve_format_prefers_sections_over_points(session, monkeypatch):
+    from app import cards as cards_mod
+    from app import pipeline
+    from app.models import Article
+
+    monkeypatch.setattr(cards_mod, "renderer_available", lambda: True)
+    captured = {}
+
+    def fake_render(title, section, tag, sections, images, question, **kw):
+        captured.update(sections=sections, images=images, question=question)
+        return [f"/data/cards/s{i}.png" for i in range(len(sections) + 2)]
+
+    monkeypatch.setattr(cards_mod, "render_section_cards", fake_render)
+    a = Article(guid="rs-1", url="u", canonical_url="u", title="Vētra",
+                section="news", raw_json={},
+                images=["https://cdn/foto.jpg"])
+    session.add(a)
+    session.flush()
+
+    fmt, media, recipe = pipeline.resolve_format(
+        session, "fb_tv3lv", {"formats": ["card_carousel"]}, a,
+        {"format": "card_carousel",
+         "card_sections": [
+             {"title": "Palikt mājās", "body": "Prognozēta ielu applūšana un "
+              "satiksmes traucējumi visā pilsētā un piepilsētā."},
+             {"title": "Kur zvanīt", "body": "Briesmu gadījumā zvanīt 112, "
+              "Rīgā par citiem postījumiem zvanīt 1201."}],
+         "card_points": ["Vecais punkts", "Otrs vecais punkts"]})
+
+    assert fmt == "card_carousel" and len(media) == 4
+    assert recipe["kind"] == "article_cards"
+    assert recipe["sections"][0]["title"] == "Palikt mājās"
+    assert "points" not in recipe
+    assert captured["images"] == ["https://cdn/foto.jpg"]

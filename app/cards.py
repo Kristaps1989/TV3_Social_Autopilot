@@ -382,6 +382,176 @@ h2 {{ font-size:56px; line-height:1.28; margin-bottom:64px; max-width:860px; }}
 </style></head><body>{''.join(cards)}</body></html>"""
 
 
+_CHEVRONS = ('<svg width="120" height="64" viewBox="0 0 120 64">'
+             '<g fill="none" stroke="#e3000f" stroke-width="14" '
+             'stroke-linecap="round" stroke-linejoin="round">'
+             '<path d="M12 8 L36 32 L12 56"/><path d="M48 8 L72 32 L48 56"/>'
+             '<path d="M84 8 L108 32 L84 56"/></g></svg>')
+
+
+def body_fit(text: str, base: int = 40) -> int:
+    """Sadaļas pamatteksta izmērs: 2-4 teikumi ir garāki par punktu, tāpēc
+    sava skala — kartīte ir fiksēta, un teksts nedrīkst iziet no paneļa."""
+    n = len(text or "")
+    for limit, scale in ((140, 1.0), (200, .9), (260, .82), (320, .74)):
+        if n <= limit:
+            return round(base * scale)
+    return round(base * .66)
+
+
+def build_section_cards_html(title: str, section: str, tag: str,
+                             sections: list[dict], images: list[str],
+                             end_question: str, cover_image: str = "",
+                             cover_title: bool = True, blur_image: str = "",
+                             date_txt: str = "") -> str:
+    """Karuselis, kur katra kartīte ir stāsta SADAĻA: trekns virsraksts un
+    2-4 teikumi ar faktiem — nevis viens punkts lielā fontā.
+
+    Paraugs ir tas, ko dara labākie ziņu konti: pilns foto fonā (katrai
+    kartītei savs, no raksta galerijas), pa vidu puscaurspīdīgs balts
+    panelis ar virsrakstu un tekstu, un sarkani ">>>" stūrī, kas aicina
+    švīkot tālāk. Vāks un CTA beigu kartīte paliek mūsu ierastajā stilā.
+
+    images: foto sadaļu kartītēm, tiek ciklēti pēc kārtas. Ja neviena tīra
+    foto nav (tikai photopost grafika), blur_image kļūst par izpludinātu
+    faktūru — tāpat kā pārējos formātos.
+    """
+    style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
+    color = style["color"]
+    dark = _shade(color, -0.18)
+    esc = html.escape
+
+    def attr(url: str) -> str:
+        return html.escape(url, quote=True)
+
+    total = len(sections) + 2      # vāks + sadaļas + CTA
+    pool = [i for i in images if i]
+
+    def bar(page: int) -> str:
+        return f"""<div class="bar">{_logo(88)}
+          <div class="lbl"><div class="sec"><span>/</span>{esc(style['label'])}</div>
+          <div class="tag">{esc(tag)}</div></div></div>"""
+
+    cards = []
+    # --- vāks: kā līdz šim (foto + kicker + balts virsraksts), plus ">>>"
+    if cover_image:
+        cover_bg = f'background:url({attr(cover_image)}) center/cover, {color};'
+        blur_layer = ""
+    elif blur_image:
+        cover_bg = (f"background:linear-gradient(160deg,"
+                    f"{_shade(color, .06)},{_shade(color, -.2)});")
+        blur_layer = (f'<div class="blurbg" style="background-image:'
+                      f'url({attr(blur_image)})"></div>')
+    else:
+        cover_bg = f"background:{color};"
+        blur_layer = ""
+    shade = '<div class="shade"></div>' if cover_image and cover_title else ""
+    cover_txt = (f"""<div class="cover-txt">
+      <div class="kicker" style="background:{dark}">{esc(style['kicker'])}</div>
+      <h1 style="font-size:{fit_size(title, 66)}px">{esc(title)}</h1>
+    </div>""" if cover_title else "")
+    cards.append(f"""
+    <div class="card">
+      <div class="art" style="{cover_bg}">
+        {blur_layer}{shade}
+        {date_chip(date_txt)}
+        <div class="page">1/{total}</div>
+        {cover_txt}
+        <div class="chev">{_CHEVRONS}</div>
+      </div>{bar(1)}
+    </div>""")
+
+    # --- sadaļu kartītes: foto + balts panelis + virsraksts + teksts
+    for n, sec in enumerate(sections, start=1):
+        pos = n + 1
+        head = str(sec.get("title") or "").strip()
+        body = str(sec.get("body") or "").strip()
+        photo = pool[(n - 1) % len(pool)] if pool else ""
+        if photo:
+            art_style = f'background:url({attr(photo)}) center/cover, {color};'
+            blur_layer = ""
+        elif blur_image:
+            art_style = (f"background:linear-gradient(160deg,"
+                         f"{_shade(color, .06)},{_shade(color, -.2)});")
+            blur_layer = (f'<div class="blurbg" style="background-image:'
+                          f'url({attr(blur_image)})"></div>')
+        else:
+            art_style = (f"background:linear-gradient(160deg,"
+                         f"{_shade(color, .06)},{_shade(color, -.2)});")
+            blur_layer = ""
+        cards.append(f"""
+    <div class="card">
+      <div class="art" style="{art_style}">
+        {blur_layer}<div class="veil"></div>
+        {date_chip(date_txt)}
+        <div class="page">{pos}/{total}</div>
+        <div class="panelwrap"><div class="panel">
+          <h3 style="font-size:{fit_size(head, 52)}px">{esc(head)}</h3>
+          <p style="font-size:{body_fit(body)}px">{esc(body)}</p>
+        </div></div>
+        <div class="chev">{_CHEVRONS}</div>
+      </div>{bar(pos)}
+    </div>""")
+
+    # --- CTA beigu kartīte: kā līdz šim
+    cards.append(f"""
+    <div class="card">
+      <div class="art end" style="background:{color}">
+        <div class="endlogo">{_logo(150)}</div>
+        <h2>{esc(end_question)}</h2>
+        <div class="cta" style="color:{color}">Lasi pilno rakstu →</div>
+        <div class="url">tv3.lv</div>
+      </div>
+    </div>""")
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+* {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
+{DCHIP_CSS}
+.dchip {{ left:auto; right:28px; top:28px; }}
+.card {{ width:1080px; height:1080px; overflow:hidden; display:flex;
+        flex-direction:column; background:#fff; }}
+.art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
+.blurbg {{ position:absolute; inset:-60px; background-size:cover;
+  background-position:center; filter:blur(30px) brightness(.78) saturate(1.15); }}
+.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.18); }}
+.shade {{ position:absolute; inset:0;
+  background:linear-gradient(to top, rgba(10,5,15,.92) 18%, rgba(10,5,15,.1) 55%); }}
+.page {{ position:absolute; top:44px; left:48px; color:#fff; font-size:30px;
+         opacity:.9; font-weight:bold; text-shadow:0 2px 12px rgba(0,0,0,.5); }}
+.cover-txt {{ position:absolute; bottom:0; left:0; right:0;
+              padding:56px 190px 56px 56px; color:#fff; }}
+.kicker {{ display:inline-block; color:#fff; font-weight:bold; font-size:28px;
+           letter-spacing:.12em; padding:10px 24px; border-radius:8px;
+           margin-bottom:26px; }}
+h1 {{ line-height:1.14; font-weight:bold; }}
+.panelwrap {{ position:absolute; inset:0; display:flex; align-items:center;
+              justify-content:center; padding:0 76px; }}
+.panel {{ background:rgba(255,255,255,.9); border-radius:20px;
+          padding:56px 60px; max-width:880px; text-align:center;
+          box-shadow:0 16px 60px rgba(0,0,0,.28); }}
+.panel h3 {{ color:#111; line-height:1.18; font-weight:bold;
+             margin-bottom:30px; }}
+.panel p {{ color:#20242c; line-height:1.42; font-weight:600; }}
+.chev {{ position:absolute; bottom:40px; right:44px;
+         filter:drop-shadow(0 3px 10px rgba(0,0,0,.4)); }}
+.bar {{ height:140px; background:#fff; display:flex; align-items:center;
+        justify-content:space-between; padding:0 48px; flex:none; }}
+.lbl {{ text-align:right; line-height:1.15; }}
+.sec {{ color:#111; font-weight:600; font-size:30px; }}
+.sec span {{ color:#f01414; font-weight:800; }}
+.tag {{ font-weight:800; font-size:44px; }}
+.card:nth-child(n) .tag {{ color:{color}; }}
+.end {{ height:1080px; display:flex; flex-direction:column; align-items:center;
+        justify-content:center; text-align:center; padding:80px; color:#fff; }}
+.endlogo {{ background:#fff; border-radius:24px; padding:34px 60px;
+            margin-bottom:64px; }}
+h2 {{ font-size:56px; line-height:1.28; margin-bottom:64px; max-width:860px; }}
+.cta {{ background:#fff; font-size:42px; font-weight:bold; padding:28px 66px;
+        border-radius:99px; }}
+.url {{ margin-top:44px; font-size:34px; opacity:.85; font-weight:bold; }}
+</style></head><body>{''.join(cards)}</body></html>"""
+
+
 def build_share_html(title: str, section: str, image_url: str,
                      kicker: str = "", width: int = 1080,
                      height: int = 1080, date_txt: str = "") -> str:
@@ -657,6 +827,13 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
                                 point_dates=point_dates,
                                 include_cover=include_cover,
                                 include_end=include_end, label=label)
+    return _screenshot_cards(html_doc, out_dir)
+
+
+def _screenshot_cards(html_doc: str, out_dir: Path) -> list[str]:
+    """Katrs .card elements -> savs PNG fails."""
+    from playwright.sync_api import sync_playwright
+
     token = secrets.token_hex(6)
     tmp = out_dir / f"_{token}.html"
     tmp.write_text(html_doc, encoding="utf-8")
@@ -677,6 +854,22 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
     finally:
         tmp.unlink(missing_ok=True)
     return paths
+
+
+def render_section_cards(title: str, section: str, tag: str,
+                         sections: list[dict], images: list[str],
+                         end_question: str, cover_image: str = "",
+                         cover_title: bool = True, blur_image: str = "",
+                         date_txt: str = "",
+                         out_dir: Path | None = None) -> list[str]:
+    """Sadaļu karuseļa kartītes kā PNG faili (vāks + sadaļas + CTA)."""
+    out_dir = Path(out_dir or CARDS_DIR).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    html_doc = build_section_cards_html(
+        title, section, tag, sections, images, end_question,
+        cover_image=cover_image, cover_title=cover_title,
+        blur_image=blur_image, date_txt=date_txt)
+    return _screenshot_cards(html_doc, out_dir)
 
 
 def build_number_html(number: str, context: str, section: str,

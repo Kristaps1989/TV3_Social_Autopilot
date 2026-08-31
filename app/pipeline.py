@@ -431,6 +431,45 @@ def format_media(article, cfg: dict, fmt: str, idx: int = 0,
     return []
 
 
+def clean_sections(raw) -> list[dict]:
+    """AI card_sections, novalidētas: [{title, body}, ...] (līdz 5).
+
+    Miglains virsraksts bez teksta vai teksts bez virsraksta kartīti tikai
+    bojā — tādas sadaļas izkrīt, un ja pāri paliek mazāk par divām,
+    izsaucējs krīt atpakaļ uz punktiem vai citu formātu.
+    """
+    out = []
+    for sec in (raw or [])[:5]:
+        if not isinstance(sec, dict):
+            continue
+        title = str(sec.get("title") or "").strip().rstrip(".")
+        body = str(sec.get("body") or "").strip()
+        if not (4 <= len(title) <= 80 and 30 <= len(body) <= 340):
+            continue
+        out.append({"title": title, "body": body})
+    return out
+
+
+def section_backgrounds(article) -> tuple[list[str], str]:
+    """(tīro foto saraksts sadaļu kartītēm, blur rezerves attēls).
+
+    Katra kartīte dabū savu foto no raksta galerijas — kā to dara labākie
+    ziņu konti. Photopost grafikas ar iecepto virsrakstu zem baltā paneļa
+    neder (teksts zem teksta); tās der tikai kā izpludināta faktūra, kad
+    nekā cita nav.
+    """
+    clean = [img for img in (article.images or []) if img and not prebranded(img)]
+    blur = next((img for img in (article.images or [])
+                 if img and prebranded(img)), "")
+    return clean, ("" if clean else blur)
+
+
+def sections_voice_text(sections: list[dict]) -> str:
+    """Ierunas teksts no sadaļām, kad AI atsevišķu scenāriju nav devusi:
+    balss nolasa to pašu, kas rakstīts kadros — virsrakstu un teikumus."""
+    return " ".join(f"{sec['title']}. {sec['body']}" for sec in sections)
+
+
 def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     """(format, media, recipe) for this post. A carousel happens only when the
     AI proposed it AND provided usable card points AND the renderer works;
@@ -441,6 +480,28 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
 
     ai_fmt = ch_dec.get("format")
     if ai_fmt == "card_carousel" and "card_carousel" in (cfg.get("formats") or []):
+        sections = clean_sections(ch_dec.get("card_sections"))
+        if len(sections) >= 2 and cards.renderer_available():
+            tag = "#" + (article.labels[0].upper().replace(" ", "")
+                         if article.labels else article.section.upper())
+            image = photo_base_image(article)
+            cover_title = not prebranded(image)
+            bgs, blur = section_backgrounds(article)
+            question = (ch_dec.get("card_end_question")
+                        or "Uzzini visu stāstu tv3.lv").strip()
+            try:
+                media = cards.render_section_cards(
+                    article.title, article.section, tag, sections, bgs,
+                    question, cover_image=image, cover_title=cover_title,
+                    blur_image=blur, date_txt=article_date(article))
+                return "card_carousel", media, {
+                    "kind": "article_cards", "article": article.id,
+                    "tag": tag, "sections": sections, "question": question,
+                    "section": article.section, "date": article_date(article)}
+            except Exception as e:  # noqa: BLE001 — never lose the post over a render
+                log.warning("section cards failed for article %s: %s",
+                            article.id, e)
+                cards.record_render_failure("card_carousel", e)
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
                   if isinstance(p, str) and p.strip()][:4]
         if len(points) >= 2 and cards.renderer_available():
@@ -484,6 +545,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 from app import cards as _cards
 
                 _cards.record_render_failure("video_reel", e)
+        sections = clean_sections(ch_dec.get("card_sections"))[:3]
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
                   if isinstance(p, str) and p.strip()][:3]
         # Lentes vāks zīmē savu virsrakstu, tāpēc gatava photopost grafika
@@ -491,17 +553,24 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         # tīro attēlu; tukšu vāku ar plakanu krāsu atstājam tikai tad, ja
         # neviena cita attēla nav.
         image = unbranded_image(article)
-        if len(points) >= 2 and reels.available():
+        if (len(sections) >= 2 or len(points) >= 2) and reels.available():
             # ierunas teksts glabājas receptē: tas ir vienīgā vieta, kur AI
-            # uzrakstītais scenārijs paliek, un no tā top balss
-            script = reels.voice_script(ch_dec.get("voice_script") or "")
+            # uzrakstītais scenārijs paliek, un no tā top balss. Ja atsevišķa
+            # scenārija nav, balss nolasa pašas sadaļas — kadros rakstīto.
+            script = reels.voice_script(
+                ch_dec.get("voice_script")
+                or (sections_voice_text(sections) if sections else ""))
             audio = tts.synthesize(script) if script else ""
+            bgs, _blur = section_backgrounds(article)
             try:
                 media = reels.build_reel(article.title, article.section,
-                                         image, points, voice=audio or None)
+                                         image, points, sections=sections,
+                                         point_images=bgs,
+                                         voice=audio or None)
                 return "reel", [media], {
                     "kind": "article_reel", "article": article.id,
-                    "points": points, "image": image, "voice_script": script,
+                    "points": points, "sections": sections, "image": image,
+                    "voice_script": script,
                     # vai lentē TIEŠĀM ir balss: scenārijs receptē var būt arī
                     # tad, kad sintēze neizdevās, un statistikā tie ir divi
                     # dažādi ieraksti

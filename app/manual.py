@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 # bez attēla un bez saites nav nekā, ko rokas režīmā gribētos.
 REQUESTABLE = ("reel", "card_carousel", "photo", "photo_album", "story", "link")
 
-# Cik punktu prasām kartītēm/lentei
+# Cik sadaļu prasām kartītēm/lentei
 POINTS = {"reel": 3, "card_carousel": 4}
 
 
@@ -57,31 +57,38 @@ def unavailable(session=None) -> list[str]:
     return [f for f in REQUESTABLE if f not in accepted]
 
 
-def _points(session, article, n: int) -> list[str]:
-    """Kartīšu punkti šim rakstam ('' saraksts, ja AI nav pieejama).
+def _sections(session, article, n: int) -> list[dict]:
+    """Stāsta sadaļas šim rakstam ([{title, body}]; tukšs, ja AI nav).
 
-    Punkti nāk no raksta TEKSTA, nevis virsraksta — tieši tāpēc raksta
-    rindkopas tiek vilktas no lapas. Bez tām sanāktu virsraksta pārstāsts
-    trīs rindās.
+    Sadaļas nāk no raksta TEKSTA, nevis virsraksta — tieši tāpēc raksta
+    rindkopas tiek vilktas no lapas. Katra kartīte ir trekns virsraksts un
+    2-4 teikumi ar faktiem, kā to dara labākie ziņu konti.
     """
+    from app.pipeline import clean_sections
     from app.weekend import _ai_lines
 
     body = pagemeta.article_body(article) or article.lead or ""
     if not body.strip():
         return []
     prompt = (
-        f"Raksts:\nVirsraksts: {article.title}\n\n{body[:1500]}\n\n"
-        f"Uzraksti {n} kartīšu punktus latviski no ŠĪ raksta. Katrs punkts:\n"
-        "- KONKRĒTS fakts ar skaitli, vārdu vai spilgtu detaļu;\n"
-        "- pašpietiekams (saprotams bez pārējiem);\n"
-        "- līdz 110 zīmēm;\n"
-        "- bez numerācijas, bez aizzīmēm, viens punkts vienā rindā.\n"
-        "Ja rakstā tik daudz spēcīgu faktu nav, uzraksti mazāk — "
-        "uzpildīti punkti ir sliktāki par diviem trāpīgiem."
+        f"Raksts:\nVirsraksts: {article.title}\n\n{body[:1800]}\n\n"
+        f"Sadali ŠO rakstu {n} kartīšu sadaļās latviski. Katra sadaļa vienā "
+        "rindā formātā:\nVirsraksts | Teksts\n"
+        "- Virsraksts: trekns apgalvojums līdz 60 zīmēm, bez punkta beigās;\n"
+        "- Teksts: 2-4 pilni teikumi ar KONKRĒTIEM faktiem no raksta "
+        "(skaitļi, vārdi, ieteikumi), 70-300 zīmes;\n"
+        "- ja rakstā ir praktiskā daļa (kur zvanīt, ko darīt), tā ir laba "
+        "pēdējā sadaļa.\n"
+        "Ja rakstā tik daudz satura nav, uzraksti mazāk sadaļu — uzpildītas "
+        "ir sliktākas par divām trāpīgām. Atbildē TIKAI sadaļu rindas."
     )
-    lines = [ln.lstrip("-•*0123456789. ").strip()
-             for ln in _ai_lines(session, prompt, max_tokens=400)]
-    return [ln for ln in lines if 15 <= len(ln) <= 130][:n]
+    out = []
+    for ln in _ai_lines(session, prompt, max_tokens=800):
+        head, sep, text = ln.partition("|")
+        if sep:
+            out.append({"title": head.strip(" -•*0123456789."),
+                        "body": text.strip()})
+    return clean_sections(out)[:n]
 
 
 def _voice(session, article) -> str:
@@ -140,12 +147,12 @@ def build(session, article, channel: str, fmt: str) -> tuple[Post | None, str]:
     ch_dec: dict = {"channel": channel, "format": fmt,
                     "copy": _copy_for(session, article, channel)}
     if fmt in POINTS:
-        points = _points(session, article, POINTS[fmt])
-        if len(points) < 2:
-            return None, ("Nesanāca sagatavot vismaz 2 kartīšu punktus. "
+        sections = _sections(session, article, POINTS[fmt])
+        if len(sections) < 2:
+            return None, ("Nesanāca sagatavot vismaz 2 kartīšu sadaļas. "
                           "Vajag AI atslēgu un raksta tekstu — pārbaudi, vai "
                           "rakstam Rakstu sarakstā ir «teksts: N zīmes».")
-        ch_dec["card_points"] = points
+        ch_dec["card_sections"] = sections
         ch_dec["card_end_question"] = "Uzzini visu stāstu tv3.lv"
         if fmt == "reel":
             ch_dec["voice_script"] = _voice(session, article)

@@ -20,8 +20,10 @@ def test_resolve_format_builds_reel(session, monkeypatch):
     monkeypatch.setattr(reels, "available", lambda: True)
     built = {}
 
-    def fake_build(title, section, image, points, out_dir=None, voice=None):
-        built.update(title=title, points=points, voice=voice)
+    def fake_build(title, section, image, points, out_dir=None, voice=None,
+                   sections=None, point_images=None):
+        built.update(title=title, points=points, voice=voice,
+                     sections=sections)
         return "/data/cards/reel_x.mp4"
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
@@ -379,3 +381,79 @@ def test_frames_wait_for_images_before_the_screenshot():
     src = inspect.getsource(reels._render_frames)
     assert "_settle" in src
     assert "wait_for_timeout(600)" not in src
+
+
+# --- sadaļu lente ar ierunu -------------------------------------------------
+
+def test_resolve_format_builds_a_section_reel_with_narration(session,
+                                                             monkeypatch):
+    """Sadaļas kļūst par kadriem, un bez atsevišķa scenārija balss nolasa
+    tieši to, kas rakstīts kadros."""
+    from app import pipeline, reels, tts
+    from app.models import Article
+
+    monkeypatch.setattr(reels, "available", lambda: True)
+    spoken = {}
+    monkeypatch.setattr(tts, "synthesize",
+                        lambda text, **kw: spoken.update(text=text)
+                        or "/audio/voice.mp3")
+    built = {}
+
+    def fake_build(title, section, image, points, out_dir=None, voice=None,
+                   sections=None, point_images=None):
+        built.update(sections=sections, voice=voice, point_images=point_images)
+        return "/data/cards/reel_s.mp4"
+
+    monkeypatch.setattr(reels, "build_reel", fake_build)
+    a = Article(guid="sr-reel", url="u", canonical_url="u", title="Vētra nāk",
+                section="news", raw_json={},
+                images=["https://cdn/foto1.jpg", "https://cdn/foto2.jpg"])
+    session.add(a)
+    session.flush()
+
+    fmt, media, recipe = pipeline.resolve_format(
+        session, "ig", {"formats": ["reel"], "platform": "instagram"}, a,
+        {"format": "reel",
+         "card_sections": [
+             {"title": "Spēcīgas brāzmas", "body": "Vēja ātrums var sasniegt "
+              "trīsdesmit metrus sekundē, īpaši piekrastē un Rīgā."},
+             {"title": "Palikt mājās", "body": "Iedzīvotāji aicināti bez "
+              "vajadzības neiziet un nostiprināt priekšmetus pagalmos."}]})
+
+    assert fmt == "reel"
+    assert built["sections"][0]["title"] == "Spēcīgas brāzmas"
+    assert built["point_images"] == ["https://cdn/foto1.jpg",
+                                     "https://cdn/foto2.jpg"]
+    assert built["voice"] == "/audio/voice.mp3"
+    # ieruna = sadaļu teksts, kad AI atsevišķu scenāriju nedeva
+    assert spoken["text"].startswith("Spēcīgas brāzmas.")
+    assert "trīsdesmit metrus" in spoken["text"]
+    assert recipe["voiced"] is True and recipe["voice_script"] == spoken["text"]
+
+
+def test_section_frames_take_longer_than_point_frames(monkeypatch, tmp_path):
+    """Sadaļas kadrā ir teikumi — 2.8 s tos nevar izlasīt."""
+    from pathlib import Path
+
+    from app import reels
+
+    seen = {}
+
+    def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
+                      voice=None):
+        seen["durations"] = durations
+        Path(out).write_bytes(b"mp4")
+        return sum(durations)
+
+    monkeypatch.setattr(reels, "_assemble", fake_assemble)
+    monkeypatch.setattr(reels, "_render_frames",
+                        lambda docs, out_dir: [tmp_path / f"f{i}.png"
+                                               for i in range(len(docs))])
+    reels.build_reel("T", "news", "", [],
+                     sections=[{"title": "A", "body": "B garāks teksts"},
+                               {"title": "C", "body": "D garāks teksts"}],
+                     out_dir=tmp_path)
+    # vāks + 2 sadaļas + CTA; sadaļu kadri ir vismaz SECTION_FRAME_SECONDS
+    assert len(seen["durations"]) == 4
+    assert seen["durations"][1] == reels.SECTION_FRAME_SECONDS
+    assert seen["durations"][2] == reels.SECTION_FRAME_SECONDS

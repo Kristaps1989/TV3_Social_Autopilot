@@ -231,3 +231,24 @@ Izslēdz ar `story_reuses_reel: false`.
 pret attēlu» rezultāts gandrīz vienmēr nozīmē sasniegumu, nevis klikšķus uz
 tv3.lv. Video stāsts var uzvarēt pēc noskatīšanās un tomēr nedot vairāk
 apmeklējumu — ja mērķis ir klikšķi, izšķirošais paliek saites ieraksts.
+
+## Sadaļu kartītes (stāsts pa daļām)
+
+Kvalitātes latiņa ir tas, ko dara labākie ziņu konti: karuselis, kur katra
+kartīte ir stāsta SADAĻA — pilns foto fonā (katrai kartītei savs no raksta
+galerijas), pa vidu puscaurspīdīgs balts panelis ar treknu virsrakstu un
+2-4 teikumiem faktu, sarkanas ">>>" švīkošanas bultas, un pēdējā sadaļa ar
+praktisko daļu (kur zvanīt, ko darīt), ja rakstā tāda ir.
+
+- **Saturs**: lēmumu shēmā `card_sections` = [{title, body}] — raksts,
+  sadalīts sadaļās, balstoties raksta TEKSTĀ (pagemeta). `card_points`
+  paliek kā rezerve, kad teksta nav.
+- **Karuselis**: `cards.build_section_cards_html` / `render_section_cards` —
+  vāks (līdzšinējā stilā + bultas) → sadaļu kartītes → CTA kartīte.
+- **Lente**: tie paši sadaļu kadri vertikāli (`_section_frame_html`,
+  6 s kadrā), un bez atsevišķa scenārija balss nolasa tieši kadros rakstīto
+  (title + body). Ar ierunu kadri stiepjas līdz runas garumam.
+- **Pārzīmēšana**: recepte glabā `sections`; vecās receptes ar `points`
+  zīmējas pa vecam.
+- **Rokas vadība**: /why «Uztaisīt formātu ar roku» tagad prasa AI sadaļas
+  (Virsraksts | Teksts pa rindai), ne punktus.
