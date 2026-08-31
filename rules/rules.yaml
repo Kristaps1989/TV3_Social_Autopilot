@@ -110,8 +110,13 @@ cms_short_links: false
 # sadaļā) reels iznāk kluss — teksts tik un tā glabājas receptē un ir
 # redzams priekšskatījumā. false = pat ar atslēgu neizmantot.
 reel_voice: true
+# Balss pakalpojums. Ieviests: azure (Azure Speech, atslēga Konti sadaļā).
+# Otrs kandidāts ir tilde (tilde.ai) — latviešu balsis ar pielāgojamām
+# izrunas vārdnīcām, kas īpašvārdus lokatīvā izrunā pareizāk; tā cena un
+# API nāk caur sarunu ar pārdošanu, tāpēc adapters vēl nav uzrakstīts.
+tts_provider: azure
 # female (lv-LV-EveritaNeural) vai male (lv-LV-NilsNeural); var ierakstīt
-# arī pilnu Azure balss nosaukumu.
+# arī pilnu balss nosaukumu.
 reel_voice_name: female
 
 # Plānošanas režīms:

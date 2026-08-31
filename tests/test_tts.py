@@ -231,3 +231,32 @@ def test_a_second_key_is_verified_against_azure_not_the_cache(client, session,
                       follow_redirects=False)
     assert "/connect?error=" in bad.headers["location"]
     assert seen == ["good-key", "revoked-key"]
+
+
+def test_unknown_provider_stays_silent_instead_of_crashing(keyed, tmp_path,
+                                                           monkeypatch):
+    """Nepazīstams tts_provider nedrīkst nogāzt lentes būvēšanu."""
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _never_called())
+    rules = {"reel_voice": True, "tts_provider": "tilde"}
+    assert tts.enabled(rules, keyed) is False
+    assert tts.synthesize("Teksts, ko neviens nenolasīs.", tmp_path,
+                          rules=rules, session=keyed) == ""
+
+
+def test_voice_catalogue_is_per_provider():
+    # "female"/"male" ir mūsu īsvārdi, un tos pārtulko tikai tas pakalpojums,
+    # kura katalogs mums ir
+    assert tts.voice_name({"reel_voice_name": "male"}) == "lv-LV-NilsNeural"
+    # pilns nosaukums iet cauri kā ir — tā var izmēģināt balsi, kas sarakstā
+    # vēl nav
+    assert tts.voice_name({"reel_voice_name": "lv-LV-EveritaNeural"}) \
+        == "lv-LV-EveritaNeural"
+    # nezināmam pakalpojumam katalogs ir tukšs, tāpēc netulko neko; kaitēt tas
+    # nevar, jo tāds pakalpojums vispār netiek izsaukts (skat. testu augstāk)
+    assert tts.voice_name({"tts_provider": "tilde",
+                           "reel_voice_name": "Marta"}) == "Marta"
+
+
+def test_azure_stays_the_default():
+    assert tts.provider({}) == "azure"
+    assert tts.provider({"tts_provider": " AZURE "}) == "azure"

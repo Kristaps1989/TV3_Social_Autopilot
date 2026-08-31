@@ -111,3 +111,27 @@ Viena un tā paša teksta ieruna tiek kešota pēc `sha256(balss + teksts)`, tā
 reela pārzīmēšana par to pašu skaņu Azure otrreiz nemaksā. Bez atslēgas, ar
 `reel_voice: false`, vai ja Azure neatbild, reels iznāk kluss tieši tāpat kā
 līdz šim — teksts glabājas receptē un ir redzams priekšskatījumā.
+
+#### Pakalpojuma maiņa (Tilde)
+
+`tts_provider` noteikumos izvēlas pakalpojumu; `_SYNTHS` vārdnīcā katrs ir
+viena funkcija `(teksts, balss, sesija) -> audio baiti`. Kešs, SSML
+sagatavošana, atslēgas pārbaude un kļūdu apstrāde ir kopīga, tāpēc jauna
+pakalpojuma pievienošana ir viena funkcija plus viens ieraksts. Nepazīstams
+`tts_provider` nozīmē klusu reelu, nevis kļūdu.
+
+Nopietnākais kandidāts Azure vietā ir **Tilde** (tilde.ai): latviešu balsis,
+kas taisītas latviešu valodai, **pielāgojamas izrunas vārdnīcas** (tieši tur
+Azure klūp — īpašvārdi lokatīvā, "Bauskas ielā", un saīsinājumi), izvietošana
+ES mākonī vai uz vietas, un iespēja licencēt savu balsi. Cena un API līgums
+nāk caur sarunu ar pārdošanu, nevis no publiskas dokumentācijas, tāpēc
+adapters nav uzrakstīts. Ko noskaidrot sarunā:
+
+1. REST galapunkts, autentifikācija un audio formāti (mums der mp3 vai wav).
+2. Vai ir SSML vai cits veids, kā uzlikt pauzes un tempu.
+3. Kā papildina izrunas vārdnīcu (tas ir galvenais iemesls izvēlēties Tildi):
+   pašapkalpošanās vai caur atbalstu?
+4. Cenas modelis: par zīmi, par pieprasījumu vai abonements. Mūsu apjoms ir
+   ~600 zīmes uz reelu, daži reeli dienā.
+5. Latency reāllaika izsaukumam (mums der līdz ~30 s, reels top fonā).
+6. Vai balsi drīkst izmantot publicētā sociālo tīklu saturā (licences apjoms).
