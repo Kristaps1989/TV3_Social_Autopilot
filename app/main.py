@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import auth, config, credentials, ga4, reels, runtime, shortlinks
+from app import auth, config, credentials, ga4, pagemeta, reels, runtime, shortlinks
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -372,7 +372,12 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
 
         link = add_utm(post.link_url, platform, post.id,
                        hook=post.hook_type or "") if post.link_url else ""
-        shown = shortlinks.display_link(post.id, link)
+        shown = shortlinks.display_link(post.id, link, None, post.article)
+        # kura īsā saite tika izvēlēta: mūsu /r/ kods (skaita klikšķus) vai
+        # CMS /p/<id> (īsa, bet klikšķus neskaita)
+        cms_short = pagemeta.short_url(post.article) if post.article else ""
+        short_kind = ("own" if shortlinks.short_url(post.id)
+                      else ("cms" if cms_short and shown.startswith(cms_short) else ""))
         from app.pipeline import compose_text
 
         full_text, in_comment = compose_text(post, platform, shown)
@@ -400,6 +405,8 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
             "can_regenerate": regen.can_regenerate(post),
+            "cms_meta": pagemeta.meta(article) if article else {},
+            "cms_short": cms_short, "short_kind": short_kind,
             "photos": ((post.extra or {}).get("recipe") or {}).get("photos"),
             "card_targets": [
                 {"n": i + 1, "url": u,
@@ -575,8 +582,18 @@ def articles(request: Request):
                     unmapped[str(tid)] = unmapped.get(str(tid), 0) + 1
         with_lead = sum(1 for a in rows if (a.lead or "").strip())
         with_image = sum(1 for a in rows if (a.images or []))
+        # CMS metadati no raksta lapas — autors, redakcijas tagi, īsā saite
+        cms = {a.id: {"author": pagemeta.author(a),
+                      "tags": pagemeta.tags(a, 3),
+                      "short": pagemeta.short_url(a),
+                      "label": pagemeta.label(a),
+                      "chars": pagemeta.content_chars(a),
+                      "gallery": pagemeta.has_gallery(a),
+                      "video": pagemeta.has_video(a)}
+               for a in rows}
         return templates.TemplateResponse(request, "articles.html", {
-            "articles": rows,
+            "articles": rows, "cms": cms,
+            "with_meta": sum(1 for a in rows if pagemeta.meta(a)),
             "with_lead": with_lead, "with_image": with_image,
             "unmapped_terms": sorted(unmapped.items(), key=lambda kv: -kv[1])[:20],
             "url_sections": feeds.get("url_sections") or {},

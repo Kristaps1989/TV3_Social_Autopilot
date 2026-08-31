@@ -56,12 +56,31 @@ def short_url(post_id: int, rules: dict | None = None) -> str:
     return f"{base}/{encode(post_id)}" if base else ""
 
 
-def display_link(post_id: int, full_url: str, rules: dict | None = None) -> str:
-    """What a human sees in the caption or first comment: the short link when
-    one is configured, otherwise the full tracked URL."""
+def cms_short_link(article, tracked_url: str, rules: dict | None = None) -> str:
+    """tv3.lv pašu īsā saite (/p/<id>) ar to pašu UTM asti ('' ja izslēgta).
+
+    Atšķirībā no mūsu /r/ koda šī jau šodien strādā — tā ir CMS iebūvētā
+    īsā saite, nekāda nginx noteikuma nevajag. Toties klikšķus tā neskaita
+    un balstās uz to, ka novirze saglabā UTM parametrus, tāpēc /r/ kods,
+    kad tas ir konfigurēts, paliek pirmais.
+    """
+    from app import config, pagemeta
+
+    rules = config.load_rules() if rules is None else rules
+    if article is None or not (rules or {}).get("cms_short_links"):
+        return ""
+    return pagemeta.tracked_short_url(article, tracked_url)
+
+
+def display_link(post_id: int, full_url: str, rules: dict | None = None,
+                 article=None) -> str:
+    """What a human sees in the caption or first comment: our own short link
+    when one is configured, then the CMS short link, else the full tracked URL."""
     if not full_url:
         return ""
-    return short_url(post_id, rules) or full_url
+    return (short_url(post_id, rules)
+            or cms_short_link(article, full_url, rules)
+            or full_url)
 
 
 def is_bot(user_agent: str) -> bool:

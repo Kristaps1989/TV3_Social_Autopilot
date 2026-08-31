@@ -5,11 +5,16 @@
 {{ articles|length }} rakstiem ir ievads (teaseris), <strong>{{ with_image }}</strong>
 ir vismaz viens attēls. Ievads baro AI lēmumu, ieraksta tekstu un — ja to
 ieslēgsim — balss ierunāšanu reelos.</p>
+<p class="muted">No raksta lapas (CMS dataLayer) papildus ievilkti
+<strong>{{ with_meta }}</strong> rakstiem: autors, redakcijas tagi, Post ID
+(īsā saite <code>tv3.lv/p/&lt;id&gt;</code>), video/galerija un apjoms. Tos
+dabū plūsmas ielase; ja skaitlis paliek 0, portāls lapu neatdod (skat.
+Diagnostika).</p>
 
 <div class="card">
 <table>
   <tr><th>Ienācis</th><th>Virsraksts</th><th>Sadaļa</th><th>Tagi (term ID)</th>
-      <th>Statuss</th><th>Ievads</th><th>AI</th><th>Ieraksti</th></tr>
+      <th>Statuss</th><th>Ievads</th><th>No CMS lapas</th><th>AI</th><th>Ieraksti</th></tr>
   {% for a in articles %}
   {% set src = (a.raw_json or {}).get('_section_src') %}
   <tr>
@@ -24,11 +29,22 @@ ieslēgsim — balss ierunāšanu reelos.</p>
     <td class="muted" style="font-size:.78rem;max-width:22rem">
       {%- if a.lead %}{{ a.lead[:110] }}{% if a.lead|length > 110 %}…{% endif %}
       {%- else %}<span style="color:#b45309">nav</span>{% endif %}</td>
+    {% set m = cms.get(a.id) or {} %}
+    <td class="muted" style="font-size:.78rem;max-width:16rem">
+      {%- if m.author or m.tags or m.short %}
+      {%- if m.author %}{{ m.author }}<br>{% endif %}
+      {%- if m.tags %}{{ m.tags | join(' · ') }}<br>{% endif %}
+      {%- if m.label %}<span style="color:#047857">{{ m.label }}</span>
+        {%- if m.video or m.gallery %} · {% endif %}{% endif %}
+      {%- if m.video %}video{% if m.gallery %} + {% endif %}{% endif %}
+      {%- if m.gallery %}galerija{% endif %}
+      {%- if m.short %}<br><a href="{{ m.short }}" target="_blank" rel="noopener">{{ m.short.split('//')[1] }}</a>{% endif %}
+      {%- else %}<span style="color:#b45309">nav</span>{% endif %}</td>
     <td>{% if a.ai_score is not none %}{{ '%.2f' % a.ai_score }}{% else %}—{% endif %}</td>
     <td>{{ a.posts | length }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="8" class="muted">Vēl nav rakstu — gaida pirmo plūsmas ielasi.</td></tr>
+  <tr><td colspan="9" class="muted">Vēl nav rakstu — gaida pirmo plūsmas ielasi.</td></tr>
   {% endfor %}
 </table>
 </div>

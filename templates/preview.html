@@ -174,8 +174,19 @@ brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
        border-radius:8px;padding:.7rem;font:inherit">{{ full_text }}</pre>
   {% if target_link and link != target_link %}
   <p style="margin:.4rem 0 0">Īsā saite <code>{{ link }}</code> ved uz
-    <span style="word-break:break-all">{{ target_link }}</span> (302 pāradresācija —
-    UTM birkas saglabājas, klikšķus skaitām paši).</p>
+    <span style="word-break:break-all">{{ target_link }}</span>
+    {%- if short_kind == 'cms' %} (tv3.lv pašu īsā saite pēc Post ID; UTM birkas
+    aizceļo līdzi vaicājuma virknē, bet klikšķus caur to neskaitām)
+    {%- else %} (302 pāradresācija — UTM birkas saglabājas, klikšķus skaitām paši)
+    {%- endif %}.</p>
+  {% endif %}
+  {% if cms_meta %}
+  <p style="margin:.4rem 0 0">No CMS lapas:
+    {%- if cms_meta.author %} autors <strong>{{ cms_meta.author }}</strong>;{% endif %}
+    {%- if cms_meta.tags %} tagi {{ cms_meta.tags | join(', ') }};{% endif %}
+    {%- if cms_meta.label %} {{ cms_meta.label }};{% endif %}
+    {%- if cms_short %} īsā saite <a href="{{ cms_short }}" target="_blank"
+      rel="noopener"><code>{{ cms_short }}</code></a>{% endif %}</p>
   {% endif %}
   {% if post.short_hits %}
   <p style="margin:.4rem 0 0"><strong>{{ post.short_hits }}</strong> klikšķi caur īso saiti.</p>

@@ -1,0 +1,262 @@
+from pathlib import Path
+
+from app import pagemeta, shortlinks
+from app.models import Article
+
+FIXTURES = Path(__file__).parent / "fixtures"
+PAGE = (FIXTURES / "article_page.html").read_text(encoding="utf-8")
+URL = "https://tv3.lv/zinas/latvija/spradziens-atnema-adelei-pirmo-dzivokli/"
+
+
+def make_article(session, **kwargs):
+    article = Article(guid=kwargs.pop("guid", "g1"), url=URL, canonical_url=URL,
+                      title="Kas zināms par Bauskas ielas namu?", **kwargs)
+    session.add(article)
+    session.flush()
+    return article
+
+
+def test_parse_datalayer():
+    meta = pagemeta.parse(PAGE)
+    assert meta["post_id"] == "3879950"
+    assert meta["author"] == "Gundega Gaujere"
+    assert meta["tags"][:2] == ["Bauskas iela", "Gāzes sprādziens"]
+    assert meta["categories"] == ["Ziņas", "Latvija", "Sabiedrība"]
+    assert meta["post_types"] == ["video", "gallery"]
+    assert meta["label"] == "Tikai tv3.lv"
+    assert meta["content_chars"] == 11587
+    assert meta["publish_date"] == "2026-08-31"
+
+
+def test_parse_survives_js_object():
+    """The dataLayer blob is JavaScript, not JSON: single quotes and a
+    trailing comma must not cost us the whole page."""
+    html = """<script>var dlEvent = {"Post ID":42,"Editor name":"Anna Bērziņa",
+              "Tags":"Rīga;Vēlēšanas", 'x': undefined,};dataLayer.push(dlEvent);</script>"""
+    meta = pagemeta.parse(html)
+    assert meta["post_id"] == "42"
+    assert meta["author"] == "Anna Bērziņa"
+    assert meta["tags"] == ["Rīga", "Vēlēšanas"]
+
+
+def test_parse_meta_tag_fallback():
+    html = ('<link rel="shortlink" href="https://tv3.lv/?p=771">'
+            '<meta property="article:author" content="Jānis Ozols">')
+    meta = pagemeta.parse(html)
+    assert meta["post_id"] == "771"
+    assert meta["author"] == "Jānis Ozols"
+
+
+def test_parse_empty_page():
+    assert pagemeta.parse("<html><body>nekā</body></html>") == {}
+    assert pagemeta.parse("") == {}
+
+
+def test_enrich_caches_and_fetches_once(session, monkeypatch):
+    article = make_article(session)
+    calls = []
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: calls.append(url) or PAGE)
+
+    pagemeta.enrich(article)
+    assert calls == [URL]
+    assert pagemeta.author(article) == "Gundega Gaujere"
+
+    pagemeta.enrich(article)          # already cached -> no second request
+    assert calls == [URL]
+    pagemeta.enrich(article, force=True)
+    assert calls == [URL, URL]
+
+
+def test_enrich_failure_does_not_retry_immediately(session, monkeypatch):
+    article = make_article(session)
+    calls = []
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: calls.append(url) or "")
+
+    assert pagemeta.enrich(article) == {}
+    pagemeta.enrich(article)
+    assert len(calls) == 1                       # backoff holds
+    assert (article.raw_json or {}).get("_page_meta_at")
+
+
+def test_enrich_off_by_rules(session, monkeypatch):
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch",
+                        lambda url, timeout=10: _must_not_fetch())
+    assert pagemeta.enrich(article, rules={"page_meta": False}) == {}
+
+
+def _must_not_fetch():  # pragma: no cover — only runs if the flag is ignored
+    raise AssertionError("page must not be fetched when page_meta is off")
+
+
+def test_short_url_and_tracked_query(session, monkeypatch):
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+
+    assert pagemeta.short_url(article) == "https://tv3.lv/p/3879950"
+    tracked = pagemeta.tracked_short_url(
+        article, "https://tv3.lv/zinas/x/?utm_source=facebook_page&utm_content=7")
+    assert tracked == ("https://tv3.lv/p/3879950"
+                       "?utm_source=facebook_page&utm_content=7")
+
+
+def test_short_url_without_metadata(session):
+    assert pagemeta.short_url(make_article(session)) == ""
+
+
+def test_display_link_prefers_own_code_then_cms(session, monkeypatch):
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    tracked = "https://tv3.lv/zinas/x/?utm_source=facebook_page"
+
+    # off by default: the full tracked URL still goes out
+    assert shortlinks.display_link(5, tracked, {}, article) == tracked
+    # enabled: the CMS short link, UTM tail intact
+    assert shortlinks.display_link(5, tracked, {"cms_short_links": True},
+                                   article).startswith("https://tv3.lv/p/3879950?")
+    # our own /r/ code counts clicks, so it stays first
+    own = shortlinks.display_link(5, tracked, {"short_link_base": "https://tv3.lv/r",
+                                               "cms_short_links": True}, article)
+    assert own == "https://tv3.lv/r/" + shortlinks.encode(5)
+
+
+def test_hashtags_from_editorial_tags(session, monkeypatch):
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    assert pagemeta.hashtags(article) == ["BauskasIela", "GāzesSprādziens"]
+    assert pagemeta.hashtags(article, limit=1) == ["BauskasIela"]
+
+
+def test_hashtags_skip_sentence_length_tags(session):
+    article = make_article(session)
+    article.raw_json = {"_page_meta": {"tags": [
+        "Rīga", "kas notiek Bauskas ielā šodien", "A"]}}
+    assert pagemeta.hashtags(article) == ["Rīga"]
+
+
+def test_video_hint_separates_real_clip_from_cms_flag(session):
+    article = make_article(session)
+    assert pagemeta.video_hint(article) == "nav"
+
+    article.raw_json = {"_page_meta": {"post_types": ["video"]}}
+    assert "slideshow" in pagemeta.video_hint(article)
+
+    article.raw_json = {"_page_meta": {"post_types": ["video"]},
+                        "_video_url": "https://tv3.lv/v/klips.mp4"}
+    assert "īstā klipa" in pagemeta.video_hint(article)
+
+
+def test_prompt_lines_reads_as_briefing(session, monkeypatch):
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    lines = pagemeta.prompt_lines(article)
+    assert "Autors: Gundega Gaujere" in lines
+    assert "galerija" in lines
+    assert "gars lasāmgabals" in lines
+    assert "ekskluzīvs saturs" in lines
+    assert pagemeta.is_exclusive(article)
+    # video ir atsevišķā rindā (video_hint), lai nesolītu klipu, kura nav
+    assert "video der reel" not in lines
+
+
+def test_prompt_lines_empty_without_metadata(session):
+    assert pagemeta.prompt_lines(make_article(session)) == ""
+
+
+def test_backfill_enriches_older_articles(session, monkeypatch):
+    for i in range(3):
+        make_article(session, guid=f"g{i}")
+    session.commit()
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+
+    assert pagemeta.backfill(session, limit=2) == 2
+    assert pagemeta.backfill(session, limit=2) == 1   # only the untouched one is left
+    assert pagemeta.backfill(session, limit=2) == 0
+
+
+def test_articles_page_shows_cms_column(session, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    session.commit()
+
+    with TestClient(app) as client:
+        client.post("/setup", data={"password": "slepens123",
+                                    "password2": "slepens123"})
+        body = client.get("/articles").text
+    assert "Gundega Gaujere" in body
+    assert "tv3.lv/p/3879950" in body
+    assert "Tikai tv3.lv" in body
+
+
+def test_preview_shows_author_and_cms_short_link(session, monkeypatch):
+    from datetime import timedelta
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.models import Post, utcnow
+
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    post = Post(article_id=article.id, channel="fb_tv3lv", format="link",
+                copy="Teksts", link_url=URL, state="scheduled",
+                scheduled_at=utcnow() + timedelta(hours=1))
+    session.add(post)
+    session.commit()
+
+    with TestClient(app) as client:
+        client.post("/setup", data={"password": "slepens123",
+                                    "password2": "slepens123"})
+        body = client.get(f"/post/{post.id}/preview").text
+    assert "Gundega Gaujere" in body
+    assert "https://tv3.lv/p/3879950" in body
+
+
+def test_decision_cycle_enriches_and_uses_editorial_tags(session, monkeypatch):
+    from sqlalchemy import select
+
+    from app import pipeline
+    from app.models import Post
+
+    article = make_article(session, editor_status="must")
+    session.commit()
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    monkeypatch.setattr(pipeline, "decide", lambda a, verdicts, s: {
+        "publish": True, "score": 0.8, "reason": "t", "labels": [],
+        "sensitivity": [],
+        "channels": [{"channel": "x_tv3zinas", "format": "text_only",
+                      "copy": "Teksts"}],   # AI hashtagus nedod
+    })
+    pipeline.run_decisions(session)
+
+    assert pagemeta.author(article) == "Gundega Gaujere"   # lapa ievilkta pa ceļam
+    post = session.execute(
+        select(Post).where(Post.article_id == article.id)).scalars().first()
+    assert post is not None
+    # X atļauj divus — abi nāk no redakcijas tagiem
+    assert post.hashtags == ["#BauskasIela", "#GāzesSprādziens"]
+
+
+def test_prompt_carries_cms_metadata(session, monkeypatch):
+    from app.decide import build_user_prompt
+    from app.rules_engine import Verdict
+
+    article = make_article(session, editor_status="must")
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    verdicts = {"fb_tv3lv": Verdict(outcome="eligible", reason="ok")}
+    prompt = build_user_prompt(article, verdicts, {"fb_tv3lv": {}}, session)
+
+    assert "Autors: Gundega Gaujere" in prompt
+    assert "Bauskas iela" in prompt
+    assert "slideshow" in prompt          # video ir, klipa saites nav

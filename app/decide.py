@@ -14,7 +14,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from app import config
+from app import config, pagemeta
 from app.best_practices import pick_format
 from app.models import Article, DecisionLog, Post
 from app.rules_engine import Verdict
@@ -129,14 +129,18 @@ def build_user_prompt(article: Article, verdicts: dict[str, Verdict],
             f"- {name} ({cfg.get('platform')}): formāti {cfg.get('formats')}, "
             f"statuss: {v.reason}"
         )
+    # CMS metadati no raksta lapas (autors, redakcijas tagi, apjoms,
+    # galerija, "Tikai tv3.lv") — tukšs, ja lapa nav ievilkta.
+    cms = pagemeta.prompt_lines(article)
     return f"""Raksts:
 Virsraksts: {article.title}
 Ievads: {article.lead[:600]}
 Sadaļa (no feed, var būt kļūdaina — klasificē pats laukā section): {article.section}
 Attēli: {len(article.images or [])}
-Video: {"ir 9:16 videoklips" if (article.raw_json or {}).get("_video_url") or any((article.raw_json or {}).get(k) for k in ("video", "video_url", "videoUrl")) else "nav"}
+Video: {pagemeta.video_hint(article)}
 Redaktora statuss: {article.editor_status}
 Publicēts: {article.published_at}
+{cms}
 
 Pieejamie kanāli:
 {chr(10).join(channel_desc)}

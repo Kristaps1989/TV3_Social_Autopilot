@@ -35,3 +35,39 @@ restricted), so the ingestor (`app/ingest.py`) is deliberately tolerant:
    pieliek CTA beigu kadru "lasi tv3.lv").
 
 Once confirmed, record the real schema here and tighten the parser.
+
+## Raksta lapas metadati (`app/pagemeta.py`)
+
+Daļu no tā, kā feed'ā trūkst, raksts pats nes savā lapā: tv3.lv GTM slānis
+katram rakstam iepush'o `dlEvent` objektu ar CMS metadatiem.
+
+```js
+var dlEvent = {"Title":"…","Publish date":"2026-08-31","Post ID":3879950,
+  "Page type":"Post","Content length":11587,"Post type":"Video;Gallery",
+  "Editor name":"Gundega Gaujere","Source":"tv3.lv","Category level 1":"Ziņas",
+  "Tags":"Bauskas iela;Gāzes sprādziens;Rīga","Label":"Tikai tv3.lv",
+  "Secondary category":"Sabiedrība","event":"Pageview"};
+```
+
+Ko no tā izmantojam:
+
+| Lauks | Kur aiziet |
+| --- | --- |
+| `Post ID` | tv3.lv pašu īsā saite `tv3.lv/p/<id>` (rules: `cms_short_links`) |
+| `Editor name` | autors rakstu sarakstā un priekšskatījumā, AI promptā |
+| `Tags` | hashtagi, kad AI savus nedod (redakcijas atslēgvārdi ir precīzāki) |
+| `Post type` | `Video`/`Gallery` — vai reel/karuselis vispār ir uz galda |
+| `Label` | "Tikai tv3.lv" = ekskluzīvs saturs, ko ir vērts izcelt |
+| `Content length` | īsziņa pret garu lasāmgabalu (formāta izvēle) |
+| `Category level N` | CMS kategoriju koks AI kontekstam |
+
+Lapa tiek ievilkta **vienu reizi uz rakstu** un nokešota
+(`raw_json["_page_meta"]`); neveiksme tiek atkārtota ne biežāk kā reizi
+6 stundās. Ielases ciklā papildus tiek papildināti līdz 10 vecāki raksti, jo
+franšīzes (QUIZ, ICYMI, evergreen) strādā tieši ar tiem. Izslēdz ar
+`page_meta: false`.
+
+Neapstiprināts pieņēmums: vai `tv3.lv/p/<id>` novirze **saglabā vaicājuma
+virkni** (UTM birkas). Kamēr tas nav pārbaudīts ar roku, `cms_short_links`
+ir izslēgts un ierakstos iet pilnā saite; gatavā īsā saite ir redzama raksta
+un ieraksta skatā, lai to varētu pārbaudīt ar vienu klikšķi.

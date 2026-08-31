@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from adapters import get_adapter
 from adapters.base import PublishError
-from app import config, shortlinks
+from app import config, pagemeta, shortlinks
 from app.best_practices import add_utm, assemble_post_text, sanitize_copy
 from app.decide import decide
 from app.formats import choose_format, mix_deficit, recent_format_shares
@@ -45,10 +45,18 @@ def run_decisions(session, limit: int = 20) -> int:
 
     channels_cfg = config.load_channels()
     created = 0
+    # Raksta lapa nes to, kā feed'ā nav (autors, redakcijas tagi, video/
+    # galerija, apjoms, "Tikai tv3.lv"), un tas maina AI lēmumu — tāpēc to
+    # velkam tieši šeit. Budžets uz ciklu tur ciklu īsu arī tad, kad portāls
+    # atbild lēni; pārējos pēc tam papildina ielases backfill.
+    meta_budget = 8
 
     for article in articles:
         if retry_pending(article, now):
             continue  # queue was full: waiting out the backoff before retrying
+        if meta_budget > 0 and not pagemeta.meta(article):
+            pagemeta.enrich(article)
+            meta_budget -= 1
         verdicts = evaluate_all(article, now)
         for channel, verdict in verdicts.items():
             session.add(Evaluation(article_id=article.id, channel=channel,
@@ -103,7 +111,8 @@ def run_decisions(session, limit: int = 20) -> int:
             platform = cfg.get("platform", "")
             copy, hashtags, fixes = sanitize_copy(
                 ch_dec.get("copy") or article.title,
-                ch_dec.get("hashtags") or [],
+                # kad AI hashtagus nedod, ņemam redakcijas pašas birkas
+                ch_dec.get("hashtags") or pagemeta.hashtags(article),
                 platform, article.sensitivity, reserve_link_chars=True,
             )
 
@@ -536,7 +545,7 @@ def publish_due(session) -> int:
             # what a reader sees: the tv3.lv short link when one is configured
             # (the full tracked URL still goes to the API as the link target,
             # where only the domain is ever displayed)
-            shown = shortlinks.display_link(post.id, link, rules)
+            shown = shortlinks.display_link(post.id, link, rules, post.article)
             text, first_comment_link = compose_text(post, platform, shown, rules)
             adapter = get_adapter(platform)
             raw_card_links = (post.extra or {}).get("card_links") or []

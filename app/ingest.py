@@ -14,7 +14,7 @@ import feedparser
 import httpx
 from sqlalchemy import select
 
-from app import config
+from app import config, pagemeta
 from app.models import Article, Post, utcnow
 
 log = logging.getLogger(__name__)
@@ -283,5 +283,8 @@ def run_ingest(session) -> dict:
             if article.editor_status == "dont":
                 summary["cancelled"] += cancel_posts_for_dont(session, article)
 
+    # CMS metadati (autors, tagi, Post ID, galerija) nāk no raksta lapas,
+    # nevis no plūsmas — dažas lapas uz ciklu, arī vecākiem rakstiem
+    summary["page_meta"] = pagemeta.backfill(session)
     session.commit()
     return summary

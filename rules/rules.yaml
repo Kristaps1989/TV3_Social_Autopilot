@@ -91,6 +91,20 @@ repost_min_score: 0.75
 # vajag vienu CDN/nginx noteikumu: tv3.lv/r/* -> šīs lietotnes /r/*.
 short_link_base: ""
 
+# CMS metadati no raksta lapas: katrs tv3.lv raksts dataLayer'ā nes savu
+# Post ID, autoru, redakcijas tagus, ierakstu tipu (video/galerija), apjomu
+# un zīmolu ("Tikai tv3.lv"). Feed'ā tā nav, tāpēc lapu ievelkam vienu reizi
+# uz rakstu un nokešojam. false = izslēgts (viss strādā kā līdz šim, tikai
+# bez šiem signāliem).
+page_meta: true
+
+# tv3.lv pašu īsā saite (tv3.lv/p/<Post ID>) ierakstu tekstā, kad mūsu
+# /r/ kods nav ieslēgts. Tā strādā jau šodien, bez nginx noteikuma, un ir
+# īsa; toties klikšķus neskaita, un UTM birkas paliek tikai tad, ja novirze
+# vaicājuma virkni saglabā. Tāpēc noklusēti izslēgta: ieslēdz pēc tam, kad
+# reize ir pārbaudīta ar roku (raksta skatā ir poga ar gatavo saiti).
+cms_short_links: false
+
 # Plānošanas režīms:
 #   asap     -> ziņu portāla režīms (noklusējums): publicē, tiklīdz gatavs —
 #               pirmais derīgais laiks uzvar, daudzveidības sargs nekad
