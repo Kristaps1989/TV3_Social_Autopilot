@@ -123,6 +123,14 @@ tts_provider: azure
 # female (lv-LV-EveritaNeural) vai male (lv-LV-NilsNeural); var ierakstīt
 # arī pilnu balss nosaukumu.
 reel_voice_name: female
+# Izrunas vārdnīca ierunai. Latviski punkts aiz cipara nozīmē kārtas
+# skaitli, tāpēc balss «tv3.lv» pati nolasa kā «tv trešais punkts lv».
+# Šeit pasakām, kā to izrunāt pareizi; papildini, kad kāds vārds skan greizi
+# (rakstības forma ierakstā nemainās — mainās tikai izruna).
+tts_pronunciation:
+  "tv3.lv": "tv trīs punkts lv"
+  "tv3 play": "tv trīs pleij"
+  "tv3": "tv trīs"
 
 # Plānošanas režīms:
 #   asap     -> ziņu portāla režīms (noklusējums): publicē, tiklīdz gatavs —

@@ -107,7 +107,30 @@ Atslēgu pievieno **Konti → Reelu balss**. Saglabājot tiek ierunāts parauga
 teikums (apejot kešu, ar tieši šo atslēgu), tāpēc nepareizs reģions vai
 atslēga parādās uzreiz, nevis pēc nedēļas klusiem reeliem.
 
-Viena un tā paša teksta ieruna tiek kešota pēc `sha256(balss + teksts)`, tāpēc
+### Izruna
+
+Latviski punkts aiz cipara nozīmē kārtas skaitli, tāpēc Azure normalizētājs
+`tv3.lv` nolasīja kā «tv **trešais** punkts lv». Domēnā tas ir tikai punkts.
+Ne prompts, ne balss izvēle to nelabo — tekstu modelim jāpasniedz tā, kā to
+jāizrunā, tāpēc `tts.spoken_text()` pirms SSML pielieto izrunas vārdnīcu:
+
+```yaml
+tts_pronunciation:
+  "tv3.lv": "tv trīs punkts lv"
+  "tv3 play": "tv trīs pleij"
+  "tv3": "tv trīs"
+```
+
+Papildināt var Noteikumos, bez deploy. Garākie ieraksti tiek aizstāti
+vispirms, lai `tv3.lv` netiktu sadalīts pa `tv3`. **Rakstiskais scenārijs
+paliek neskarts** — priekšskatījumā redaktors redz `tv3.lv`, nevis fonētisko
+pierakstu; mainās tikai tas, ko balss nolasa.
+
+Tieši šī vieta ir arī galvenais arguments par labu Tildei (skat. zemāk):
+tur izrunas vārdnīca ir pakalpojuma daļa, nevis mūsu pašu uzturēts saraksts.
+
+Viena un tā paša teksta ieruna tiek kešota pēc `sha256(balss + IZRUNĀTAIS
+teksts)` — pielabojot vārdnīcu, vecais ieraksts atkrīt pats. Tāpēc
 reela pārzīmēšana par to pašu skaņu Azure otrreiz nemaksā. Bez atslēgas, ar
 `reel_voice: false`, vai ja Azure neatbild, reels iznāk kluss tieši tāpat kā
 līdz šim — teksts glabājas receptē un ir redzams priekšskatījumā.

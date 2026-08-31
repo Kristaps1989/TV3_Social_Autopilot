@@ -46,6 +46,19 @@ DEFAULT_RATE = "-4%"
 OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3"
 TIMEOUT = 30
 
+# Izrunas vārdnīca: ko balss nolasa nepareizi.
+#
+# Latviski punkts aiz cipara nozīmē kārtas skaitli, tāpēc Azure normalizētājs
+# «tv3.lv» nolasa kā «tv TREŠAIS punkts lv». Domēnā tas ir tikai punkts. Šo
+# nevar salabot ne ar promptu, ne ar balss izvēli — teksts modelim jāpasniedz
+# tā, kā tas jāizrunā. Papildināt var Noteikumos (`tts_pronunciation`), bez
+# deploy.
+PRONUNCIATION = {
+    "tv3.lv": "tv trīs punkts lv",
+    "tv3 play": "tv trīs pleij",
+    "tv3": "tv trīs",
+}
+
 
 def _key(session=None) -> str:
     return credentials.get("azure_speech_key", session)
@@ -113,14 +126,33 @@ def voice_name(rules: dict | None = None) -> str:
     return catalogue.get(choice.lower(), choice or DEFAULT_VOICE)
 
 
+def spoken_text(text: str, rules: dict | None = None) -> str:
+    """Teksts tā, kā tas JĀIZRUNĀ (izrunas vārdnīca pielietota).
+
+    Aizstājam garākos ierakstus vispirms, lai «tv3.lv» netiktu sadalīts pa
+    «tv3». Rakstiskais scenārijs paliek neskarts — priekšskatījumā redaktors
+    grib redzēt «lasi tv3.lv», nevis fonētisko pierakstu.
+    """
+    table = {k.lower(): v for k, v in PRONUNCIATION.items()}
+    extra = (rules or {}).get("tts_pronunciation") or {}
+    if isinstance(extra, dict):
+        table.update({str(k).lower(): str(v) for k, v in extra.items()})
+    for src in sorted(table, key=len, reverse=True):
+        if not src:
+            continue
+        text = re.sub(re.escape(src), table[src], text, flags=re.IGNORECASE)
+    return text
+
+
 def build_ssml(text: str, voice: str = DEFAULT_VOICE,
-               rate: str = DEFAULT_RATE) -> str:
+               rate: str = DEFAULT_RATE, rules: dict | None = None) -> str:
     """SSML dokuments vienam ierunas tekstam.
 
     Teikumu robežas kļūst par īsām pauzēm: bez tām neironu balss ziņu
     tekstu izstāsta vienā elpas vilcienā, un klausītājam nesanāk saprast,
     kur beidzas viens fakts un sākas nākamais.
     """
+    text = spoken_text(text, rules)
     parts = [escape(p.strip()) for p in re.split(r"(?<=[.!?])\s+", text.strip())
              if p.strip()]
     body = '<break time="260ms"/>'.join(parts)
@@ -134,7 +166,8 @@ def build_ssml(text: str, voice: str = DEFAULT_VOICE,
 
 
 def _azure_audio(text: str, voice: str, session=None,
-                 errors: list | None = None) -> bytes:
+                 errors: list | None = None,
+                 rules: dict | None = None) -> bytes:
     """Azure Speech REST atbilde (b"" pie jebkuras kļūdas).
 
     errors: saraksts, kurā ielikt neizdošanās iemeslu. Azure atbilde pasaka,
@@ -154,7 +187,7 @@ def _azure_audio(text: str, voice: str, session=None,
                 "X-Microsoft-OutputFormat": OUTPUT_FORMAT,
                 "User-Agent": "TV3-Social-Autopilot/1.0",
             },
-            content=build_ssml(text, voice).encode("utf-8"))
+            content=build_ssml(text, voice, rules=rules).encode("utf-8"))
         if resp.status_code != 200:
             log.warning("TTS failed: HTTP %s %s", resp.status_code,
                         resp.text[:200])
@@ -210,11 +243,13 @@ def synthesize(text: str, out_dir: Path | str | None = None,
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     voice = voice_name(rules)
-    cached = _cache_path(text, voice, out_dir)
+    # kešojam pēc tā, kas tiks IZRUNĀTS: pielabojot izrunas vārdnīcu, vecais
+    # ieraksts kļūst nederīgs, un pēc šī atslēgas tas atkrīt pats
+    cached = _cache_path(spoken_text(text, rules), voice, out_dir)
     if not force and cached.exists() and cached.stat().st_size > 0:
         return str(cached)
 
-    audio = _SYNTHS[provider(rules)](text, voice, session, errors)
+    audio = _SYNTHS[provider(rules)](text, voice, session, errors, rules)
     if not audio:
         return ""
 

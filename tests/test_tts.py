@@ -431,3 +431,67 @@ def test_preview_lets_you_hear_the_reel(session, monkeypatch):
         body = c.get(f"/post/{post.id}/preview").text
     assert "<video" in body
     assert "muted" not in body.split("<video")[1].split(">")[0]
+
+
+# --- izruna ----------------------------------------------------------------
+
+def test_tv3_domain_is_read_as_three_not_third():
+    """Latviski punkts aiz cipara ir kārtas skaitlis: «tv3.lv» balss pati
+    nolasīja kā «tv TREŠAIS punkts lv». Domēnā tas ir tikai punkts."""
+    assert tts.spoken_text("Vairāk lasi tv3.lv.") == "Vairāk lasi tv trīs punkts lv."
+    assert "trešais" not in tts.spoken_text("lasi tv3.lv")
+    # arī lielie burti un teksts bez domēna
+    assert tts.spoken_text("Skaties TV3 Play") == "Skaties tv trīs pleij"
+    assert tts.spoken_text("TV3 raidījums") == "tv trīs raidījums"
+
+
+def test_longer_entries_win_over_shorter():
+    """«tv3.lv» nedrīkst tikt sadalīts pa «tv3», atstājot «.lv» karājoties."""
+    out = tts.spoken_text("tv3.lv")
+    assert out == "tv trīs punkts lv"
+    assert ".lv" not in out
+
+
+def test_pronunciation_can_be_extended_without_a_deploy():
+    rules = {"tts_pronunciation": {"LETA": "leta", "utt.": "un tā tālāk"}}
+    out = tts.spoken_text("Ziņu aģentūra LETA, utt.", rules)
+    assert "leta" in out and "un tā tālāk" in out
+    # noklusējumi paliek spēkā līdzās pielāgotajiem
+    assert tts.spoken_text("tv3.lv", rules) == "tv trīs punkts lv"
+
+
+def test_ssml_carries_the_spoken_form():
+    doc = tts.build_ssml("Namā iebruka jumts. Lasi tv3.lv.")
+    assert "tv trīs punkts lv" in doc
+    assert "tv3.lv" not in doc
+
+
+def test_written_script_is_left_alone():
+    """Priekšskatījumā redaktors grib redzēt «tv3.lv», nevis fonētiku."""
+    from app import reels
+
+    script = reels.voice_script(
+        "Namā daļēji iebruka jumts un pagalmā vēl guļ gruveši. Lēmums par "
+        "ēkas nākotni joprojām nav pieņemts. Lasi visu tv3.lv.")
+    assert "tv3.lv" in script          # rakstiskajā tekstā domēns paliek
+    assert "tv trīs" in tts.spoken_text(script)   # izrunā tas kļūst par skaņu
+
+
+def test_cache_key_follows_the_spoken_form(keyed, tmp_path, monkeypatch):
+    """Pielabojot izrunas vārdnīcu, vecais ieraksts nedrīkst atbildēt no keša."""
+    calls = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: (
+        calls.append(k["content"]), httpx.Response(200, content=b"ID3x"))[1])
+
+    text = "Namā iebruka jumts un jaunumi ir šeit: tv3.lv"
+    first = tts.synthesize(text, tmp_path, rules={"reel_voice": True},
+                           session=keyed)
+    # tā pati izruna -> kešs
+    tts.synthesize(text, tmp_path, rules={"reel_voice": True}, session=keyed)
+    assert len(calls) == 1
+
+    # cita izruna -> jauns fails, jauns pieprasījums
+    other = tts.synthesize(text, tmp_path, session=keyed, rules={
+        "reel_voice": True,
+        "tts_pronunciation": {"tv3.lv": "tevē trīs punkts el vē"}})
+    assert other != first and len(calls) == 2
