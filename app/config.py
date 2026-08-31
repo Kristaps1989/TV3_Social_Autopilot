@@ -79,6 +79,26 @@ def load_rules() -> dict[str, Any]:
     return _load_yaml(_editable("rules.yaml", RULES_DIR, DEFAULT_RULES_DIR))
 
 
+def missing_channels() -> list[str]:
+    """Kanāli, kas ir repo noklusējumos, bet nav rediģējamajā kopijā.
+
+    Rediģējamā kopija tiek uzsēta VIENU reizi un pēc tam vairs netiek
+    aiztikta (`ensure_editable_dirs`) — tas pasargā redaktora labojumus, bet
+    nozīmē arī, ka jauns kanāls vai formāts, kas parādās kodā, uz jau
+    strādājošas instances neparādās nekad. Tas ir kluss, un kluss nozīmē
+    nedēļas brīnīšanos, kāpēc kaut kas neiznāk.
+    """
+    editable = RULES_DIR / "channels.yaml"
+    default = DEFAULT_RULES_DIR / "channels.yaml"
+    if not editable.exists() or editable.resolve() == default.resolve():
+        return []
+    try:
+        have = set(_load_yaml(editable))
+        return sorted(set(_load_yaml(default)) - have)
+    except ConfigError:
+        return []
+
+
 def load_channels() -> dict[str, Any]:
     """Channels with active: false are hidden everywhere (dashboard,
     scheduling, publishing) until the flag is flipped — used to ship

@@ -17,8 +17,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import (auth, config, credentials, ga4, pagemeta, reels, runtime,
-                 shortlinks, tts)
+from app import (auth, config, credentials, ga4, manual, pagemeta, reels,
+                 runtime, shortlinks, tts)
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -543,7 +543,7 @@ def media(name: str):
 
 
 @app.get("/why", response_class=HTMLResponse)
-def why(request: Request, url: str = ""):
+def why(request: Request, url: str = "", msg: str = "", ok: str = ""):
     session = get_session()
     try:
         article = None
@@ -567,7 +567,36 @@ def why(request: Request, url: str = ""):
         return templates.TemplateResponse(request, "why.html", {
             "query": url, "article": article,
             "evaluations": evaluations, "posts": posts, "searched": bool(url),
+            "manual_options": manual.channel_options() if article else {},
+            "manual_unavailable": manual.unavailable() if article else [],
+            "missing_channels": config.missing_channels() if article else [],
+            "msg": msg, "msg_ok": ok == "1",
         })
+    finally:
+        session.close()
+
+
+@app.post("/article/{article_id}/make")
+def make_format(article_id: int, channel: str = Form(...), fmt: str = Form(...),
+                back: str = Form("")):
+    """Editor-requested format for one article (reel, carousel, photo …).
+
+    The automation proposes reels and carousels rarely by design; this is
+    how an editor says «this story is worth a reel» without waiting for the
+    AI to agree."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        article = session.get(Article, article_id)
+        if article is None:
+            return RedirectResponse("/articles", status_code=303)
+        post, message = manual.build(session, article, channel, fmt)
+        target = back or f"/why?url={quote(article.canonical_url or article.url)}"
+        joiner = "&" if "?" in target else "?"
+        return RedirectResponse(
+            f"{target}{joiner}msg={quote(message)}&ok={'1' if post else '0'}",
+            status_code=303)
     finally:
         session.close()
 

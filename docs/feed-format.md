@@ -135,3 +135,43 @@ adapters nav uzrakstīts. Ko noskaidrot sarunā:
    ~600 zīmes uz reelu, daži reeli dienā.
 5. Latency reāllaika izsaukumam (mums der līdz ~30 s, reels top fonā).
 6. Vai balsi drīkst izmantot publicētā sociālo tīklu saturā (licences apjoms).
+
+## Kad kāds formāts neparādās (reeli, karuseļi)
+
+Reels un card_carousel iet pa citu ceļu nekā parastie formāti, un tāpēc tie
+"pazūd" klusi. Ķēde, kurai visai jāsakrīt:
+
+1. **Kanāla `formats` sarakstā formāts ir.** Bez tā `resolve_format` AI
+   ierosinājumu klusi nomet un atgriežas pie saites ieraksta.
+2. **AI to ierosina.** Diversitātes dzinējs reelus un karuseļus NEKAD
+   neizvēlas (`formats.suitable_formats` tos izlaiž) — tiem vajag
+   `card_points`, ko var uzrakstīt tikai modelis.
+3. **AI to grib.** Promptā ir teikts taupīt (~2 reeli dienā kanālā) un
+   ikdienas ziņām dot priekšroku saites ierakstam.
+4. **Renderētājs strādā.** `reels.available()` = ffmpeg + Chromium.
+   Konteinerā abi ir; bez tiem formāts atkal klusi atkāpjas.
+5. **Rakstā ir vismaz 2 spēcīgi punkti.**
+
+Visbiežākais iemesls praksē ir **pirmais**, un tas ir viltīgs:
+`rules/channels.yaml` ir repo noklusējums, bet lietotne lasa rediģējamo
+kopiju `data/rules/channels.yaml` (vai `RULES_DIR`). Tā tiek uzsēta **vienu
+reizi** un pēc tam vairs netiek aiztikta — tas pasargā redaktora labojumus,
+bet nozīmē, ka kodā vēlāk pievienots formāts vai kanāls uz jau strādājošas
+instances neparādās nekad.
+
+Tāpēc `config.missing_channels()` un `manual.unavailable()` šo novirzi
+tagad parāda raksta skatā: "neviens aktīvs kanāls nepieņem formātu reel" ar
+norādi uz Noteikumiem, kur to izlabot.
+
+## Rokas vadība (`app/manual.py`)
+
+Raksta skatā (`/why`) redaktors var pieprasīt konkrētu formātu konkrētam
+rakstam, negaidot, kad AI tam piekritīs. Ieraksts iet caur to pašu ceļu, ko
+automātiskais: tā pati grafika (`resolve_format` / `format_media`), tā pati
+ieruna un tas pats laika plānotājs. Atšķiras tikai tas, kurš izvēlējās
+formātu — un ieraksts tiek atzīmēts ar `extra["manual"] = True`.
+
+Kanāla atstarpes un klusās stundas paliek spēkā arī rokas režīmā: tās sargā
+kontu, nevis ierobežo redaktoru, tāpēc "tūlīt" nozīmē "nākamajā derīgajā
+logā". Kartīšu punkti reelam un karuselim nāk no **raksta teksta** (skat.
+`pagemeta`), nevis no virsraksta.

@@ -7,6 +7,10 @@
   <button class="primary">Meklēt</button>
 </form>
 
+{% if msg %}
+<div class="notice {{ 'ok' if msg_ok else 'err' }}">{{ msg }}</div>
+{% endif %}
+
 {% if searched and not article %}
   <div class="notice err">Raksts nav atrasts. Vai tas vispār ir kādā no plūsmām?
   Pārbaudi statusu WordPress (varbūt tas ir "Don't publish" un plūsmā neparādās).</div>
@@ -34,6 +38,49 @@
     </tr>
     {% endfor %}
   </table>
+
+  <h3>Uztaisīt formātu ar roku</h3>
+  <p class="muted">Reelus un karuseļus automātika piedāvā reti — tos ierosina
+  tikai AI, un tai promptā ir teikts taupīt, jo ikdienas ziņai labāks ir
+  saites ieraksts. Ja zini, ka šis raksts ir lentes vērts, pasaki to pats.
+  Ieraksts iet caur to pašu ceļu: tā pati grafika, ieruna un laika plānotājs;
+  kanāla atstarpes un klusās stundas paliek spēkā, tāpēc «tūlīt» nozīmē
+  «nākamajā derīgajā logā».</p>
+  {% if manual_unavailable or missing_channels %}
+  <div class="notice err" style="background:#fef3c7;color:#92400e">
+    {% if manual_unavailable %}
+    <p style="margin:0 0 .4rem"><strong>Neviens aktīvs kanāls nepieņem formātu
+    {{ manual_unavailable | join(', ') }}.</strong> Tieši tāpēc tie neparādās:
+    AI to var ierosināt cik grib — ja kanāla <code>formats</code> sarakstā tā
+    nav, ieraksts klusi pārtop par saites ierakstu. Pielabo sadaļā
+    <a href="/settings">Noteikumi → Kanāli</a>: pievieno formātu vajadzīgā
+    kanāla <code>formats</code> rindai.</p>
+    {% endif %}
+    {% if missing_channels %}
+    <p style="margin:0">Konfigurācijā trūkst kanālu, kas ir koda
+    noklusējumos: <strong>{{ missing_channels | join(', ') }}</strong>.
+    Rediģējamā kopija tiek uzsēta vienu reizi, tāpēc vēlāk pievienotie kanāli
+    tur nenonāk paši — pievieno tos <a href="/settings">Noteikumos</a>.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% for channel, formats in manual_options.items() %}
+  {% if formats %}
+  <form method="post" action="/article/{{ article.id }}/make"
+        style="display:flex;gap:.5rem;align-items:center;margin:.4rem 0">
+    <input type="hidden" name="back" value="/why?url={{ (article.canonical_url or article.url) | urlencode }}">
+    <input type="hidden" name="channel" value="{{ channel }}">
+    <span style="min-width:9rem">{{ channel }}</span>
+    <select name="fmt">
+      {% for f in formats %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+    </select>
+    <button>Uztaisīt</button>
+  </form>
+  {% endif %}
+  {% endfor %}
+  <p class="muted">Reelam un karuselim vajag AI atslēgu (punkti nāk no raksta
+  teksta) un uzzīmētāju — ja tie nav pieejami, ieraksts netiek veidots un
+  iemesls parādās šeit augšā.</p>
 
   {% if posts %}
   <h3>Ieraksti</h3>

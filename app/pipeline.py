@@ -156,25 +156,13 @@ def run_decisions(session, limit: int = 20) -> int:
                                        reason=f"nav derīga laika: {why}"))
                 continue
 
-            idx = ch_dec.get("image_index") or 0
-            images = article.images or []
-            if fmt in ("card_carousel", "reel"):
-                media = card_media
-            elif fmt == "photo" and images:
-                media = [branded_photo(article, photo_base_image(article, idx),
-                                       cfg.get("platform", ""))]
-            elif fmt == "story":
-                media = story_media(article, images[idx] if idx < len(images)
-                                    else (images[0] if images else ""))
-                if not media:
-                    session.add(Evaluation(article_id=article.id, channel=channel,
-                                           outcome="blocked",
-                                           reason="story needs an image / renderer"))
-                    continue
-            elif fmt == "photo_album":
-                media = images[:10]
-            else:
-                media = []
+            media = format_media(article, cfg, fmt,
+                                 ch_dec.get("image_index") or 0, card_media)
+            if media is None:
+                session.add(Evaluation(article_id=article.id, channel=channel,
+                                       outcome="blocked",
+                                       reason="story needs an image / renderer"))
+                continue
             from app import cards as cards_mod
 
             post = Post(
@@ -342,6 +330,28 @@ def story_media(article, image_url: str) -> list[str]:
             log.warning("story render failed for article %s: %s", article.id, e)
             cards.record_render_failure("story", e)
     return [image_url] if image_url else []
+
+
+def format_media(article, cfg: dict, fmt: str, idx: int = 0,
+                 card_media: list | None = None) -> list[str] | None:
+    """Media faili šim formātam. None = šo formātu šim rakstam uzzīmēt nevar.
+
+    Karuselim un reelam grafika jau ir uzbūvēta (resolve_format), pārējiem
+    to zīmējam te. Atsevišķa funkcija tāpēc, ka to pašu vajag arī redaktora
+    rokas vadībai — tur formātu izvēlas cilvēks, nevis AI.
+    """
+    images = article.images or []
+    if fmt in ("card_carousel", "reel"):
+        return list(card_media or [])
+    if fmt == "photo" and images:
+        return [branded_photo(article, photo_base_image(article, idx),
+                              cfg.get("platform", ""))]
+    if fmt == "story":
+        return story_media(article, images[idx] if idx < len(images)
+                           else (images[0] if images else "")) or None
+    if fmt == "photo_album":
+        return images[:10]
+    return []
 
 
 def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
