@@ -315,6 +315,38 @@ formātu un āķu mācīšanās.</p>
 </div>
 
 <div class="card" style="margin-top:1rem">
+  <h2>Stāsti: video pret attēlu</h2>
+  <p class="muted">Stāsts un reels ir viens un tas pats 9:16 formāts, tāpēc
+  stāstā tiek likta jau uzbūvētā raksta lente — otrreiz renderēt nav jēgas, un
+  tieši stāstos ieruna nostrādā: stāstus skatās ar skaņu, plūsmā lentes bieži
+  sākas klusas. <b>Uzmanību:</b> stāstā saite caur API nav klikšķināma, tāpēc
+  «rezultāts» te gandrīz vienmēr nozīmē sasniegumu, nevis klikšķus uz tv3.lv.</p>
+  <table>
+    <tr><th>Stāsts</th><th class="n">Vid. rezultāts</th><th class="n">Vid. klikšķi</th>
+        <th class="n">Vid. rādījumi</th><th class="n">Ieraksti</th></tr>
+    <tr><td>Video (lente)</td>
+        <td class="n"><strong>{{ '%.0f' % story_ab.video.avg }}</strong></td>
+        <td class="n">{{ '%.0f' % story_ab.video.clicks }}</td>
+        <td class="n">{{ '%.0f' % story_ab.video.impressions }}</td>
+        <td class="n">{{ story_ab.video.n }}</td></tr>
+    <tr><td>Statisks attēls</td>
+        <td class="n"><strong>{{ '%.0f' % story_ab.image.avg }}</strong></td>
+        <td class="n">{{ '%.0f' % story_ab.image.clicks }}</td>
+        <td class="n">{{ '%.0f' % story_ab.image.impressions }}</td>
+        <td class="n">{{ story_ab.image.n }}</td></tr>
+  </table>
+  {% if story_ab.lift %}
+  <p class="muted">Video stāsts dod
+  <strong>{{ '%+.0f' % ((story_ab.lift - 1) * 100) }}%</strong> pret attēlu —
+  virziena rādītājs, nevis pierādījums.</p>
+  {% else %}
+  <p class="muted">Vēl nav ar ko salīdzināt — vajag vismaz
+  {{ story_ab.min_n }} izmērītus stāstus katrā pusē. Video stāsts rodas tad, kad
+  rakstam ir uzbūvēta lente (skat. <code>story_reuses_reel</code> Noteikumos).</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem">
   <h2>Āķu A/B testi (starpplatformu)</h2>
   <p class="muted">AI katram rakstam dažādās platformās apzināti lieto atšķirīgus copy āķu
   stilus; saites nes <code>utm_term</code>, tāpēc rezultātu mēra reālās tv3.lv sesijas.

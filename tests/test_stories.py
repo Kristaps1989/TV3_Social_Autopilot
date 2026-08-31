@@ -279,7 +279,7 @@ def test_is_video_detection():
 
 
 def test_story_media_prefers_real_video(session, monkeypatch):
-    from app import pipeline, reels
+    from app import reels
 
     captured = {}
 
@@ -426,3 +426,96 @@ def test_prebranded_images_keep_their_own_headline(session, monkeypatch):
     out = pipeline.story_media(a, "https://tv3cdn.lv/photopost/2026/abc.jpg")
     assert out == ["data/cards/story_x.png"]
     assert captured["with_title"] is False
+
+
+# --- lente stāstā ----------------------------------------------------------
+
+def test_story_reuses_the_articles_reel(session):
+    """Stāsts un reels ir viens 9:16 formāts — otrreiz renderēt nav jēgas."""
+    from app import pipeline
+    from app.models import Article, Post
+
+    a = Article(guid="sr-1", url="https://tv3.lv/sr", canonical_url="https://tv3.lv/sr",
+                title="Ziņa", section="news", images=["https://cdn/i.jpg"],
+                raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb_tv3lv", format="reel",
+                     media=["https://cdn.tv3.lv/reel_a.mp4"], state="published",
+                     extra={"recipe": {"kind": "article_reel", "voiced": True}}))
+    session.flush()
+
+    assert pipeline.article_reel_file(a) == "https://cdn.tv3.lv/reel_a.mp4"
+    assert pipeline.story_media(a, "https://cdn/i.jpg") == \
+        ["https://cdn.tv3.lv/reel_a.mp4"]
+
+
+def test_story_prefers_the_voiced_reel(session):
+    from app import pipeline
+    from app.models import Article, Post
+
+    a = Article(guid="sr-2", url="https://tv3.lv/s2", canonical_url="https://tv3.lv/s2",
+                title="Ziņa", section="news", images=["https://cdn/i.jpg"],
+                raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb_tv3lv", format="reel",
+                     media=["https://cdn.tv3.lv/silent.mp4"], state="published",
+                     extra={"recipe": {"voiced": False}}))
+    session.flush()
+    session.add(Post(article_id=a.id, channel="ig_tv3lv", format="reel",
+                     media=["https://cdn.tv3.lv/voiced.mp4"], state="published",
+                     extra={"recipe": {"voiced": True}}))
+    session.flush()
+
+    # stāstos skaņa nostrādā, tāpēc ierunātā lente uzvar pār jaunāko klusu
+    assert pipeline.article_reel_file(a) == "https://cdn.tv3.lv/voiced.mp4"
+
+
+def test_story_reuse_can_be_turned_off(session):
+    from app import pipeline
+    from app.models import Article, Post
+
+    a = Article(guid="sr-3", url="https://tv3.lv/s3", canonical_url="https://tv3.lv/s3",
+                title="Ziņa", section="news", images=["https://cdn/i.jpg"],
+                raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb_tv3lv", format="reel",
+                     media=["https://cdn.tv3.lv/reel_b.mp4"], state="published",
+                     extra={"recipe": {"voiced": True}}))
+    session.flush()
+
+    assert pipeline.article_reel_file(a, rules={"story_reuses_reel": False}) == ""
+
+
+def test_story_ignores_a_reel_whose_file_is_gone(session):
+    from app import pipeline
+    from app.models import Article, Post
+
+    a = Article(guid="sr-4", url="https://tv3.lv/s4", canonical_url="https://tv3.lv/s4",
+                title="Ziņa", section="news", images=["https://cdn/i.jpg"],
+                raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb_tv3lv", format="reel",
+                     media=["/data/cards/nolonger_here.mp4"], state="published",
+                     extra={"recipe": {"voiced": True}}))
+    session.flush()
+
+    assert pipeline.article_reel_file(a) == ""
+
+
+def test_reel_channels_are_decided_before_the_rest():
+    """Stāsts var pārizmantot lenti tikai tad, ja tā jau ir uzbūvēta."""
+    from app import pipeline
+
+    ordered = pipeline.order_channels([
+        {"channel": "fb_stories", "format": "story"},
+        {"channel": "fb_tv3lv", "format": "reel"},
+        {"channel": "ig_tv3lv", "format": "card_carousel"},
+        {"channel": "x_tv3zinas", "format": "link"}])
+    assert [d["format"] for d in ordered[:2]] == ["reel", "card_carousel"]
+    assert ordered[-1]["format"] == "link"
+    # pārējā secība netiek jaukta (stabila kārtošana)
+    assert ordered[2]["channel"] == "fb_stories"

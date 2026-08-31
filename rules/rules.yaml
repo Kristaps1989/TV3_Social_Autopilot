@@ -110,6 +110,11 @@ cms_short_links: false
 # sadaļā) reels iznāk kluss — teksts tik un tā glabājas receptē un ir
 # redzams priekšskatījumā. false = pat ar atslēgu neizmantot.
 reel_voice: true
+# Stāstos likt jau uzbūvēto raksta lenti, nevis statisku attēlu. Stāsts un
+# reels ir viens un tas pats 9:16 formāts, tāpēc otrreiz renderēt nav jēgas,
+# un tieši stāstos ieruna nostrādā vislabāk: stāstus skatās ar skaņu, plūsmā
+# lentes bieži sākas klusas. false = stāstos paliek attēls.
+story_reuses_reel: true
 # Balss pakalpojums. Ieviests: azure (Azure Speech, atslēga Konti sadaļā).
 # Otrs kandidāts ir tilde (tilde.ai) — latviešu balsis ar pielāgojamām
 # izrunas vārdnīcām, kas īpašvārdus lokatīvā izrunā pareizāk; tā cena un

@@ -30,6 +30,7 @@ FRAME_SECONDS = 2.8
 MAX_POINTS = 3
 MAX_VIDEO_SECONDS = 45      # reels teaser: pietiek āķim, pārējais rakstā
 STORY_MAX_SECONDS = 30      # video stories: API limits 60 s, labā prakse īsāk
+STORY_API_MAX_SECONDS = 60  # Facebook video stāsta griesti
 MAX_VIDEO_BYTES = 300 * 1024 * 1024
 VOICE_MAX_WORDS = 90        # ~30 s runas; garāka ieruna vairs nav teaseris
 VOICE_TAIL_SECONDS = 0.6    # CTA kadrs paliek redzams pēc pēdējā vārda

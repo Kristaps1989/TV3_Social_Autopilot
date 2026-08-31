@@ -175,3 +175,36 @@ Kanāla atstarpes un klusās stundas paliek spēkā arī rokas režīmā: tās s
 kontu, nevis ierobežo redaktoru, tāpēc "tūlīt" nozīmē "nākamajā derīgajā
 logā". Kartīšu punkti reelam un karuselim nāk no **raksta teksta** (skat.
 `pagemeta`), nevis no virsraksta.
+
+## Lente stāstā (video stāsti)
+
+Stāsts un reels ir viens un tas pats formāts — 9:16, 1080×1920 — un
+publicētājs video stāstus jau prot (`/video_stories` Facebook adapterī).
+Trūka tikai tā, kas video stāstam uztaisa video: līdz šim tas radās vienīgi
+tad, kad plūsmā bija īsts raksta klips, un tāda lauka plūsmā vēl nav. Praksē
+tas nozīmēja, ka **katrs stāsts bija statisks attēls**.
+
+Tagad `story_media` pēc kārtas mēģina:
+
+1. īsto raksta klipu (`reels.article_video`) — vislabākais materiāls;
+2. **šī paša raksta jau uzbūvēto lenti** (`article_reel_file`) — viens fails,
+   divas vietas, nulle papildu renderēšanas;
+3. brendēto stāsta attēlu;
+4. neapstrādāto raksta attēlu.
+
+Kāpēc tieši stāstos: **stāstus skatās ar skaņu**, plūsmā lentes bieži sākas
+klusas. Tāpēc, ja rakstam ir gan ierunāta, gan klusa lente, stāstā tiek
+likta ierunātā — ieruna tur tiešām tiek dzirdēta. Griesti ir 60 s (Facebook
+video stāsta limits); garāku lenti stāstā nemēģinām likt.
+
+`order_channels` liek reelu un karuseļu kanālus lēmumu ciklā pirmos — stāsts
+lenti var pārizmantot tikai tad, ja tā jau eksistē. Bez tā video stāsts
+sanāktu atkarībā no tā, kādā secībā AI kanālus uzskaitīja.
+
+Izslēdz ar `story_reuses_reel: false`.
+
+**Ko atcerēties, vērtējot rezultātu:** stāstā saite caur API nav klikšķināma
+(`click_weight: 0.3` kanāla konfigurācijā). Tāpēc statistikā «Stāsti: video
+pret attēlu» rezultāts gandrīz vienmēr nozīmē sasniegumu, nevis klikšķus uz
+tv3.lv. Video stāsts var uzvarēt pēc noskatīšanās un tomēr nedot vairāk
+apmeklējumu — ja mērķis ir klikšķi, izšķirošais paliek saites ieraksts.

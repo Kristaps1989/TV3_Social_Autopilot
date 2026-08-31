@@ -134,37 +134,59 @@ def hook_summary(session, min_n: int = 4) -> list[dict]:
     return out
 
 
+def _group_stats(group: list[dict]) -> dict:
+    n = len(group)
+    if not n:
+        return {"n": 0, "avg": 0.0, "clicks": 0.0, "impressions": 0.0}
+    return {
+        "n": n,
+        "avg": sum(r["score"] for r in group) / n,
+        "clicks": sum(r["clicks"] for r in group) / n,
+        "impressions": sum(r["impressions"] for r in group) / n,
+    }
+
+
+def _ab(rows: list[dict], predicate, min_n: int, days: int) -> dict:
+    """Divu grupu salīdzinājums ar godīgu "vēl nezinām".
+
+    `lift` parādās TIKAI tad, kad abās pusēs ir vismaz min_n izmērītu
+    ierakstu. Arī tad tas ir virziena rādītājs, nevis statistiski nozīmīgs
+    rezultāts: pie dažiem ierakstiem dienā viens veiksmīgs raksts pārsver
+    visu pārējo.
+    """
+    a = _group_stats([r for r in rows if predicate(r)])
+    b = _group_stats([r for r in rows if not predicate(r)])
+    enough = a["n"] >= min_n and b["n"] >= min_n
+    return {"a": a, "b": b, "enough": enough,
+            "lift": a["avg"] / b["avg"] if enough and b["avg"] > 0 else None,
+            "min_n": min_n, "days": days}
+
+
 def voice_summary(session, min_n: int = 3, days: int = DAYS) -> dict:
     """Vai ieruna reeliem palīdz: ar balsi pret klusiem.
 
     Salīdzinām TIKAI reelus savā starpā — pret saites ierakstu lente zaudē
     formāta, nevis balss dēļ, un tāda "atziņa" būtu maldinoša.
-
-    `enough` pasaka, vai abās pusēs ir vismaz min_n izmērītu ierakstu. Pat
-    tad tas ir virziena rādītājs, nevis statistiski nozīmīgs rezultāts: pie
-    dažiem reeliem dienā viens veiksmīgs raksts pārsver visu pārējo.
     """
     rows = [r for r in post_scores(session, days=days) if r["format"] == "reel"]
-    groups = {"voiced": [r for r in rows if r["voiced"]],
-              "silent": [r for r in rows if not r["voiced"]]}
+    out = _ab(rows, lambda r: r["voiced"], min_n, days)
+    return {**out, "voiced": out["a"], "silent": out["b"]}
 
-    def _stats(group: list[dict]) -> dict:
-        n = len(group)
-        if not n:
-            return {"n": 0, "avg": 0.0, "clicks": 0.0, "impressions": 0.0}
-        return {
-            "n": n,
-            "avg": sum(r["score"] for r in group) / n,
-            "clicks": sum(r["clicks"] for r in group) / n,
-            "impressions": sum(r["impressions"] for r in group) / n,
-        }
 
-    voiced, silent = _stats(groups["voiced"]), _stats(groups["silent"])
-    enough = voiced["n"] >= min_n and silent["n"] >= min_n
-    lift = (voiced["avg"] / silent["avg"]
-            if enough and silent["avg"] > 0 else None)
-    return {"voiced": voiced, "silent": silent, "enough": enough,
-            "lift": lift, "min_n": min_n, "days": days}
+def story_summary(session, min_n: int = 3, days: int = DAYS) -> dict:
+    """Vai video stāsts pārspēj statisku attēlu.
+
+    Stāstos saite caur API nav klikšķināma, tāpēc te "rezultāts" gandrīz
+    vienmēr nozīmē sasniegumu, nevis klikšķus uz tv3.lv — to ir vērts
+    atcerēties, pirms pieņemt lēmumu.
+    """
+    from adapters.base import is_video
+
+    rows = [r for r in post_scores(session, days=days) if r["format"] == "story"]
+    out = _ab(rows,
+              lambda r: bool(r["post"].media) and is_video(str(r["post"].media[0])),
+              min_n, days)
+    return {**out, "video": out["a"], "image": out["b"]}
 
 
 def top_posts(session, limit: int = 10) -> list[dict]:

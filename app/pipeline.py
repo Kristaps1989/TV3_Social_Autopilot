@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -79,7 +80,7 @@ def run_decisions(session, limit: int = 20) -> int:
             session.commit()
             continue
 
-        for ch_dec in decision.get("channels") or []:
+        for ch_dec in order_channels(decision.get("channels") or []):
             channel = ch_dec.get("channel", "")
             verdict = verdicts.get(channel)
             cfg = channels_cfg.get(channel)
@@ -305,10 +306,66 @@ def branded_photo(article, image_url: str, platform: str = "") -> str:
         return image_url
 
 
+def order_channels(channel_decisions: list[dict]) -> list[dict]:
+    """Vispirms tie kanāli, kuros top video vai karuselis.
+
+    Stāsts pārizmanto jau uzbūvēto lenti (`article_reel_file`), bet atrast to
+    var tikai tad, ja tā jau eksistē. Bez šīs kārtības video stāsts sanāktu
+    pēc veiksmes — atkarībā no tā, kādā secībā AI kanālus uzskaitīja.
+    """
+    return sorted(channel_decisions,
+                  key=lambda d: 0 if d.get("format") in ("reel", "card_carousel")
+                  else 1)
+
+
+def article_reel_file(article, rules: dict | None = None) -> str:
+    """Šī raksta jau uzbūvētā lente, ko var likt arī stāstā ('' ja nav).
+
+    Stāsts un reels ir viens un tas pats 9:16 formāts, tāpēc otrreiz to
+    renderēt nav jēgas — viens fails, divas vietas. Un tieši stāstos ieruna
+    nostrādā vislabāk: stāstus skatās ar skaņu, plūsmā lentes bieži sākas
+    klusas.
+
+    Priekšroka ierunātai lentei: ja ir abas, stāstā liekam to, kas runā.
+    """
+    from adapters.base import is_video
+
+    rules = config.load_rules() if rules is None else rules
+    if not (rules or {}).get("story_reuses_reel", True):
+        return ""
+
+    from app import reels
+
+    candidates = []
+    for post in sorted(article.posts or [], key=lambda p: p.id, reverse=True):
+        if post.format != "reel" or not post.media:
+            continue
+        first = str(post.media[0])
+        if not is_video(first):
+            continue
+        if not first.startswith("http") and not Path(first).exists():
+            continue    # fails no vecāka ieraksta jau nodzēsts
+        candidates.append((reels.has_voice(post), first))
+    if not candidates:
+        return ""
+    # ierunātā priekšā; sarakstā jau ir jaunākais pirmais
+    candidates.sort(key=lambda c: not c[0])
+    chosen = candidates[0][1]
+    if reels.available():
+        seconds = reels.media_duration(chosen)
+        # Facebook video stāsta griesti ir 60 s; garāku nemēģinām sūtīt
+        if seconds > reels.STORY_API_MAX_SECONDS:
+            log.info("reel %s too long for a story (%.0fs)", chosen, seconds)
+            return ""
+    return chosen
+
+
 def story_media(article, image_url: str) -> list[str]:
     """Vertical story media. An article with a real 9:16 clip becomes a
-    VIDEO story (clip + CTA end card); otherwise the branded story image;
-    falls back to the raw article image; empty when nothing visual exists."""
+    VIDEO story (clip + CTA end card); failing that the article's own reel is
+    reused (same 9:16 file, and in a story the voice-over is actually heard);
+    otherwise the branded story image; falls back to the raw article image;
+    empty when nothing visual exists."""
     from app import cards, reels
 
     video = reels.article_video(article)
@@ -319,6 +376,9 @@ def story_media(article, image_url: str) -> list[str]:
         except Exception as e:  # noqa: BLE001
             log.warning("video story failed for article %s: %s", article.id, e)
             cards.record_render_failure("story", e)
+    reused = article_reel_file(article)
+    if reused:
+        return [reused]
     if cards.renderer_available():
         try:
             # a pre-branded source keeps its own headline; we add only the
