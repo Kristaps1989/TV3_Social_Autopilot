@@ -3,13 +3,18 @@
 A reel is an explainer teaser built from content we already have: a cover
 frame (the story layout with the title plate), 2-3 point frames from the
 AI's card_points, and a closing frame that is pure CTA — read the full
-story on tv3.lv. A slow Ken Burns zoom keeps the stills alive. Audio is a
-silent track: Meta's music library is not licensable through the API.
+story on tv3.lv. A slow Ken Burns zoom keeps the stills alive.
+
+Audio is a silent track by default — Meta's music library is not licensable
+through the API — but a reel can carry a voice-over instead: pass a narration
+file to `build_reel` and the frames stretch to the length of the speech, so
+the CTA frame still lands after the last spoken word.
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -26,6 +31,9 @@ MAX_POINTS = 3
 MAX_VIDEO_SECONDS = 45      # reels teaser: pietiek āķim, pārējais rakstā
 STORY_MAX_SECONDS = 30      # video stories: API limits 60 s, labā prakse īsāk
 MAX_VIDEO_BYTES = 300 * 1024 * 1024
+VOICE_MAX_WORDS = 90        # ~30 s runas; garāka ieruna vairs nav teaseris
+VOICE_TAIL_SECONDS = 0.6    # CTA kadrs paliek redzams pēc pēdējā vārda
+VOICE_MAX_SECONDS = 60
 
 # Feed lauki, kuros meklēt raksta videoklipu (tv3.lv/video 9:16 klipi)
 VIDEO_KEYS = ("video", "video_url", "videoUrl", "video_src", "video_file",
@@ -42,6 +50,55 @@ def article_video(article) -> str:
         if isinstance(v, str) and v.startswith("http"):
             return v
     return ""
+
+
+_URL_RE = re.compile(r"https?://\S+|\b\w+\.(?:lv|com|eu)/\S*")
+_SPOKEN_JUNK_RE = re.compile(r"[()\[\]{}<>*_#|]+")
+
+
+def voice_script(text: str, max_words: int = VOICE_MAX_WORDS) -> str:
+    """Ierunas teksts, sagatavots runāšanai ('' ja nav ko runāt).
+
+    Balss nolasa visu, kas tekstā ir: saiti tā izrunā pa burtiem, iekavas
+    pārtrauc plūdumu. Tāpēc tie te tiek izņemti, nevis atstāti runātājam.
+    Garumu griežam pie teikuma robežas — pusteikums balsī skan kā kļūda.
+    """
+    text = _URL_RE.sub("", text or "")
+    text = _SPOKEN_JUNK_RE.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    words = text.split()
+    if len(words) < 12:
+        return ""   # par īsu, lai būtu ieruna; labāk klusa lente
+    if len(words) > max_words:
+        text = " ".join(words[:max_words])
+        cut = max(text.rfind(". "), text.rfind("! "), text.rfind("? "))
+        text = text[:cut + 1] if cut > 40 else text.rstrip(" ,;:") + "."
+    return text.strip()
+
+
+def media_duration(path: str | Path) -> float:
+    """Ieraksta garums sekundēs (0.0, ja neizdodas nolasīt)."""
+    proc = subprocess.run([ffmpeg_bin(), "-hide_banner", "-i", str(path)],
+                          capture_output=True, text=True, timeout=60)
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", proc.stderr)
+    if not m:
+        return 0.0
+    h, mnt, sec = m.groups()
+    return int(h) * 3600 + int(mnt) * 60 + float(sec)
+
+
+def _stretch_to_voice(durations: list[float], voice_seconds: float) -> list[float]:
+    """Kadru garumi, izstiepti tā, lai ieruna paspētu izskanēt.
+
+    Proporcionāli, nevis pieliekot visu pēdējam kadram: citādi CTA kadrs
+    stāv desmit sekundes, kamēr saturs pazib garām.
+    """
+    total = sum(durations)
+    target = min(voice_seconds + VOICE_TAIL_SECONDS, VOICE_MAX_SECONDS)
+    if not durations or total <= 0 or target <= total:
+        return durations
+    factor = target / total
+    return [d * factor for d in durations]
 
 
 def ffmpeg_bin() -> str:
@@ -146,14 +203,30 @@ def _run_ffmpeg(args: list[str]) -> None:
 
 def _assemble(frames: list[Path], workdir: Path, out: Path,
               frame_seconds: float = FRAME_SECONDS,
-              durations: list[float] | None = None) -> None:
+              durations: list[float] | None = None,
+              voice: str | Path | None = None) -> float:
     """durations: sekundes katram kadram atsevišķi (piem., īss intro/outro ap
-    garākiem satura kadriem); bez tā visi kadri ir frame_seconds gari."""
+    garākiem satura kadriem); bez tā visi kadri ir frame_seconds gari.
+
+    voice: ierunas audio fails. Kadri tiek izstiepti līdz runas garumam
+    (citādi balss tiktu nogriezta pusvārdā), un skaņa aiziet līdzi klusuma
+    celiņa vietā."""
+    if voice:
+        seconds = media_duration(voice)
+        if seconds > 0:
+            base = durations or [frame_seconds] * len(frames)
+            durations = _stretch_to_voice(base, seconds)
+        else:
+            log.warning("voice track %s has no readable duration — silent reel",
+                        voice)
+            voice = None
     segments = []
+    total_frames = 0
     for i, png in enumerate(frames):
         seconds = (durations[i] if durations and i < len(durations)
                    else frame_seconds)
         per_frame = int(seconds * FPS)
+        total_frames += per_frame
         seg = workdir / f"seg{i}.mp4"
         # upscale first so the zoom pans over subpixels instead of jittering
         _run_ffmpeg([
@@ -167,10 +240,23 @@ def _assemble(frames: list[Path], workdir: Path, out: Path,
         segments.append(seg)
     lst = workdir / "list.txt"
     lst.write_text("".join(f"file '{s}'\n" for s in segments), encoding="utf-8")
-    _run_ffmpeg([
-        "-f", "concat", "-safe", "0", "-i", str(lst),
-        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-shortest", "-c:v", "copy", "-c:a", "aac", "-b:a", "64k", str(out)])
+    video_seconds = total_frames / FPS
+    if voice:
+        # apad pieliek klusumu aiz pēdējā vārda, lai CTA kadrs nepaliek bez
+        # skaņas celiņa. Beigas nosaka -t, nevis -shortest: apad ģenerē
+        # bezgalīgu klusumu, un -shortest caur filtru neizplatās — ffmpeg
+        # tad kodē mūžīgi.
+        _run_ffmpeg([
+            "-f", "concat", "-safe", "0", "-i", str(lst), "-i", str(voice),
+            "-map", "0:v", "-map", "1:a", "-af", "apad",
+            "-t", f"{video_seconds:.3f}",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", str(out)])
+    else:
+        _run_ffmpeg([
+            "-f", "concat", "-safe", "0", "-i", str(lst),
+            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-shortest", "-c:v", "copy", "-c:a", "aac", "-b:a", "64k", str(out)])
+    return video_seconds
 
 
 def _fetch_video(url: str, dest: Path) -> str:
@@ -257,7 +343,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                include_cover: bool = True,
                include_end: bool = True,
                cover_images: list[str] | None = None,
-               point_images: list[str] | None = None) -> str:
+               point_images: list[str] | None = None,
+               voice: str | Path | None = None) -> str:
     """Render frames and assemble the MP4; returns the local file path.
 
     Teaseri: vāks + īsi punkti + CTA kadrs, 2.8 s kadrā. Digest (nedēļas
@@ -287,7 +374,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
     with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
         workdir = Path(tmp)
         frames = _render_frames(docs, workdir)
-        _assemble(frames, workdir, out, durations=durations)
-    log.info("reel built: %s (%d frames, %.0fs total)",
-             out.name, len(docs), sum(durations))
+        total = _assemble(frames, workdir, out, durations=durations,
+                          voice=voice)
+    log.info("reel built: %s (%d frames, %.0fs total%s)",
+             out.name, len(docs), total, ", ar ierunu" if voice else "")
     return str(out)

@@ -18,6 +18,9 @@ Kāpēc tas ir vērtīgi:
   to nepiemin: tas tieši nosaka, vai reel/photo_album vispār ir uz galda.
 * **Label** ("Tikai tv3.lv") atzīmē ekskluzīvu saturu, ko ir vērts stumt.
 * **Content length** atšķir īsziņu no gara lasāmgabala (karuselis/skaidrojums).
+* **Raksta teksts** (pirmās rindkopas) dod AI īsto saturu, nevis tikai
+  virsrakstu ar ievadu — no tā top gan kartīšu punkti, gan reela ierunas
+  teksts.
 
 Viss ir defensīvs: ja lapa neatbild vai izskatās citādi, atgriežas tukšs
 dict un viss pārējais strādā tieši tāpat kā līdz šim.
@@ -27,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from html import unescape
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
@@ -183,8 +187,95 @@ def parse(html: str) -> dict:
                          or fallbacks.get("publish_date", "")),
         "page_type": _pick(data, _KEYS["page_type"]),
         "source": _pick(data, _KEYS["source"]),
+        # raksta pirmās rindkopas — darba materiāls AI punktiem un ierunai
+        "body": body_text(html or ""),
     }
     return meta if any(meta.values()) else {}
+
+
+# Cik raksta teksta paturam. Ierunas tekstam vajag ~90 vārdus, kartīšu
+# punktiem dažas rindkopas; ziņu rakstā būtiskais tāpat ir sākumā (apgrieztā
+# piramīda). Vairāk būtu raksta pārpublicēšana datubāzē, nevis darba materiāls.
+BODY_LIMIT = 3000
+MIN_PARAGRAPH = 40
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_SCRIPT_RE = re.compile(r"<(script|style|noscript|figure|figcaption|aside|form)"
+                        r"\b.*?</\1>", re.I | re.S)
+_P_RE = re.compile(r"<p\b[^>]*>(.*?)</p>", re.I | re.S)
+_CONTENT_RE = re.compile(
+    r"<(article|div)\b[^>]*(?:class|id)=[\"'][^\"']*"
+    r"(article-(?:body|content)|entry-content|post-content|content-body)"
+    r"[^\"']*[\"'][^>]*>(?P<body>.*?)</\1>", re.I | re.S)
+
+# Rindkopas, kas nav raksts: saistītie, foto paraksti, aicinājumi, sīkdatnes.
+_JUNK_STARTS = (
+    "lasi arī", "lasi vēl", "vairāk par tēmu", "saistītie raksti",
+    "foto:", "video:", "attēls:", "avots:", "reklāma", "abonē",
+    "seko mums", "pievienojies", "kļūda tekstā", "piesakies jaunumiem",
+    "komentāri", "publicitātes foto", "ekrānuzņēmums",
+)
+
+
+def _clean_paragraph(html_fragment: str) -> str:
+    text = _TAG_RE.sub(" ", html_fragment)
+    text = unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _is_junk(text: str) -> bool:
+    low = text.lower()
+    if any(low.startswith(j) for j in _JUNK_STARTS):
+        return True
+    # bezvārdu bloki: "TV3 | Foto: LETA" un tamlīdzīgi
+    return len(text) < MIN_PARAGRAPH or text.count(" ") < 4
+
+
+def paragraphs(html: str) -> list[str]:
+    """Raksta rindkopas no lapas HTML (tukšs saraksts, ja nesanāk).
+
+    Vispirms JSON-LD `articleBody` (tīrākais avots, ja portāls to dod), tad
+    raksta konteinera <p> tagi, un tikai galējā gadījumā visas lapas <p> —
+    pēdējais variants savāktu arī izvēlni un kājeni, tāpēc rindkopas tiek
+    filtrētas pēc garuma un tipiskiem "nav raksts" sākumiem.
+    """
+    if not html:
+        return []
+    ld = _json_ld_body(html)
+    if ld:
+        return [p for p in (x.strip() for x in re.split(r"\n+", ld)) if p]
+    cleaned = _SCRIPT_RE.sub(" ", html)
+    match = _CONTENT_RE.search(cleaned)
+    scope = match.group("body") if match else cleaned
+    found = [_clean_paragraph(m) for m in _P_RE.findall(scope)]
+    return [p for p in found if not _is_junk(p)]
+
+
+def _json_ld_body(html: str) -> str:
+    """`articleBody` no schema.org JSON-LD ('' ja nav)."""
+    for m in re.finditer(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+                         html, re.I | re.S):
+        try:
+            data = json.loads(m.group(1).strip())
+        except ValueError:
+            continue
+        for node in (data if isinstance(data, list) else [data]):
+            if isinstance(node, dict) and node.get("articleBody"):
+                return str(node["articleBody"])
+    return ""
+
+
+def body_text(html: str, limit: int = BODY_LIMIT) -> str:
+    """Raksta teksts vienā gabalā, apgriezts pie veselas rindkopas."""
+    out = ""
+    for para in paragraphs(html):
+        if not out:
+            out = para
+        elif len(out) + len(para) + 1 <= limit:
+            out = f"{out}\n{para}"
+        else:
+            break
+    return out[:limit].strip()
 
 
 def fetch(url: str, timeout: int = 10) -> str:
@@ -309,6 +400,15 @@ def tracked_short_url(article, tracked_url: str) -> str:
         return ""
     query = urlparse(tracked_url or "").query
     return f"{base}?{query}" if query else base
+
+
+def article_body(article) -> str:
+    """Raksta teksts no lapas ('' ja nav ievilkts)."""
+    return str(meta(article).get("body") or "")
+
+
+def has_body(article) -> bool:
+    return bool(article_body(article))
 
 
 def author(article) -> str:

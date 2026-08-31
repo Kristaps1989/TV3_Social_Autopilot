@@ -229,3 +229,83 @@ def test_build_reel_end_to_end(monkeypatch, tmp_path):
     path = tmp_path / out.split("/")[-1]
     assert path.exists() and path.stat().st_size > 10000
     assert path.suffix == ".mp4"
+
+
+# --- ieruna (voice-over) ---------------------------------------------------
+
+def _synthetic_voice(path, ffmpeg, seconds=12):
+    """Runas vietā sinuss — mums svarīgs ir garums, nevis saturs."""
+    import subprocess
+
+    subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-f", "lavfi",
+                    "-i", f"sine=frequency=220:duration={seconds}",
+                    "-c:a", "aac", str(path)], check=True, capture_output=True)
+
+
+def test_voice_script_prepares_text_for_speaking():
+    from app import reels
+
+    raw = ("Rīgā (Bauskas ielā) notika sprādziens. Vairāk lasi "
+           "https://tv3.lv/zinas/kas-notika — tur ir viss stāsts par namu.")
+    script = reels.voice_script(raw)
+    assert "https://" not in script and "(" not in script
+    assert "Bauskas ielā notika sprādziens." in script
+    assert "  " not in script
+
+
+def test_voice_script_cuts_at_a_sentence():
+    from app import reels
+
+    long_text = "Šis ir viens pilns teikums ar faktiem. " * 12
+    script = reels.voice_script(long_text, max_words=20)
+    assert script.endswith(".")
+    assert len(script.split()) <= 20
+
+
+def test_voice_script_rejects_a_stub():
+    from app import reels
+
+    assert reels.voice_script("Par īsu.") == ""
+    assert reels.voice_script("") == ""
+
+
+def test_frames_stretch_to_the_narration():
+    from app import reels
+
+    # 3 kadri x 2.8 s = 8.4 s video pret 14 s runu -> kadri aug proporcionāli
+    stretched = reels._stretch_to_voice([2.8, 2.8, 2.8], 14.0)
+    assert sum(stretched) == pytest.approx(14.0 + reels.VOICE_TAIL_SECONDS)
+    assert stretched[0] == pytest.approx(stretched[2])   # CTA nestāv viens
+    # īsa ieruna kadrus nesaīsina — teksts kadrā tāpat jāpaspēj izlasīt
+    assert reels._stretch_to_voice([2.8, 2.8], 3.0) == [2.8, 2.8]
+    # un neaug bez gala
+    assert sum(reels._stretch_to_voice([2.8, 2.8], 300.0)) <= reels.VOICE_MAX_SECONDS
+
+
+def test_build_reel_with_voice_end_to_end(monkeypatch, tmp_path):
+    import os
+
+    from app import reels
+
+    try:
+        import imageio_ffmpeg
+
+        monkeypatch.setenv("FFMPEG_BIN", imageio_ffmpeg.get_ffmpeg_exe())
+    except ImportError:
+        pass
+    if not os.environ.get("PLAYWRIGHT_CHROMIUM") and os.path.exists("/opt/pw-browsers/chromium"):
+        monkeypatch.setenv("PLAYWRIGHT_CHROMIUM", "/opt/pw-browsers/chromium")
+    if not reels.available():
+        pytest.skip("ffmpeg or Chromium unavailable")
+
+    voice = tmp_path / "voice.m4a"
+    _synthetic_voice(voice, reels.ffmpeg_bin(), seconds=12)
+    assert reels.media_duration(voice) == pytest.approx(12, abs=0.5)
+
+    out = reels.build_reel("Kas zināms par Bauskas ielas namu", "news", "",
+                           ["Jumts daļēji iebruka", "Lēmums vēl nav pieņemts"],
+                           out_dir=tmp_path, voice=voice)
+    path = tmp_path / out.split("/")[-1]
+    assert path.exists() and path.stat().st_size > 10000
+    # video ir izstiepts, lai ieruna izskanētu līdz galam
+    assert reels.media_duration(path) >= 12

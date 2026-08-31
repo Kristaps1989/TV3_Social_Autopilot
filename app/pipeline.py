@@ -403,12 +403,15 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         if prebranded(image):
             image = ""  # reel cover renders its own headline
         if len(points) >= 2 and reels.available():
+            # ierunas teksts glabājas receptē: tas ir vienīgā vieta, kur AI
+            # uzrakstītais scenārijs paliek, un no tā tiks būvēta balss
+            voice = reels.voice_script(ch_dec.get("voice_script") or "")
             try:
                 media = reels.build_reel(article.title, article.section,
                                          image, points)
                 return "reel", [media], {
                     "kind": "article_reel", "article": article.id,
-                    "points": points, "image": image,
+                    "points": points, "image": image, "voice_script": voice,
                     "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)

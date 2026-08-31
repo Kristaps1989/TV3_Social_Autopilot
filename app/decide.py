@@ -21,6 +21,10 @@ from app.rules_engine import Verdict
 
 log = logging.getLogger(__name__)
 
+# Cik raksta teksta dodam modelim: pietiek faktiem un ierunai,
+# bet netaisa promptu par rēķinu, ko maksā katrā lēmumā.
+BODY_IN_PROMPT = 1500
+
 DECISION_TOOL = {
     "name": "record_decision",
     "description": "Record the publishing decision for this article.",
@@ -75,6 +79,16 @@ DECISION_TOOL = {
                             "type": "string",
                             "description": "Only for card_carousel: jautājums pēdējai "
                                            "kartītei, kas liek atvērt rakstu.",
+                        },
+                        "voice_script": {
+                            "type": "string",
+                            "description": "Tikai reel: ierunas teksts (voice-over) "
+                                           "latviski, 45-90 vārdi (~15-30 s). Rakstīts "
+                                           "RUNĀŠANAI, nevis lasīšanai: īsi teikumi, "
+                                           "bez iekavām, saīsinājumiem un URL, skaitļi "
+                                           "vārdiem, kad tā runā. Balstīts raksta "
+                                           "tekstā, beidzas ar aicinājumu lasīt tv3.lv. "
+                                           "Atstāj tukšu, ja raksta teksta nav.",
                         },
                         "hook_type": {
                             "type": "string",
@@ -132,9 +146,15 @@ def build_user_prompt(article: Article, verdicts: dict[str, Verdict],
     # CMS metadati no raksta lapas (autors, redakcijas tagi, apjoms,
     # galerija, "Tikai tv3.lv") — tukšs, ja lapa nav ievilkta.
     cms = pagemeta.prompt_lines(article)
+    # Raksta pašas rindkopas: bez tām punkti un ieruna top no virsraksta,
+    # un tad tie ir pārstāsts, nevis fakti.
+    body = pagemeta.article_body(article)
+    body_block = (f"Raksta teksts (sākums):\n{body[:BODY_IN_PROMPT]}\n"
+                  if body else "")
     return f"""Raksts:
 Virsraksts: {article.title}
 Ievads: {article.lead[:600]}
+{body_block}
 Sadaļa (no feed, var būt kļūdaina — klasificē pats laukā section): {article.section}
 Attēli: {len(article.images or [])}
 Video: {pagemeta.video_hint(article)}
@@ -169,6 +189,14 @@ priekšroku vizuāliem stāstiem, tas ir spēcīgākais formāts; arī story
 formāts tad automātiski iznāk kā video stāsts ar CTA beigu kadru. Ja video nav,
 reel ir 10-15 s slideshow (vāks → 2-3 punkti → CTA); tad aizpildi
 card_points (2-3 punkti). Ne biežāk kā ~2x dienā kanālā.
+
+Ja rakstam ir teksts (skat. "Raksta teksts"), reel formātam aizpildi arī
+voice_script — ierunas tekstu, ko nolasa balss. Tas nav virsraksta
+atkārtojums un nav punktu saraksts skaļā balsī: tas ir stāsts par to, kas
+notika, kārtībā, kādā to izstāstītu cilvēks — ar konkrētiem faktiem no
+raksta un ar aicinājumu lasīt tv3.lv beigās. Raksti runāšanai: īsi teikumi,
+bez iekavām, saīsinājumiem un URL. Ja raksta teksta nav, atstāj tukšu —
+labāk klusa lente nekā izdomāts saturs.
 
 link pret photo: link posts ir galvenais klikšķu formāts (saites kartīte ar
 CTA, un tikai to Facebook var pastiprināt kā maksas traffic reklāmu) —

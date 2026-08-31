@@ -60,6 +60,7 @@ Ko no tā izmantojam:
 | `Label` | "Tikai tv3.lv" = ekskluzīvs saturs, ko ir vērts izcelt |
 | `Content length` | īsziņa pret garu lasāmgabalu (formāta izvēle) |
 | `Category level N` | CMS kategoriju koks AI kontekstam |
+| raksta rindkopas | AI kartīšu fakti un reela ierunas teksts |
 
 Lapa tiek ievilkta **vienu reizi uz rakstu** un nokešota
 (`raw_json["_page_meta"]`); neveiksme tiek atkārtota ne biežāk kā reizi
@@ -71,3 +72,31 @@ Neapstiprināts pieņēmums: vai `tv3.lv/p/<id>` novirze **saglabā vaicājuma
 virkni** (UTM birkas). Kamēr tas nav pārbaudīts ar roku, `cms_short_links`
 ir izslēgts un ierakstos iet pilnā saite; gatavā īsā saite ir redzama raksta
 un ieraksta skatā, lai to varētu pārbaudīt ar vienu klikšķi.
+
+### Raksta teksts un ieruna
+
+Metadatiem līdzi no tās pašas lapas tiek izvilkts arī **raksta teksts** —
+vispirms schema.org JSON-LD `articleBody`, tad raksta konteinera `<p>` tagi,
+un tikai galējā gadījumā visas lapas rindkopas. Ārā filtrējas izvēlne,
+kājene, foto paraksti un "Lasi arī" bloki; paturam pirmās rindkopas līdz
+3000 zīmēm (ziņu rakstā būtiskais tāpat ir sākumā), jo tas ir darba
+materiāls, nevis raksta kopija.
+
+Ko tas maina:
+
+1. **Kartīšu punkti un reela punkti** vairs netop no virsraksta ar ievadu.
+   Modelim promptā aiziet pirmās ~1500 zīmes raksta, tāpēc punktos var būt
+   skaitļi un detaļas, kas līdz šim vienkārši nebija pieejamas.
+2. **`voice_script`** — jauns lauks lēmumu shēmā: reelam AI uzraksta 45-90
+   vārdu ierunas tekstu latviski, rakstītu runāšanai (īsi teikumi, bez
+   iekavām, saīsinājumiem un URL). Tas glabājas reela receptē un ir redzams
+   ieraksta priekšskatījumā, lai redaktors to var izlasīt pirms publicēšanas.
+3. **Reels prot skaņas celiņu.** `reels.build_reel(..., voice=fails)` ieliek
+   ierunu klusuma celiņa vietā un izstiepj kadrus līdz runas garumam
+   (proporcionāli, lai CTA kadrs nestāvētu viens pats), maksimāli 60 s.
+
+Kas vēl **nav** izdarīts: pati balss sintēze. `voice_script` ir teksts;
+lai no tā taptu audio fails, vajag TTS pakalpojumu ar latviešu balsi
+(piemēram, Azure Speech `lv-LV-EveritaNeural`/`lv-LV-NilsNeural` vai
+ElevenLabs multilingual). Kamēr tā nav, reels iznāk kluss tieši tāpat kā līdz
+šim — teksts vienkārši gaida receptē.

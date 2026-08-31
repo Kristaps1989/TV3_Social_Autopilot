@@ -9,7 +9,9 @@ ieslēgsim — balss ierunāšanu reelos.</p>
 <strong>{{ with_meta }}</strong> rakstiem: autors, redakcijas tagi, Post ID
 (īsā saite <code>tv3.lv/p/&lt;id&gt;</code>), video/galerija un apjoms. Tos
 dabū plūsmas ielase; ja skaitlis paliek 0, portāls lapu neatdod (skat.
-Diagnostika).</p>
+Diagnostika). <strong>{{ with_body }}</strong> rakstiem ir arī paša raksta
+teksts — no tā AI ņem kartīšu faktus un reela ierunas tekstu, nevis pārstāsta
+virsrakstu.</p>
 
 <div class="card">
 <table>
@@ -38,6 +40,7 @@ Diagnostika).</p>
         {%- if m.video or m.gallery %} · {% endif %}{% endif %}
       {%- if m.video %}video{% if m.gallery %} + {% endif %}{% endif %}
       {%- if m.gallery %}galerija{% endif %}
+      {%- if m.body %}<br>teksts: {{ m.body }} zīmes{% endif %}
       {%- if m.short %}<br><a href="{{ m.short }}" target="_blank" rel="noopener">{{ m.short.split('//')[1] }}</a>{% endif %}
       {%- else %}<span style="color:#b45309">nav</span>{% endif %}</td>
     <td>{% if a.ai_score is not none %}{{ '%.2f' % a.ai_score }}{% else %}—{% endif %}</td>

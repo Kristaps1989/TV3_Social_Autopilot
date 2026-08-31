@@ -408,6 +408,8 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "cms_meta": pagemeta.meta(article) if article else {},
             "cms_short": cms_short, "short_kind": short_kind,
             "photos": ((post.extra or {}).get("recipe") or {}).get("photos"),
+            "voice_script": ((post.extra or {}).get("recipe")
+                             or {}).get("voice_script", ""),
             "card_targets": [
                 {"n": i + 1, "url": u,
                  "term": (f"{post.hook_type}-karte{i + 1}" if post.hook_type
@@ -589,11 +591,13 @@ def articles(request: Request):
                       "label": pagemeta.label(a),
                       "chars": pagemeta.content_chars(a),
                       "gallery": pagemeta.has_gallery(a),
-                      "video": pagemeta.has_video(a)}
+                      "video": pagemeta.has_video(a),
+                      "body": len(pagemeta.article_body(a))}
                for a in rows}
         return templates.TemplateResponse(request, "articles.html", {
             "articles": rows, "cms": cms,
             "with_meta": sum(1 for a in rows if pagemeta.meta(a)),
+            "with_body": sum(1 for a in rows if pagemeta.has_body(a)),
             "with_lead": with_lead, "with_image": with_image,
             "unmapped_terms": sorted(unmapped.items(), key=lambda kv: -kv[1])[:20],
             "url_sections": feeds.get("url_sections") or {},

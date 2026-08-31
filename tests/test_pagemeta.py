@@ -260,3 +260,59 @@ def test_prompt_carries_cms_metadata(session, monkeypatch):
     assert "Autors: Gundega Gaujere" in prompt
     assert "Bauskas iela" in prompt
     assert "slideshow" in prompt          # video ir, klipa saites nav
+
+
+# --- raksta teksts ierunai -------------------------------------------------
+
+def test_body_text_keeps_the_article_and_drops_the_furniture():
+    body = pagemeta.body_text(PAGE)
+    assert body.startswith("2026. gada sākumā Rīgu satricināja traģēdija")
+    assert "Rīgas pašvaldība apstiprina" in body        # ceturtā rindkopa
+    assert "Foto: LETA" not in body                     # attēla paraksts
+    assert "Lasi arī" not in body                       # saistītie raksti
+    assert "Visas tiesības" not in body                 # kājene
+    assert "Ziņas\nSports" not in body                  # izvēlne
+
+
+def test_body_text_prefers_json_ld():
+    html = ('<script type="application/ld+json">'
+            '{"@type":"NewsArticle","articleBody":"Pirmā rindkopa ar faktiem.\\n'
+            'Otrā rindkopa ar vēl faktiem."}</script>'
+            "<p>Šī rindkopa nāk no lapas un tai nevajadzētu uzvarēt pār JSON-LD.</p>")
+    assert pagemeta.body_text(html).splitlines() == [
+        "Pirmā rindkopa ar faktiem.", "Otrā rindkopa ar vēl faktiem."]
+
+
+def test_body_text_cuts_at_a_whole_paragraph():
+    paras = "".join(f"<p>{'vārds ' * 20}rindkopa numur {i}.</p>" for i in range(20))
+    body = pagemeta.body_text(f"<article>{paras}</article>", limit=400)
+    assert len(body) <= 400
+    assert body.endswith(".")            # nevis pusvārdā
+    assert "\n" in body                  # vairāk nekā viena rindkopa
+
+
+def test_body_text_empty_when_there_is_no_article():
+    assert pagemeta.body_text("<html><body><p>Īss.</p></body></html>") == ""
+    assert pagemeta.body_text("") == ""
+
+
+def test_enrich_stores_the_body(session, monkeypatch):
+    article = make_article(session)
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    assert pagemeta.has_body(article)
+    assert "Bauskas ielā 15" in pagemeta.article_body(article)
+
+
+def test_prompt_carries_the_article_body(session, monkeypatch):
+    from app.decide import build_user_prompt
+    from app.rules_engine import Verdict
+
+    article = make_article(session, editor_status="must")
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGE)
+    pagemeta.enrich(article)
+    prompt = build_user_prompt(article, {"fb_tv3lv": Verdict("eligible", "ok")},
+                               {"fb_tv3lv": {}}, session)
+    assert "Raksta teksts (sākums):" in prompt
+    assert "daudzdzīvokļu namam tika nodarīti smagi bojājumi" in prompt
+    assert "voice_script" in prompt   # reelam ir ko ierunāt
