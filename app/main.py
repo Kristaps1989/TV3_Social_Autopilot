@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import os
+import tempfile
 import time
 
 from fastapi import FastAPI, Form, Request
@@ -16,7 +17,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import auth, config, credentials, ga4, pagemeta, reels, runtime, shortlinks
+from app import (auth, config, credentials, ga4, pagemeta, reels, runtime,
+                 shortlinks, tts)
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
@@ -410,6 +412,7 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "photos": ((post.extra or {}).get("recipe") or {}).get("photos"),
             "voice_script": ((post.extra or {}).get("recipe")
                              or {}).get("voice_script", ""),
+            "tts_ready": tts.enabled(session=session),
             "card_targets": [
                 {"n": i + 1, "url": u,
                  "term": (f"{post.hook_type}-karte{i + 1}" if post.hook_type
@@ -616,6 +619,7 @@ def connect(request: Request, error: str = "", connected: str = ""):
         fb_app_id, _ = credentials.fb_app()
         th_app_id, _ = credentials.threads_app()
         ai_key = credentials.get("anthropic_api_key", session)
+        tts_key = credentials.get("azure_speech_key", session)
 
         def _env(name: str, secret: bool = False) -> str:
             value = os.environ.get(name, "")
@@ -681,6 +685,10 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "status": status,
             "env_diag": env_diag,
             "ai_key_masked": f"sk-ant-…{ai_key[-4:]}" if ai_key else "",
+            "tts_key_masked": (f"…{tts_key[-4:]}" if tts_key else ""),
+            "tts_region": credentials.get("azure_speech_region", session)
+                          or "westeurope",
+            "tts_voice": tts.voice_name(),
             "meta_app_ready": bool(fb_app_id),
             "meta_app_id": fb_app_id,
             "meta_config_id": credentials.get("meta_login_config_id", session),
@@ -878,6 +886,38 @@ def connect_anthropic(api_key: str = Form("")):
                 status_code=303)
         credentials.put(session, "anthropic_api_key", api_key)
         return RedirectResponse("/connect?connected=AI+(Claude)", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/azure-speech")
+def connect_azure_speech(api_key: str = Form(""), region: str = Form("")):
+    """Save (or clear) the Azure Speech key used for reel voice-overs.
+
+    A saved key is verified by synthesizing one short line: a wrong key or
+    region otherwise only shows up as silent reels days later."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        api_key, region = api_key.strip(), (region.strip() or "westeurope")
+        if not api_key:
+            credentials.put(session, "azure_speech_key", "")
+            return RedirectResponse("/connect?connected=Balss+atslēga+noņemta",
+                                    status_code=303)
+        credentials.put(session, "azure_speech_region", region)
+        credentials.put(session, "azure_speech_key", api_key)
+        # paraugu ierunājam pagaidu mapē un apejot kešu: pārbaudei jāaiziet
+        # līdz Azure ar TIEŠI šo atslēgu, nevis jāatbild no vecā faila
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = tts.synthesize("Pārbaudes ieraksts.", tmp,
+                                    session=session, force=True)
+        if not sample:
+            return RedirectResponse(
+                f"/connect?error={quote('Atslēga saglabāta, bet parauga ieruna neizdevās — pārbaudi reģionu (' + region + ')')}",
+                status_code=303)
+        return RedirectResponse("/connect?connected=Balss+(Azure+Speech)",
+                                status_code=303)
     finally:
         session.close()
 

@@ -95,8 +95,19 @@ Ko tas maina:
    ierunu klusuma celiņa vietā un izstiepj kadrus līdz runas garumam
    (proporcionāli, lai CTA kadrs nestāvētu viens pats), maksimāli 60 s.
 
-Kas vēl **nav** izdarīts: pati balss sintēze. `voice_script` ir teksts;
-lai no tā taptu audio fails, vajag TTS pakalpojumu ar latviešu balsi
-(piemēram, Azure Speech `lv-LV-EveritaNeural`/`lv-LV-NilsNeural` vai
-ElevenLabs multilingual). Kamēr tā nav, reels iznāk kluss tieši tāpat kā līdz
-šim — teksts vienkārši gaida receptē.
+### Balss (`app/tts.py`)
+
+Ierunas tekstu nolasa **Azure Speech** ar latviešu neironu balsi
+(`lv-LV-EveritaNeural` sievietes, `lv-LV-NilsNeural` vīrieša; izvēle
+noteikumos `reel_voice_name`). Teksts aiziet kā SSML: teikumu robežas kļūst
+par 260 ms pauzēm, temps ir par 4% lēnāks nekā noklusējums, jo lentē
+skatītājs vienlaikus lasa arī kadra tekstu.
+
+Atslēgu pievieno **Konti → Reelu balss**. Saglabājot tiek ierunāts parauga
+teikums (apejot kešu, ar tieši šo atslēgu), tāpēc nepareizs reģions vai
+atslēga parādās uzreiz, nevis pēc nedēļas klusiem reeliem.
+
+Viena un tā paša teksta ieruna tiek kešota pēc `sha256(balss + teksts)`, tāpēc
+reela pārzīmēšana par to pašu skaņu Azure otrreiz nemaksā. Bez atslēgas, ar
+`reel_voice: false`, vai ja Azure neatbild, reels iznāk kluss tieši tāpat kā
+līdz šim — teksts glabājas receptē un ir redzams priekšskatījumā.

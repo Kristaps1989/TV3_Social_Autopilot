@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from adapters import get_adapter
 from adapters.base import PublishError
-from app import config, pagemeta, shortlinks
+from app import config, pagemeta, shortlinks, tts
 from app.best_practices import add_utm, assemble_post_text, sanitize_copy
 from app.decide import decide
 from app.formats import choose_format, mix_deficit, recent_format_shares
@@ -404,14 +404,15 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
             image = ""  # reel cover renders its own headline
         if len(points) >= 2 and reels.available():
             # ierunas teksts glabājas receptē: tas ir vienīgā vieta, kur AI
-            # uzrakstītais scenārijs paliek, un no tā tiks būvēta balss
-            voice = reels.voice_script(ch_dec.get("voice_script") or "")
+            # uzrakstītais scenārijs paliek, un no tā top balss
+            script = reels.voice_script(ch_dec.get("voice_script") or "")
+            audio = tts.synthesize(script) if script else ""
             try:
                 media = reels.build_reel(article.title, article.section,
-                                         image, points)
+                                         image, points, voice=audio or None)
                 return "reel", [media], {
                     "kind": "article_reel", "article": article.id,
-                    "points": points, "image": image, "voice_script": voice,
+                    "points": points, "image": image, "voice_script": script,
                     "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)

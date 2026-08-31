@@ -99,7 +99,7 @@ def regenerate(session, post) -> tuple[bool, str]:
     """(izdevās, ziņa redaktoram). Media aizstājam tikai tad, ja jaunais
     renders tiešām sanāca — neizdevies mēģinājums nedrīkst atstāt ierakstu
     bez attēla."""
-    from app import cards, reels
+    from app import cards, reels, tts
     from app.weekend import _any_image, _clean_image
 
     if not can_regenerate(post):
@@ -180,9 +180,13 @@ def regenerate(session, post) -> tuple[bool, str]:
             art = session.get(Article, recipe.get("article"))
             if art is None:
                 return False, "Raksts vairs nav pieejams."
+            # ieruna nāk no receptes teksta: pārzīmējot to pašu reelu, Azure
+            # atbilde jau ir kešā, tāpēc otrreiz par to nemaksājam
+            audio = tts.reel_voice(recipe, session=session)
             media = [reels.build_reel(art.title, art.section or section,
                                       recipe.get("image", ""),
-                                      recipe.get("points") or [])]
+                                      recipe.get("points") or [],
+                                      voice=audio or None)]
         else:   # photo / story bez receptes — zīmējam no paša raksta
             from app.pipeline import (branded_photo, photo_base_image,
                                       story_media)

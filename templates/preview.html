@@ -186,8 +186,11 @@ brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
        border-radius:8px;padding:.7rem;font:inherit">{{ voice_script }}</pre>
   <p style="margin:.2rem 0 0">{{ voice_script.split() | length }} vārdi
     (~{{ (voice_script.split() | length / 2.6) | round | int }} s runas).
-    Balss sintēze vēl nav ieslēgta — teksts glabājas receptē un aiziet lentē,
-    tiklīdz TTS pakalpojums ir pieslēgts.</p>
+    {% if tts_ready %}Šo tekstu lentē nolasa balss; pārzīmējot ierakstu, ieruna
+    tiek pārtaisīta no šī paša teksta.
+    {% else %}Balss atslēga nav pieslēgta (Konti → Reelu balss), tāpēc lente
+    iziet klusa — teksts glabājas receptē un ieskanēsies, tiklīdz atslēga būs.
+    {% endif %}</p>
   {% endif %}
   {% if cms_meta %}
   <p style="margin:.4rem 0 0">No CMS lapas:

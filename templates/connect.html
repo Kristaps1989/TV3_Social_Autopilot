@@ -40,6 +40,44 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
   </div>
 
   <div class="card">
+    <h2>Reelu balss (Azure Speech)
+      {% if tts_key_masked %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="meta">
+      {% if tts_key_masked %}
+        Atslēga: <code>{{ tts_key_masked }}</code> · reģions
+        <code>{{ tts_region }}</code> · balss <code>{{ tts_voice }}</code>.
+        AI uzrakstīto ierunas tekstu nolasa šī balss, un reels iziet ar skaņu.
+      {% else %}
+        Bez atslēgas reels iznāk kluss: ierunas teksts tik un tā tiek uzrakstīts
+        un ir redzams ieraksta priekšskatījumā.
+      {% endif %}
+    </div>
+    <form method="post" action="/connect/azure-speech">
+      <input type="password" name="api_key" placeholder="Azure Speech atslēga"
+             autocomplete="off" required>
+      <input type="text" name="region" value="{{ tts_region }}"
+             placeholder="westeurope" style="margin-top:.4rem">
+      <div style="margin-top:.5rem">
+        <button class="primary">{{ 'Nomainīt atslēgu' if tts_key_masked else 'Saglabāt atslēgu' }}</button>
+      </div>
+    </form>
+    {% if tts_key_masked %}
+    <form method="post" action="/connect/azure-speech" style="margin-top:.4rem">
+      <input type="hidden" name="api_key" value="">
+      <button class="danger">Noņemt atslēgu</button>
+    </form>
+    {% endif %}
+    <p class="muted">Azure portālā izveido <b>Speech service</b> resursu →
+    Keys and Endpoint. Reģions jāsakrīt ar resursa reģionu (piem.
+    <code>westeurope</code>, <code>northeurope</code>). Saglabājot tiek ierunāts
+    parauga teikums, tāpēc nepareizs reģions vai atslēga parādās uzreiz, nevis
+    pēc nedēļas klusiem reeliem. Balsi izvēlas Noteikumos
+    (<code>reel_voice_name: female</code> vai <code>male</code>).</p>
+  </div>
+
+  <div class="card">
     <h2>Facebook lapa
       {% if status.facebook.connected %}<span class="badge live">savienots</span>
       {% else %}<span class="badge paused">nav savienots</span>{% endif %}

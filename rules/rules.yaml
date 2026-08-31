@@ -105,6 +105,15 @@ page_meta: true
 # reize ir pārbaudīta ar roku (raksta skatā ir poga ar gatavo saiti).
 cms_short_links: false
 
+# Reelu ieruna (voice-over). AI uzraksta ierunas tekstu no raksta, Azure
+# Speech to nolasa ar latviešu neironu balsi. Bez Azure atslēgas (Konti
+# sadaļā) reels iznāk kluss — teksts tik un tā glabājas receptē un ir
+# redzams priekšskatījumā. false = pat ar atslēgu neizmantot.
+reel_voice: true
+# female (lv-LV-EveritaNeural) vai male (lv-LV-NilsNeural); var ierakstīt
+# arī pilnu Azure balss nosaukumu.
+reel_voice_name: female
+
 # Plānošanas režīms:
 #   asap     -> ziņu portāla režīms (noklusējums): publicē, tiklīdz gatavs —
 #               pirmais derīgais laiks uzvar, daudzveidības sargs nekad

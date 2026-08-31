@@ -20,8 +20,8 @@ def test_resolve_format_builds_reel(session, monkeypatch):
     monkeypatch.setattr(reels, "available", lambda: True)
     built = {}
 
-    def fake_build(title, section, image, points, out_dir=None):
-        built.update(title=title, points=points)
+    def fake_build(title, section, image, points, out_dir=None, voice=None):
+        built.update(title=title, points=points, voice=voice)
         return "/data/cards/reel_x.mp4"
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
