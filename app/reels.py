@@ -27,6 +27,11 @@ log = logging.getLogger(__name__)
 
 FPS = 25
 FRAME_SECONDS = 2.8
+# Ken Burns tuvinājums apgriež kadru no malām: pie z redzama ir 1/z daļa,
+# tāpēc mala pazūd. 1.08 nozīmē ~40 px no 1080 katrā pusē — un kadru
+# izkārtojums tur malās SAFE_INSET brīvu vietu, lai tur nekas nav.
+MAX_ZOOM = 1.08
+SAFE_INSET = 64             # cik iekšā no malas liekam tekstu lentes kadros
 MAX_POINTS = 3
 MAX_VIDEO_SECONDS = 45      # reels teaser: pietiek āķim, pārējais rakstā
 STORY_MAX_SECONDS = 30      # video stories: API limits 60 s, labā prakse īsāk
@@ -138,14 +143,14 @@ def _point_frame_html(section: str, number: int, point: str,
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
   {bg} }}
-.brand {{ position:absolute; top:200px; right:48px; background:#fff;
+.brand {{ position:absolute; top:200px; right:{SAFE_INSET + 48}px; background:#fff;
           border-radius:14px; padding:14px 22px; }}
-.num {{ position:absolute; top:480px; left:72px; font-size:260px; font-weight:bold;
-        color:rgba(255,255,255,.22); line-height:1; }}
-.point {{ position:absolute; top:760px; left:72px; max-width:920px;
+.num {{ position:absolute; top:480px; left:{SAFE_INSET + 72}px; font-size:260px;
+        font-weight:bold; color:rgba(255,255,255,.22); line-height:1; }}
+.point {{ position:absolute; top:760px; left:{SAFE_INSET + 72}px; max-width:856px;
           font-size:76px; line-height:1.22; font-weight:bold; color:#fff; }}
-.linkpill {{ position:absolute; bottom:252px; left:56px; background:#fff;
-             color:#e3000f; font-size:48px; font-weight:bold;
+.linkpill {{ position:absolute; bottom:252px; left:{SAFE_INSET + 56}px;
+             background:#fff; color:#e3000f; font-size:48px; font-weight:bold;
              padding:22px 52px; border-radius:99px;
              box-shadow:0 8px 30px rgba(0,0,0,.35); }}
 .linkpill svg {{ vertical-align:-7px; margin-right:16px; }}
@@ -197,7 +202,10 @@ def _render_frames(docs: list[str], out_dir: Path) -> list[Path]:
             tmp = out_dir / f"frame{i}.html"
             tmp.write_text(doc, encoding="utf-8")
             page.goto(tmp.as_uri(), timeout=30000)
-            page.wait_for_timeout(600)
+            # fiksēts miegs bija par īsu lēnam CDN — kadrs tad iznāca kā
+            # tukšs krāsas laukums bez foto. cards._settle gaida, līdz tīkls
+            # norimst; tā pati kļūda kartītēs jau bija salabota, lentēs ne.
+            cards._settle(page)
             out = out_dir / f"frame{i}.png"
             page.locator(".story").screenshot(path=str(out), timeout=15000)
             paths.append(out)
@@ -244,7 +252,7 @@ def _assemble(frames: list[Path], workdir: Path, out: Path,
         _run_ffmpeg([
             "-loop", "1", "-i", str(png),
             "-vf", ("scale=1296:2304,"
-                    f"zoompan=z='min(1+0.0016*on,1.12)':x='(iw-iw/zoom)/2':"
+                    f"zoompan=z='min(1+0.0016*on,{MAX_ZOOM})':x='(iw-iw/zoom)/2':"
                     f"y='(ih-ih/zoom)/2':d={per_frame}:s=1080x1920:fps={FPS},"
                     "format=yuv420p"),
             "-frames:v", str(per_frame),
@@ -372,7 +380,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
             docs.append(cards.build_mosaic_story_html(title, section,
                                                       cover_images))
         else:
-            docs.append(cards.build_story_html(title, section, image_url))
+            docs.append(cards.build_story_html(title, section, image_url,
+                                               inset=SAFE_INSET))
         durations.append(edge)
     point_images = point_images or []
     for i, p in enumerate(points[:max_points], start=1):

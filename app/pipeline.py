@@ -269,6 +269,23 @@ def photo_base_image(article, idx: int = 0) -> str:
     return chosen
 
 
+def unbranded_image(article, idx: int = 0) -> str:
+    """Raksta attēls BEZ iecepta virsraksta ('' ja tāda nav).
+
+    Vākiem, kas zīmē savu virsrakstu (lentes, karuseļa vāks), gatava
+    photopost grafika neder — teksts uz teksta. Bet atmest attēlu pavisam
+    nozīmē plakanu krāsas laukumu, tāpēc vispirms pārmeklējam pārējos
+    raksta attēlus.
+    """
+    base = photo_base_image(article, idx)
+    if base and not prebranded(base):
+        return base
+    for img in article.images or []:
+        if img and not prebranded(img):
+            return img
+    return ""
+
+
 def prebranded(image_url: str) -> bool:
     """True for images that already carry a baked-in headline (photopost
     graphics) — never put the title plate on top of those."""
@@ -469,9 +486,11 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 _cards.record_render_failure("video_reel", e)
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
                   if isinstance(p, str) and p.strip()][:3]
-        image = photo_base_image(article)
-        if prebranded(image):
-            image = ""  # reel cover renders its own headline
+        # Lentes vāks zīmē savu virsrakstu, tāpēc gatava photopost grafika
+        # tam neder — bet tas nenozīmē, ka jāpaliek BEZ foto. Meklējam raksta
+        # tīro attēlu; tukšu vāku ar plakanu krāsu atstājam tikai tad, ja
+        # neviena cita attēla nav.
+        image = unbranded_image(article)
         if len(points) >= 2 and reels.available():
             # ierunas teksts glabājas receptē: tas ir vienīgā vieta, kur AI
             # uzrakstītais scenārijs paliek, un no tā top balss

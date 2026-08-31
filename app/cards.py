@@ -461,9 +461,15 @@ _LINK_ICON = (
 
 def build_story_html(title: str, section: str, image_url: str,
                      kicker: str = "", with_title: bool = True,
-                     date_txt: str = "") -> str:
+                     date_txt: str = "", inset: int = 0) -> str:
     """Vertical story (1080x1920) in the tv3.lv style: full-bleed image,
-    title plate, CTA. Top/bottom safe zones respected (platform UI)."""
+    title plate, CTA. Top/bottom safe zones respected (platform UI).
+
+    inset: cik pikseļu no SĀNU malām atkāpties. Statiskā stāstā tas ir 0 un
+    virsraksta plāksne aiziet līdz pašai malai. Lentē kadru tuvina Ken Burns
+    efekts, un tuvinājums apgriež tieši malas — tur plāksne pazūd pa vidu
+    vārdam, tāpēc reels padod savu SAFE_INSET.
+    """
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     esc = html.escape
@@ -493,23 +499,24 @@ def build_story_html(title: str, section: str, image_url: str,
   max-width:1016px; max-height:1230px; object-fit:contain;
   border-radius:22px; box-shadow:0 18px 60px rgba(0,0,0,.45); }}
 {DCHIP_CSS}
-.dchip {{ left:auto; top:auto; right:48px; bottom:160px; }}
+.dchip {{ left:auto; top:auto; right:{48 + inset}px; bottom:160px; }}
 .pshade {{ position:absolute; inset:0;
   background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(8,4,12,.88) 22%, rgba(8,4,12,0) 55%); }}
-.brand {{ position:absolute; top:200px; right:48px; background:#fff;
+.brand {{ position:absolute; top:200px; right:{48 + inset}px; background:#fff;
           border-radius:14px; padding:14px 22px; }}
-.plate {{ position:absolute; left:0; bottom:520px; max-width:920px;
+.plate {{ position:absolute; left:{inset}px; bottom:520px; max-width:{920 - inset}px;
           background:#fff; padding:52px 60px 52px 56px;
           border-right:20px solid #e3000f;
           box-shadow:0 10px 40px rgba(0,0,0,.3); }}
 .kick {{ position:absolute; top:-52px; left:0; background:#e3000f; color:#fff;
          font-weight:bold; font-size:30px; letter-spacing:.1em; padding:10px 22px; }}
 .plate h1 {{ font-size:64px; line-height:1.16; font-weight:bold; color:#111; }}
-.cta {{ position:absolute; bottom:380px; left:56px; background:#e3000f; color:#fff;
-        font-size:40px; font-weight:bold; padding:24px 50px; border-radius:99px; }}
-.linkpill {{ position:absolute; bottom:252px; left:56px; background:#fff;
+.cta {{ position:absolute; bottom:380px; left:{56 + inset}px; background:#e3000f;
+        color:#fff; font-size:40px; font-weight:bold; padding:24px 50px;
+        border-radius:99px; }}
+.linkpill {{ position:absolute; bottom:252px; left:{56 + inset}px; background:#fff;
              color:#e3000f; font-size:48px; font-weight:bold;
              padding:22px 52px; border-radius:99px;
              box-shadow:0 8px 30px rgba(0,0,0,.35); }}

@@ -309,3 +309,73 @@ def test_build_reel_with_voice_end_to_end(monkeypatch, tmp_path):
     assert path.exists() and path.stat().st_size > 10000
     # video ir izstiepts, lai ieruna izskanētu līdz galam
     assert reels.media_duration(path) >= 12
+
+
+# --- kadru drošā zona un attēli --------------------------------------------
+
+def test_cover_keeps_the_headline_inside_the_zoom_crop():
+    """Ken Burns apgriež malas; virsraksta plāksne tur nedrīkst atrasties."""
+    from app import cards, reels
+
+    # cik pikseļu no 1080 platuma apgriež pie maksimālā tuvinājuma
+    cropped = (1 - 1 / reels.MAX_ZOOM) / 2 * 1080
+    assert cropped < reels.SAFE_INSET, "atkāpe mazāka par apgriezumu"
+
+    doc = cards.build_story_html("Tukšas ielas, sprādzieni", "news",
+                                 "https://cdn/x.jpg", inset=reels.SAFE_INSET)
+    assert f"left:{reels.SAFE_INSET}px" in doc          # plāksne
+    assert f"right:{48 + reels.SAFE_INSET}px" in doc    # tv3.lv logo
+
+
+def test_static_story_is_not_indented():
+    """Statisku stāstu neviens netuvina — tur plāksne paliek pie malas."""
+    from app import cards
+
+    doc = cards.build_story_html("Virsraksts", "news", "https://cdn/x.jpg")
+    assert "left:0px" in doc and "right:48px" in doc
+
+
+def test_point_frames_sit_inside_the_safe_zone():
+    from app import reels
+
+    doc = reels._point_frame_html("news", 1, "Pirmais fakts")
+    assert f"left:{reels.SAFE_INSET + 72}px" in doc
+    assert f"right:{reels.SAFE_INSET + 48}px" in doc
+
+
+def test_reel_cover_falls_back_to_a_clean_photo(session):
+    """Gatava photopost grafika vākam neder, bet tukšs vāks ir sliktāks."""
+    from app import pipeline
+    from app.models import Article
+
+    a = Article(guid="ub-1", url="u", canonical_url="u", title="T",
+                section="news", raw_json={},
+                images=["https://cdn/uploads/photopost-graf.jpg",
+                        "https://cdn/uploads/istais-foto.jpg"])
+    session.add(a)
+    session.flush()
+    assert pipeline.unbranded_image(a) == "https://cdn/uploads/istais-foto.jpg"
+
+
+def test_reel_cover_is_empty_only_when_every_image_is_prebranded(session):
+    from app import pipeline
+    from app.models import Article
+
+    a = Article(guid="ub-2", url="u", canonical_url="u", title="T",
+                section="news", raw_json={},
+                images=["https://cdn/uploads/photopost-a.jpg",
+                        "https://cdn/uploads/photopost-b.jpg"])
+    session.add(a)
+    session.flush()
+    assert pipeline.unbranded_image(a) == ""
+
+
+def test_frames_wait_for_images_before_the_screenshot():
+    """Fiksēts miegs bija par īsu lēnam CDN — kadrs sanāca bez foto."""
+    import inspect
+
+    from app import reels
+
+    src = inspect.getsource(reels._render_frames)
+    assert "_settle" in src
+    assert "wait_for_timeout(600)" not in src
