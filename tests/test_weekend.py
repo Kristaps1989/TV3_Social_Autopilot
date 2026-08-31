@@ -173,7 +173,10 @@ def test_evergreen_picks_old_still_read_article(session, monkeypatch):
     post = session.execute(select(Post).where(
         Post.hook_type == "evergreen")).scalars().one()
     assert post.article_id == old.id
-    assert "Joprojām aktuāli" in post.copy and "jūlijā" in post.copy
+    # datums tekstā ir tā raksta ĪSTAIS publicēšanas datums; mēneša nosaukumu
+    # rēķinām tāpat kā kods, citādi tests salūst, mainoties kalendāra dienai
+    assert "Joprojām aktuāli" in post.copy
+    assert weekend.lv_date(old.published_at) in post.copy
     # tas pats raksts otro reizi netiek atkārtots
     for key in list(weekend.FEATURES):
         pass

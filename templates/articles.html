@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Pēdējie raksti</h1>
+<p class="muted">No plūsmas saņemtais materiāls: <strong>{{ with_lead }}</strong> no
+{{ articles|length }} rakstiem ir ievads (teaseris), <strong>{{ with_image }}</strong>
+ir vismaz viens attēls. Ievads baro AI lēmumu, ieraksta tekstu un — ja to
+ieslēgsim — balss ierunāšanu reelos.</p>
 
 <div class="card">
 <table>
   <tr><th>Ienācis</th><th>Virsraksts</th><th>Sadaļa</th><th>Tagi (term ID)</th>
-      <th>Statuss</th><th>AI</th><th>Ieraksti</th></tr>
+      <th>Statuss</th><th>Ievads</th><th>AI</th><th>Ieraksti</th></tr>
   {% for a in articles %}
   {% set src = (a.raw_json or {}).get('_section_src') %}
   <tr>
@@ -17,11 +21,14 @@
         {%- elif a.ai_score is not none %}(AI){% else %}(plūsma){% endif %}</span></td>
     <td class="muted" style="font-size:.78rem">{{ (a.term_ids or []) | join(', ') or '—' }}</td>
     <td>{{ a.editor_status }}</td>
+    <td class="muted" style="font-size:.78rem;max-width:22rem">
+      {%- if a.lead %}{{ a.lead[:110] }}{% if a.lead|length > 110 %}…{% endif %}
+      {%- else %}<span style="color:#b45309">nav</span>{% endif %}</td>
     <td>{% if a.ai_score is not none %}{{ '%.2f' % a.ai_score }}{% else %}—{% endif %}</td>
     <td>{{ a.posts | length }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="7" class="muted">Vēl nav rakstu — gaida pirmo plūsmas ielasi.</td></tr>
+  <tr><td colspan="8" class="muted">Vēl nav rakstu — gaida pirmo plūsmas ielasi.</td></tr>
   {% endfor %}
 </table>
 </div>

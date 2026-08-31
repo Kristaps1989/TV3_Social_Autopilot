@@ -356,3 +356,19 @@ def test_quiz_keeps_the_english_format_name_but_latvian_questions(session,
     # jautājumi joprojām latviski
     assert all("uzvarēja" in q or "punktus" in q or "pilsētā" in q
                for q in seen["points"])
+
+
+def test_articles_page_shows_teaser_coverage(client, session):
+    """Balss ierunāšana reelos ir iespējama tikai tad, ja plūsmā tiešām nāk
+    ievadi — lapa to parāda, nevis liek minēt."""
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    a = _art(session, "tz-1", "Raksts ar ievadu")
+    a.lead = "Šis ir raksta ievads, ko varētu ierunāt balsī."
+    b = _art(session, "tz-2", "Raksts bez ievada")
+    b.lead = ""
+    session.commit()
+    r = client.get("/articles")
+    assert r.status_code == 200
+    assert "ir ievads (teaseris)" in r.text
+    assert "Šis ir raksta ievads" in r.text
+    assert "nav</span>" in r.text          # tukšais ievads ir redzami atzīmēts

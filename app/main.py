@@ -573,8 +573,11 @@ def articles(request: Request):
             for tid in a.term_ids or []:
                 if str(tid) not in mapped:
                     unmapped[str(tid)] = unmapped.get(str(tid), 0) + 1
+        with_lead = sum(1 for a in rows if (a.lead or "").strip())
+        with_image = sum(1 for a in rows if (a.images or []))
         return templates.TemplateResponse(request, "articles.html", {
             "articles": rows,
+            "with_lead": with_lead, "with_image": with_image,
             "unmapped_terms": sorted(unmapped.items(), key=lambda kv: -kv[1])[:20],
             "url_sections": feeds.get("url_sections") or {},
         })
