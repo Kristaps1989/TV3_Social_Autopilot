@@ -65,7 +65,9 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
     {% for m in post.media %}<img src="/media/{{ m | basename }}">{% endfor %}
   </div>
   {% elif post.media and (post.format == 'reel' or (post.format == 'story' and media_is_video)) %}
-  <video class="story-img" controls muted
+  {# BEZ muted: ierunāto lenti vajag dzirdēt PIRMS publicēšanas. Autoplay te
+     nav, tāpēc pārlūks skaņu nebloķē. #}
+  <video class="story-img" controls
          src="{{ post.media[0] if post.media[0].startswith('http') else '/media/' + (post.media[0] | basename) }}"></video>
   {% elif post.format == 'story' and post.media %}
   <img class="story-img"

@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
-from app import config
+from app import config, reels
 from app.models import Post, PostMetrics, utcnow
 
 DAYS = 30
@@ -57,6 +57,7 @@ def post_scores(session, channel: str | None = None, days: int = DAYS) -> list[d
         rows.append({
             "post": post, "score": score, "hour": local_hour,
             "format": post.format, "channel": post.channel,
+            "voiced": reels.has_voice(post),
             "section": post.article.section if post.article else "",
             "ga_sessions": ga, "clicks": clicks,
             "impressions": impressions, "reactions": reactions,
@@ -131,6 +132,39 @@ def hook_summary(session, min_n: int = 4) -> list[dict]:
            for (sec, hook), v in by_hook.items() if len(v) >= min_n]
     out.sort(key=lambda x: (x["section"], -x["avg"]))
     return out
+
+
+def voice_summary(session, min_n: int = 3, days: int = DAYS) -> dict:
+    """Vai ieruna reeliem palīdz: ar balsi pret klusiem.
+
+    Salīdzinām TIKAI reelus savā starpā — pret saites ierakstu lente zaudē
+    formāta, nevis balss dēļ, un tāda "atziņa" būtu maldinoša.
+
+    `enough` pasaka, vai abās pusēs ir vismaz min_n izmērītu ierakstu. Pat
+    tad tas ir virziena rādītājs, nevis statistiski nozīmīgs rezultāts: pie
+    dažiem reeliem dienā viens veiksmīgs raksts pārsver visu pārējo.
+    """
+    rows = [r for r in post_scores(session, days=days) if r["format"] == "reel"]
+    groups = {"voiced": [r for r in rows if r["voiced"]],
+              "silent": [r for r in rows if not r["voiced"]]}
+
+    def _stats(group: list[dict]) -> dict:
+        n = len(group)
+        if not n:
+            return {"n": 0, "avg": 0.0, "clicks": 0.0, "impressions": 0.0}
+        return {
+            "n": n,
+            "avg": sum(r["score"] for r in group) / n,
+            "clicks": sum(r["clicks"] for r in group) / n,
+            "impressions": sum(r["impressions"] for r in group) / n,
+        }
+
+    voiced, silent = _stats(groups["voiced"]), _stats(groups["silent"])
+    enough = voiced["n"] >= min_n and silent["n"] >= min_n
+    lift = (voiced["avg"] / silent["avg"]
+            if enough and silent["avg"] > 0 else None)
+    return {"voiced": voiced, "silent": silent, "enough": enough,
+            "lift": lift, "min_n": min_n, "days": days}
 
 
 def top_posts(session, limit: int = 10) -> list[dict]:

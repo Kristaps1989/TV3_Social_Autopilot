@@ -187,6 +187,7 @@ def regenerate(session, post) -> tuple[bool, str]:
                                       recipe.get("image", ""),
                                       recipe.get("points") or [],
                                       voice=audio or None)]
+            recipe = {**recipe, "voiced": bool(audio)}
         else:   # photo / story bez receptes — zīmējam no paša raksta
             from app.pipeline import (branded_photo, photo_base_image,
                                       story_media)
@@ -206,6 +207,9 @@ def regenerate(session, post) -> tuple[bool, str]:
     if not media:
         return False, "Renderēšana neizdevās — attēls netika uzzīmēts."
     post.media = media
-    post.extra = {**(post.extra or {}), "render_version": cards.RENDER_VERSION}
+    # recepte tiek rakstīta atpakaļ, jo pārzīmēšana to var precizēt — piem.,
+    # reels ar balsi, kas iepriekš bija kluss (atslēga pieslēgta pa vidu)
+    post.extra = {**(post.extra or {}), "render_version": cards.RENDER_VERSION,
+                  **({"recipe": recipe} if recipe else {})}
     session.commit()
     return True, f"Grafika pārģenerēta ({len(media)} attēls/-i)."

@@ -315,3 +315,119 @@ def test_failed_sample_shows_the_azure_reason(client, session, monkeypatch):
     message = unquote(r.headers["location"])
     assert "HTTP 403" in message and "region mismatch" in message
     assert "westeurope" in message
+
+
+# --- kā redzēt, vai ieruna strādā ------------------------------------------
+
+def _reel(session, guid, voiced, score, days_ago=1):
+    """Publicēts reels ar izmērītu rezultātu."""
+    from datetime import timedelta
+
+    from app.models import Article, Post, PostMetrics, utcnow
+
+    a = Article(guid=guid, url=f"https://tv3.lv/{guid}",
+                canonical_url=f"https://tv3.lv/{guid}", title="Ziņa",
+                section="news", raw_json={})
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="ig_tv3lv", format="reel",
+             copy="Teksts", link_url=a.canonical_url, state="published",
+             published_at=utcnow() - timedelta(days=days_ago),
+             media=["reel.mp4"],
+             extra={"recipe": {"kind": "article_reel", "voiced": voiced,
+                               "voice_script": "Teksts, ko nolasa balss."}})
+    session.add(p)
+    session.flush()
+    session.add(PostMetrics(post_id=p.id, ga_sessions=score, clicks=score // 2,
+                            impressions=score * 10))
+    session.flush()
+    return p
+
+
+def test_has_voice_reads_the_build_flag(session):
+    from app import reels
+
+    voiced = _reel(session, "hv-1", True, 100)
+    silent = _reel(session, "hv-2", False, 50)
+    assert reels.has_voice(voiced) is True
+    assert reels.has_voice(silent) is False
+
+    # scenārijs receptē BEZ karoga nozīmē, ka sintēze neizdevās — nav balss
+    silent.extra = {"recipe": {"voice_script": "Teksts."}}
+    assert reels.has_voice(silent) is False
+
+
+def test_voice_summary_compares_reels_with_each_other(session):
+    from app import priors
+
+    for i in range(3):
+        _reel(session, f"v-{i}", True, 120)
+    for i in range(3):
+        _reel(session, f"s-{i}", False, 60)
+    session.commit()
+
+    out = priors.voice_summary(session)
+    assert out["voiced"]["n"] == 3 and out["silent"]["n"] == 3
+    assert out["voiced"]["avg"] == 120 and out["silent"]["avg"] == 60
+    assert out["enough"] is True
+    assert out["lift"] == pytest.approx(2.0)
+
+
+def test_voice_summary_ignores_other_formats(session):
+    from app.models import Article, Post, utcnow
+
+    from app import priors
+
+    _reel(session, "only-1", True, 100)
+    _reel(session, "only-2", False, 100)
+    a = Article(guid="lnk", url="https://tv3.lv/l", canonical_url="https://tv3.lv/l",
+                title="Saite", section="news", raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb_tv3lv", format="link",
+                     copy="T", state="published", published_at=utcnow()))
+    session.commit()
+
+    out = priors.voice_summary(session)
+    assert out["voiced"]["n"] + out["silent"]["n"] == 2   # saites posts ārā
+
+
+def test_voice_summary_withholds_a_verdict_on_thin_data(session):
+    from app import priors
+
+    _reel(session, "thin-1", True, 500)
+    for i in range(3):
+        _reel(session, f"thin-s{i}", False, 10)
+    session.commit()
+
+    out = priors.voice_summary(session)
+    assert out["enough"] is False      # ar balsi tikai viens ieraksts
+    assert out["lift"] is None         # attiecību nerādām
+
+
+def test_stats_page_shows_the_voice_comparison(client, session):
+    for i in range(3):
+        _reel(session, f"sp-v{i}", True, 90)
+    for i in range(3):
+        _reel(session, f"sp-s{i}", False, 30)
+    session.commit()
+
+    body = client.get("/stats").text
+    assert "Reelu ieruna" in body
+    assert "Ar balsi" in body
+    assert "+200%" in body            # 90 pret 30
+
+
+def test_preview_lets_you_hear_the_reel(session, monkeypatch):
+    """Ierunātu lenti vajag dzirdēt pirms publicēšanas, nevis pēc."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    post = _reel(session, "hear-1", True, 0)
+    session.commit()
+    with TestClient(app) as c:
+        c.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+        body = c.get(f"/post/{post.id}/preview").text
+    assert "<video" in body
+    assert "muted" not in body.split("<video")[1].split(">")[0]

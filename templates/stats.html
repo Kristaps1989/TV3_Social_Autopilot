@@ -281,6 +281,40 @@ formātu un āķu mācīšanās.</p>
 </div>
 
 <div class="card" style="margin-top:1rem">
+  <h2>Reelu ieruna: ar balsi pret klusiem</h2>
+  <p class="muted">Salīdzināti tikai reeli savā starpā — pret saites ierakstu
+  lente zaudētu formāta, nevis balss dēļ. Rezultāts = GA4 sesijas (ja
+  pieejamas), citādi platformas klikšķi; periods {{ voice.days }} dienas.</p>
+  <table>
+    <tr><th>Lente</th><th class="n">Vid. rezultāts</th><th class="n">Vid. klikšķi</th>
+        <th class="n">Vid. rādījumi</th><th class="n">Ieraksti</th></tr>
+    <tr><td>Ar balsi</td>
+        <td class="n"><strong>{{ '%.0f' % voice.voiced.avg }}</strong></td>
+        <td class="n">{{ '%.0f' % voice.voiced.clicks }}</td>
+        <td class="n">{{ '%.0f' % voice.voiced.impressions }}</td>
+        <td class="n">{{ voice.voiced.n }}</td></tr>
+    <tr><td>Klusi</td>
+        <td class="n"><strong>{{ '%.0f' % voice.silent.avg }}</strong></td>
+        <td class="n">{{ '%.0f' % voice.silent.clicks }}</td>
+        <td class="n">{{ '%.0f' % voice.silent.impressions }}</td>
+        <td class="n">{{ voice.silent.n }}</td></tr>
+  </table>
+  {% if voice.lift %}
+  <p class="muted">Ieruna dod <strong>{{ '%+.0f' % ((voice.lift - 1) * 100) }}%</strong>
+  pret klusu lenti. Tas ir <b>virziena rādītājs, nevis pierādījums</b>: pie dažiem
+  reeliem dienā viens veiksmīgs raksts pārsver visu pārējo. Lēmumu par balsi
+  pieņem tad, kad abās pusēs ir vismaz pārdesmit ierakstu.</p>
+  {% elif voice.enough %}
+  <p class="muted">Abās pusēs ir dati, bet klusie reeli vēl nav nopelnījuši
+  nevienu sesiju, tāpēc attiecību aprēķināt nevar.</p>
+  {% else %}
+  <p class="muted">Vēl nav ar ko salīdzināt — vajag vismaz
+  {{ voice.min_n }} izmērītus reelus katrā pusē. Kamēr balss atslēga nav
+  pieslēgta, visi reeli ir klusi, tāpēc pirmā rinda paliek tukša.</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem">
   <h2>Āķu A/B testi (starpplatformu)</h2>
   <p class="muted">AI katram rakstam dažādās platformās apzināti lieto atšķirīgus copy āķu
   stilus; saites nes <code>utm_term</code>, tāpēc rezultātu mēra reālās tv3.lv sesijas.

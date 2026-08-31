@@ -101,6 +101,17 @@ def _stretch_to_voice(durations: list[float], voice_seconds: float) -> list[floa
     return [d * factor for d in durations]
 
 
+def has_voice(post) -> bool:
+    """Vai šajā lentē tiešām skan balss.
+
+    Receptes `voice_script` vien to nepasaka: scenārijs tur ir arī tad, kad
+    sintēze neizdevās vai atslēgas nebija. Statistikā tie ir divi dažādi
+    ieraksti, tāpēc skatāmies uz karogu, ko uzliek būvēšana.
+    """
+    return bool(((getattr(post, "extra", None) or {}).get("recipe")
+                 or {}).get("voiced"))
+
+
 def ffmpeg_bin() -> str:
     return os.environ.get("FFMPEG_BIN", "") or shutil.which("ffmpeg") or ""
 

@@ -413,6 +413,10 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 return "reel", [media], {
                     "kind": "article_reel", "article": article.id,
                     "points": points, "image": image, "voice_script": script,
+                    # vai lentē TIEŠĀM ir balss: scenārijs receptē var būt arī
+                    # tad, kad sintēze neizdevās, un statistikā tie ir divi
+                    # dažādi ieraksti
+                    "voiced": bool(audio),
                     "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)
