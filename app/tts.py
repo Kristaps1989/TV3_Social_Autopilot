@@ -51,8 +51,38 @@ def _key(session=None) -> str:
     return credentials.get("azure_speech_key", session)
 
 
+# Hosti, kuru PIRMĀ etiķete ir reģions. Uzmanību: pie
+# <resurss>.cognitiveservices.azure.com un <resurss>.services.ai.azure.com
+# pirmā etiķete ir RESURSA nosaukums, nevis reģions — no tiem reģionu
+# nolasīt nevar.
+_REGION_HOSTS = ("tts.speech.microsoft.com", "stt.speech.microsoft.com",
+                 "api.cognitive.microsoft.com")
+
+
+def normalize_region(value: str) -> str:
+    """Reģions no tā, ko cilvēks ielīmē ('' ja nolasīt nevar).
+
+    Foundry lapa rāda galapunktus, nevis reģionu, tāpēc ielīmētu adresi
+    pieņemam un reģionu paņemam no tās, kad tas tur tiešām ir. Klusi
+    atkāpties uz noklusējumu būtu sliktāk nekā pateikt, ka nesanāca:
+    atslēgas ir piesaistītas reģionam, un nepareizs reģions nozīmē 401.
+    """
+    value = (value or "").strip().strip("/")
+    if not value:
+        return ""
+    if "." in value or "://" in value:
+        from urllib.parse import urlparse
+
+        host = urlparse(value if "://" in value else f"https://{value}").netloc
+        host = (host or value).split(":")[0].lower()
+        label, _, rest = host.partition(".")
+        return label if rest in _REGION_HOSTS else ""
+    return value.lower()
+
+
 def _region(session=None) -> str:
-    return credentials.get("azure_speech_region", session) or "westeurope"
+    stored = credentials.get("azure_speech_region", session)
+    return normalize_region(stored) or "westeurope"
 
 
 def provider(rules: dict | None = None) -> str:
@@ -103,8 +133,14 @@ def build_ssml(text: str, voice: str = DEFAULT_VOICE,
     )
 
 
-def _azure_audio(text: str, voice: str, session=None) -> bytes:
-    """Azure Speech REST atbilde (b"" pie jebkuras kļūdas)."""
+def _azure_audio(text: str, voice: str, session=None,
+                 errors: list | None = None) -> bytes:
+    """Azure Speech REST atbilde (b"" pie jebkuras kļūdas).
+
+    errors: saraksts, kurā ielikt neizdošanās iemeslu. Azure atbilde pasaka,
+    KAS nav kārtībā (401 nepareiza atslēga, 403 reģions, 400 balss), un
+    lietotājam to ir vērts parādīt — citādi paliek "neizdevās".
+    """
     import httpx
 
     url = (f"https://{_region(session)}.tts.speech.microsoft.com"
@@ -122,10 +158,17 @@ def _azure_audio(text: str, voice: str, session=None) -> bytes:
         if resp.status_code != 200:
             log.warning("TTS failed: HTTP %s %s", resp.status_code,
                         resp.text[:200])
+            if errors is not None:
+                errors.append(f"HTTP {resp.status_code}: "
+                              f"{(resp.text or '').strip()[:160] or 'bez ziņojuma'}")
             return b""
+        if not resp.content and errors is not None:
+            errors.append("Azure atbildēja bez audio")
         return resp.content or b""
     except Exception as e:  # noqa: BLE001 — kluss reels ir labāks par nekādu
         log.warning("TTS request failed: %s", e)
+        if errors is not None:
+            errors.append(f"{type(e).__name__}: {str(e)[:160]}")
         return b""
 
 
@@ -146,7 +189,7 @@ def _cache_path(text: str, voice: str, out_dir: Path) -> Path:
 
 def synthesize(text: str, out_dir: Path | str | None = None,
                rules: dict | None = None, session=None,
-               force: bool = False) -> str:
+               force: bool = False, errors: list | None = None) -> str:
     """Ierunas mp3 ceļš ('' ja balss nav pieejama vai neizdodas).
 
     Nemet kļūdu: ja Azure neatbild, reels vienkārši iznāk kluss.
@@ -171,7 +214,7 @@ def synthesize(text: str, out_dir: Path | str | None = None,
     if not force and cached.exists() and cached.stat().st_size > 0:
         return str(cached)
 
-    audio = _SYNTHS[provider(rules)](text, voice, session)
+    audio = _SYNTHS[provider(rules)](text, voice, session, errors)
     if not audio:
         return ""
 

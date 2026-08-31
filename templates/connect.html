@@ -58,7 +58,8 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <input type="password" name="api_key" placeholder="Azure Speech atslēga"
              autocomplete="off" required>
       <input type="text" name="region" value="{{ tts_region }}"
-             placeholder="westeurope" style="margin-top:.4rem">
+             placeholder="westeurope — resursa reģions, nevis galapunkts"
+             style="margin-top:.4rem">
       <div style="margin-top:.5rem">
         <button class="primary">{{ 'Nomainīt atslēgu' if tts_key_masked else 'Saglabāt atslēgu' }}</button>
       </div>
@@ -69,11 +70,19 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <button class="danger">Noņemt atslēgu</button>
     </form>
     {% endif %}
-    <p class="muted">Azure portālā izveido <b>Speech service</b> resursu →
-    Keys and Endpoint. Reģions jāsakrīt ar resursa reģionu (piem.
-    <code>westeurope</code>, <code>northeurope</code>). Saglabājot tiek ierunāts
-    parauga teikums, tāpēc nepareizs reģions vai atslēga parādās uzreiz, nevis
-    pēc nedēļas klusiem reeliem. Balsi izvēlas Noteikumos
+    <p class="muted">Der gan atsevišķs <b>Speech service</b> resurss, gan
+    <b>Azure AI Foundry / AI Services</b> resursa atslēga — Speech ir tā daļa.
+    Ielīmē <b>atslēgu</b> (Foundry sākumlapā “API key”, Azure portālā
+    Keys and Endpoint → KEY 1).</p>
+    <p class="muted">Reģionā raksta <b>reģiona nosaukumu</b>
+    (<code>westeurope</code>, <code>northeurope</code>, <code>swedencentral</code>),
+    nevis galapunktu: Azure atslēgas ir piesaistītas reģionam, un no Foundry
+    adresēm (<code>…services.ai.azure.com</code>,
+    <code>…openai.azure.com</code>) reģionu nolasīt nevar. Kur to atrast:
+    <b>portal.azure.com</b> → tavs resurss → Overview → <b>Location</b>.</p>
+    <p class="muted">Saglabājot tiek ierunāts parauga teikums un parādīta paša
+    Azure atbilde, tāpēc nepareiza atslēga (401) vai reģions (403/404) redzama
+    uzreiz, nevis pēc nedēļas klusiem reeliem. Balsi izvēlas Noteikumos
     (<code>reel_voice_name: female</code> vai <code>male</code>).</p>
   </div>
 

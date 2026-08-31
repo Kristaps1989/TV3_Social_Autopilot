@@ -1,4 +1,6 @@
 """Balss sintēze reelu ierunai."""
+from urllib.parse import unquote
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -260,3 +262,56 @@ def test_voice_catalogue_is_per_provider():
 def test_azure_stays_the_default():
     assert tts.provider({}) == "azure"
     assert tts.provider({"tts_provider": " AZURE "}) == "azure"
+
+
+# --- reģions un diagnostika ------------------------------------------------
+
+def test_region_read_from_whatever_is_pasted():
+    assert tts.normalize_region("  WestEurope ") == "westeurope"
+    assert tts.normalize_region(
+        "https://northeurope.tts.speech.microsoft.com/cognitiveservices/v1") \
+        == "northeurope"
+    assert tts.normalize_region("westeurope.api.cognitive.microsoft.com") \
+        == "westeurope"
+    # Foundry adresēs reģiona nav — pirmā etiķete ir RESURSA nosaukums
+    assert tts.normalize_region(
+        "https://tv3-audio-autopilot-resource.services.ai.azure.com") == ""
+    assert tts.normalize_region(
+        "https://tv3-audio-autopilot-resource.openai.azure.com/o") == ""
+    assert tts.normalize_region("") == ""
+
+
+def test_azure_error_reaches_the_caller(keyed, tmp_path, monkeypatch):
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(
+        401, text='{"error":"Access denied due to invalid subscription key"}'))
+    errors: list[str] = []
+    assert tts.synthesize("Teksts.", tmp_path, rules={"reel_voice": True},
+                          session=keyed, errors=errors) == ""
+    assert errors and errors[0].startswith("HTTP 401")
+    assert "invalid subscription key" in errors[0]
+
+
+def test_pasted_endpoint_is_rejected_with_an_explanation(client, session,
+                                                         monkeypatch):
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _never_called())
+    r = client.post("/connect/azure-speech",
+                    data={"api_key": "some-key",
+                          "region": "https://tv3-audio-autopilot-resource"
+                                    ".services.ai.azure.com"},
+                    follow_redirects=False)
+    location = r.headers["location"]
+    assert "/connect?error=" in location
+    assert "Location" in unquote(location)      # pasaka, kur reģionu meklēt
+    # atslēga netiek saglabāta ar nederīgu reģionu
+    assert credentials.get("azure_speech_key", session) == ""
+
+
+def test_failed_sample_shows_the_azure_reason(client, session, monkeypatch):
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(
+        403, text="Forbidden: region mismatch"))
+    r = client.post("/connect/azure-speech",
+                    data={"api_key": "some-key", "region": "westeurope"},
+                    follow_redirects=False)
+    message = unquote(r.headers["location"])
+    assert "HTTP 403" in message and "region mismatch" in message
+    assert "westeurope" in message

@@ -900,21 +900,31 @@ def connect_azure_speech(api_key: str = Form(""), region: str = Form("")):
 
     session = get_session()
     try:
-        api_key, region = api_key.strip(), (region.strip() or "westeurope")
+        api_key, typed = api_key.strip(), region.strip()
         if not api_key:
             credentials.put(session, "azure_speech_key", "")
             return RedirectResponse("/connect?connected=Balss+atslēga+noņemta",
                                     status_code=303)
+        # Atslēgas ir piesaistītas reģionam, un Foundry lapa rāda galapunktus,
+        # nevis reģionu — ielīmētu galapunktu tāpēc noraidām ar paskaidrojumu,
+        # nevis klusi krītam atpakaļ uz noklusējumu un pēc tam uz 401
+        region = tts.normalize_region(typed) if typed else "westeurope"
+        if not region:
+            return RedirectResponse(
+                f"/connect?error={quote('No «' + typed[:60] + '» reģionu nolasīt nevar. Ieraksti reģiona nosaukumu (piem. westeurope) — to atrod Azure portālā pie resursa, laukā Location. Foundry «Project endpoint» un «Azure OpenAI endpoint» šeit neder.')}",
+                status_code=303)
         credentials.put(session, "azure_speech_region", region)
         credentials.put(session, "azure_speech_key", api_key)
         # paraugu ierunājam pagaidu mapē un apejot kešu: pārbaudei jāaiziet
         # līdz Azure ar TIEŠI šo atslēgu, nevis jāatbild no vecā faila
+        errors: list[str] = []
         with tempfile.TemporaryDirectory() as tmp:
             sample = tts.synthesize("Pārbaudes ieraksts.", tmp,
-                                    session=session, force=True)
+                                    session=session, force=True, errors=errors)
         if not sample:
+            detail = errors[0] if errors else "nezināms iemesls"
             return RedirectResponse(
-                f"/connect?error={quote('Atslēga saglabāta, bet parauga ieruna neizdevās — pārbaudi reģionu (' + region + ')')}",
+                f"/connect?error={quote(f'Atslēga saglabāta, bet parauga ieruna reģionā «{region}» neizdevās — {detail}')}",
                 status_code=303)
         return RedirectResponse("/connect?connected=Balss+(Azure+Speech)",
                                 status_code=303)
