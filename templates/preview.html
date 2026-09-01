@@ -212,6 +212,20 @@ kā foto ierakstus.
     {% else %}Balss atslēga nav pieslēgta (Konti → Reelu balss), tāpēc lente
     iziet klusa — teksts glabājas receptē un ieskanēsies, tiklīdz atslēga būs.
     {% endif %}</p>
+  {% if voice_used and voice_used.voice_used %}
+  <p style="margin:.2rem 0 0" class="muted">Nolasīja
+    <code>{{ voice_used.voice_used }}</code>
+    {%- if voice_used.voice_provider %} ({{ voice_used.voice_provider }}){% endif %},
+    temps <b>{{ '%+d' % voice_used.voice_rate }}%</b> pret pakalpojuma
+    noklusējumu. Balss no
+    {% if voice_used.voice_by_section %}<code>reel_voice_by_section</code>
+    (šī sadaļa){% else %}<code>reel_voice_name</code> (kopīgā){% endif %},
+    temps no
+    {% if voice_used.rate_by_section %}<code>reel_voice_rate_by_section</code>
+    (šī sadaļa){% else %}<code>reel_voice_rate</code> (kopīgā){% endif %}.
+    Ja gaidīji sadaļas balsi, bet te rakstīts «kopīgā», Noteikumos tā rinda
+    vēl ir izkomentēta.</p>
+  {% endif %}
   {% endif %}
   {% if cms_meta %}
   <p style="margin:.4rem 0 0">No CMS lapas:

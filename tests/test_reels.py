@@ -821,3 +821,48 @@ def test_the_report_says_how_long_the_voice_actually_speaks(monkeypatch, tmp_pat
     assert report["speech_seconds"] == 16.0
     # kopgarums ir lielāks: klusumi un elpas nāk virsū
     assert report["seconds"] > report["speech_seconds"]
+
+
+def test_the_report_says_which_voice_and_pace_were_actually_used(tmp_path,
+                                                                 monkeypatch):
+    """Sadaļas balss un temps nāk no diviem noteikumiem, un Noteikumu failā
+    piemērs ir komentārs — izkomentēta rinda izskatās pēc iestatījuma. Tāpēc
+    receptē jāpaliek rezultātam: ar KO tas tika ierunāts, ne ar ko bija
+    domāts."""
+    from pathlib import Path
+
+    from app import reels
+
+    def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
+                      voice=None, voices=None):
+        Path(out).write_bytes(b"mp4")
+        return sum(durations)
+
+    monkeypatch.setattr(reels, "_render_frames",
+                        lambda docs, out_dir: [tmp_path / f"f{i}.png"
+                                               for i in range(len(docs))])
+    monkeypatch.setattr(reels, "_assemble", fake_assemble)
+    monkeypatch.setattr(reels, "media_duration", lambda p: 4.0)
+
+    rules = {"tts_provider": "elevenlabs", "reel_voice_name": "female",
+             "reel_voice_rate": -4,
+             "reel_voice_by_section": {"entertainment": "izklaides-balss"},
+             "reel_voice_rate_by_section": {"entertainment": 12}}
+
+    def build(section):
+        report: dict = {}
+        reels.build_reel("T", section, "", [], out_dir=tmp_path, rules=rules,
+                         sections=[{"title": "A", "body": "Teksts."}],
+                         cover_voice="Virsraksts.",
+                         synth=lambda text, **kw: "/a.m4a", report=report)
+        return report
+
+    fun = build("entertainment")
+    assert fun["voice_used"] == "izklaides-balss" and fun["voice_rate"] == 12
+    assert fun["voice_by_section"] and fun["rate_by_section"]
+
+    # sadaļa bez savas rindas dabū kopīgo — un to arī pasaka
+    news = build("news")
+    assert news["voice_used"] == "21m00Tcm4TlvDq8ikWAM"
+    assert news["voice_rate"] == -4
+    assert not news["voice_by_section"] and not news["rate_by_section"]

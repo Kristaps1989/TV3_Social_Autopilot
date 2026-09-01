@@ -774,11 +774,15 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
 
     voices: list[str] = []
     spoken: dict[str, float] = {}   # ieruna -> sekundes, kadru garumam un atskaitei
+    chosen: dict = {}               # kura balss un temps — atskaitei
     if voice is None and any(b["text"].strip() for b in beats):
-        if synth is None:
-            from app import tts
+        from app import tts as _tts
 
-            synth = tts.synthesize
+        if synth is None:
+            synth = _tts.synthesize
+        # ko sadaļa tiešām dabūja: balsi un tempu izšķir divi noteikumi, un
+        # priekšskatījumā tas jāredz kā fakts, ne kā mans pieņēmums
+        chosen = _tts.voice_choice(rules, section)
         # sadaļa iet līdzi: balsi un tempu var izvēlēties pa sadaļām
         # (izklaidei dzīvāka balss un ātrāks temps nekā pierobežas ziņai)
         voices = [synth(b["text"], section=section) if b["text"].strip() else ""
@@ -827,6 +831,14 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                        "speech_seconds": round(
                            media_duration(voice) if voice
                            else sum(spoken.get(v, 0.0) for v in voices), 2),
+                       # kura balss un kurš temps: izkomentēta sadaļas rinda
+                       # izskatās gluži kā iestatījums, tāpēc rezultāts ir
+                       # jāparāda, nevis jāliek redaktoram to izsecināt
+                       "voice_used": chosen.get("voice", ""),
+                       "voice_rate": chosen.get("rate"),
+                       "voice_provider": chosen.get("provider", ""),
+                       "voice_by_section": chosen.get("voice_by_section", False),
+                       "rate_by_section": chosen.get("rate_by_section", False),
                        "frames": total_frames, "seconds": round(total, 2),
                        "narration": [b["text"] for b in beats if b["text"]]})
     log.info("reel built: %s (%d frames, %.0fs total%s)",

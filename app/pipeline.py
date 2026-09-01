@@ -602,6 +602,13 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                     "voiced": bool(report.get("voiced")),
                     "seconds": report.get("seconds"),
                     "speech_seconds": report.get("speech_seconds"),
+                    # kura balss un temps tika lietots — sadaļas noteikums
+                    # var būt izkomentēts, un tad lente skan ar kopīgo
+                    "voice_used": report.get("voice_used"),
+                    "voice_rate": report.get("voice_rate"),
+                    "voice_provider": report.get("voice_provider"),
+                    "voice_by_section": report.get("voice_by_section"),
+                    "rate_by_section": report.get("rate_by_section"),
                     "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)

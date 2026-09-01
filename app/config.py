@@ -303,6 +303,50 @@ def _channel_errors(data: dict) -> str | None:
     return None
 
 
+# Noteikumi, kuru vērtība ir kartējums (sadaļa -> vērtība). Tukšs drīkst
+# būt; atsevišķa vērtība nedrīkst — tā nozīmē, ka atkāpe ir pazudusi.
+_MAPPING_RULES = ("reel_voice_by_section", "reel_voice_rate_by_section",
+                  "term_blocklist", "term_allowlist")
+
+
+def _rules_errors(data: dict) -> str | None:
+    """Noteikumu kļūdas, kas citādi paliek klusas.
+
+    Šeit nav gaumes jautājumu: katrs pārbaudītais gadījums ir tāds, kur
+    fails ir derīgs YAML, kods to pieņem un vienkārši nedara neko — balss
+    nemainās, temps nemainās, un iemesls no ekrāna nav redzams.
+    """
+    from app import tts
+
+    for key in _MAPPING_RULES:
+        value = data.get(key)
+        if value is None or isinstance(value, dict):
+            continue
+        return (f"«{key}» jābūt sarakstam pa sadaļām vai tukšam, bet ir "
+                f"{value!r} — visticamāk trūkst atkāpes: sadaļas rindai "
+                f"jāsākas ar diviem tukšumiem nākamajā rindā")
+
+    provider = str(data.get("tts_provider") or "").strip().lower()
+    if provider and provider not in tts.SUPPORTED_PROVIDERS:
+        return (f"nezināms tts_provider «{provider}» — lentes iznāks klusas. "
+                f"Pieejamie: {', '.join(sorted(tts.SUPPORTED_PROVIDERS))}")
+
+    rates = {"reel_voice_rate": data.get("reel_voice_rate")}
+    rates.update({f"reel_voice_rate_by_section: {k}": v
+                  for k, v in (data.get("reel_voice_rate_by_section")
+                               or {}).items()})
+    for where, value in rates.items():
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int):
+            return (f"«{where}» jābūt veselam skaitlim procentos "
+                    f"(piem. -4 vai 12), bet ir {value!r}")
+        if not -40 <= value <= 40:
+            return (f"«{where}»: {value}% ir ārpus diapazona -40..40 — "
+                    f"pakalpojums to tik un tā apgrieztu")
+    return None
+
+
 def validate_editable(kind: str, text: str) -> str | None:
     """Validate an edited config before saving. Returns error message or None."""
     if kind in ("rules", "channels", "feeds"):
@@ -314,4 +358,6 @@ def validate_editable(kind: str, text: str) -> str | None:
             return "File must be a YAML mapping (key: value)"
         if kind == "channels":
             return _channel_errors(data)
+        if kind == "rules":
+            return _rules_errors(data)
     return None

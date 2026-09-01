@@ -427,6 +427,13 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             # vārdos minūtē, nevis mans vērtējums par to, cik tas varētu būt
             "voice_seconds": ((post.extra or {}).get("recipe")
                               or {}).get("speech_seconds"),
+            # ar KURU balsi un KĀDĀ tempā šī lente tiešām tika ierunāta.
+            # Noteikumos sadaļas rinda mēdz palikt izkomentēta un izskatās
+            # pēc iestatījuma; te ir rezultāts, ne nodoms
+            "voice_used": {k: ((post.extra or {}).get("recipe") or {}).get(k)
+                           for k in ("voice_used", "voice_rate",
+                                     "voice_provider", "voice_by_section",
+                                     "rate_by_section")},
             "tts_ready": tts.enabled(session=session),
             "card_targets": [
                 {"n": i + 1, "url": u,
@@ -744,6 +751,14 @@ def connect(request: Request, error: str = "", connected: str = ""):
                              if el_key else {}),
             "el_voice": tts.voice_name({**config.load_rules(),
                                         "tts_provider": "elevenlabs"}),
+            # cik sadaļām TIEŠĀM ir sava balss un temps. Noteikumos piemērs
+            # ir komentārs, un izkomentēta rinda no ekrāna izskatās gluži kā
+            # iestatījums — šis parāda, kas no tā ir spēkā
+            "voice_sections": config.load_rules().get(
+                "reel_voice_by_section") or {},
+            "rate_sections": config.load_rules().get(
+                "reel_voice_rate_by_section") or {},
+            "voice_rate": tts.speech_rate(),
             "meta_app_ready": bool(fb_app_id),
             "meta_app_id": fb_app_id,
             "meta_config_id": credentials.get("meta_login_config_id", session),

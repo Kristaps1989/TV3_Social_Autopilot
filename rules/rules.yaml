@@ -129,7 +129,10 @@ reel_voice_name: female
 # Balss PA SADAĻĀM. Izklaides ziņas panes citu balsi nekā tā, ar kuru stāsta
 # par pierobežu — tā ir redakcijas izvēle. Sadaļas, kas te nav uzskaitītas,
 # lieto reel_voice_name. Vērtība ir tā pati, kas tur: female/male vai ID.
-reel_voice_by_section: {}
+# Nākamā rinda ir PIEMĒRS un ir izslēgta: lai to ieslēgtu, noņem tikai `#`,
+# abas atkāpes atstāj. Kamēr tā ir komentārs, neviena sadaļa savu balsi
+# nedabū — arī tad, ja rindā ir pareizs ID.
+reel_voice_by_section:
 #  entertainment: male
 
 # Runas temps procentos pret pakalpojuma noklusējumu. -4 ir nedaudz lēnāk,
@@ -139,8 +142,9 @@ reel_voice_by_section: {}
 # Diapazons -40..+40; ElevenLabs praksē griež pie -30..+20.
 reel_voice_rate: -4
 
-# Temps pa sadaļām — tas pats sadaļas jautājums, kas balss.
-reel_voice_rate_by_section: {}
+# Temps pa sadaļām — tas pats sadaļas jautājums, kas balss. Piemērs tāpat
+# ir izslēgts: noņem `#`, atkāpi atstāj.
+reel_voice_rate_by_section:
 #  entertainment: 8
 
 # ElevenLabs modelis. Latviski runā tikai eleven_v3; multilingual_v2
@@ -177,12 +181,14 @@ priors:
   min_posts_hours: 30    # posts before the measured hour curve takes over
   min_posts_format: 8    # posts per format before its weight is adjusted
 
-# Term-ID blocklist per channel (article never goes to that channel)
-term_blocklist: {}
+# Term-ID blocklist per channel (article never goes to that channel).
+# Piemērs izslēgts: noņem `#`, atkāpi atstāj.
+term_blocklist:
 #  fb_tv3lv: [12345]
 
 # Term-ID allowlist per channel (if set, ONLY these terms go there)
-term_allowlist: {}
+term_allowlist:
+#  fb_tv3lv: [12345]
 
 # --- ES MI akta atruna -------------------------------------------------
 # Regulas (ES) 2024/1689 50. pants prasa marķēt mākslīgi ģenerētu saturu un

@@ -128,6 +128,17 @@ ElevenLabs atšķiras. Tāpēc priekšskatījums pie uzbūvētas lentes rāda **
 izmērīto tempu** (vārdi / izmērītais runas garums) — pēc tā regulē, nevis pēc
 procentiem.
 
+**Piemērs Noteikumos nav iestatījums.** Sadaļu balsis un tempi
+(`reel_voice_by_section`, `reel_voice_rate_by_section`) piegādāti tukši, un
+zem tiem ir izkomentēts piemērs. Izkomentēta rinda ar pareizu balss ID no
+ekrāna izskatās tieši tāpat kā strādājošs iestatījums — tā ir visbiežākā
+vieta, kur tiek mainīts kaut kas, kas neko nedara. Tāpēc: piemēru rindas ir
+uzrakstītas tā, ka pietiek noņemt `#` (atkāpe paliek), priekšskatījums pie
+ierunas raksta, ar KURU balsi un KĀDĀ tempā lente tiešām tika ierunāta un vai
+tas nāca no sadaļas vai no kopīgā noteikuma, un Konti lapa saka, cik sadaļām
+izņēmums vispār ir. Ja gribi mainīt balsi visur, tas ir `reel_voice_name`, ne
+sadaļu saraksts.
+
 Mūsu gadījumā ir vēl viens ierobežojums, kura TV diktoram nav: **kadra garumu
 nosaka ieruna**. Ātrāka runa nozīmē īsāku kadru, bet teksts uz ekrāna paliek
 tikpat garš — tāpēc temps augšpusē ir ierobežots ar to, cik ātri to tekstu var

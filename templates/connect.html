@@ -76,7 +76,19 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <div class="muted" style="font-size:.72rem;margin:.3rem 0 0">Izvēlēta:
         {% set chosen = el_catalogue.voices | selectattr('id', 'equalto', el_voice) | first %}
         {% if chosen %}<b>{{ chosen.name }}</b> ·{% endif %}
-        <code style="word-break:break-all">{{ el_voice }}</code></div>
+        <code style="word-break:break-all">{{ el_voice }}</code>
+        · temps <b>{{ '%+d' % voice_rate }}%</b></div>
+      <div class="muted" style="font-size:.72rem;margin:.2rem 0 0">Sadaļu
+        izņēmumi:
+        {% if voice_sections or rate_sections %}
+          {% for s in (voice_sections.keys() | list + rate_sections.keys() | list) | unique %}
+            <code>{{ s }}</code>{% if voice_sections.get(s) %} → {{ voice_sections[s] }}{% endif %}
+            {%- if rate_sections.get(s) is not none %}, {{ '%+d' % rate_sections[s] }}%{% endif %}{% if not loop.last %};{% endif %}
+          {% endfor %}
+        {% else %}nav nevienas — <b>visas sadaļas</b> lieto šo balsi un šo
+          tempu. Noteikumos <code>reel_voice_by_section</code> piemērs ir
+          izkomentēts, un kamēr rindas priekšā ir <code>#</code>, tā neko
+          nedara.{% endif %}</div>
       <p class="muted" style="margin:.35rem 0 .3rem;font-size:.78rem">Balsis
       <b>nav piesaistītas valodai</b> — latviski runā modelis, balss dod
       akcentu, un paraugs parasti ir angliski. «Izvēlēties» ieraksta balsi

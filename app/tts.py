@@ -173,6 +173,27 @@ def speech_rate(rules: dict | None = None, section: str = "") -> int:
         return DEFAULT_RATE_PERCENT
 
 
+def voice_choice(rules: dict | None = None, section: str = "") -> dict:
+    """Kura balss un kurš temps sadaļai TIEŠĀM tiks lietots.
+
+    Balsi un tempu izšķir divi noteikumi (globālais un sadaļas), un no
+    Noteikumu faila to nevar salasīt: `reel_voice_by_section` piemērs tur
+    ir komentārs, un izkomentēta rinda izskatās gluži kā iestatījums. Šis
+    pasaka rezultātu, un priekšskatījums to parāda pie ierunas — citādi
+    redaktors maina rindu, kas neko nedara, un secina, ka nestrādā rīks.
+    """
+    rules = config.load_rules() if rules is None else rules
+    by_voice = (rules or {}).get("reel_voice_by_section") or {}
+    by_rate = (rules or {}).get("reel_voice_rate_by_section") or {}
+    return {"provider": provider(rules),
+            "voice": voice_name(rules, section),
+            "rate": speech_rate(rules, section),
+            # vai tieši ŠAI sadaļai ir sava rinda, vai tā lieto kopīgo
+            "voice_by_section": bool(section and by_voice.get(section)),
+            "rate_by_section": bool(section
+                                    and by_rate.get(section) is not None)}
+
+
 def spoken_text(text: str, rules: dict | None = None) -> str:
     """Teksts tā, kā tas JĀIZRUNĀ (izrunas vārdnīca pielietota).
 
@@ -374,6 +395,9 @@ def _elevenlabs_audio(text: str, voice: str, session=None,
 # pievienošana ir viens ieraksts šeit: kešs, teksta sagatavošana un kļūdu
 # apstrāde ir kopīga.
 _SYNTHS = {"azure": _azure_audio, "elevenlabs": _elevenlabs_audio}
+# ko drīkst rakstīt `tts_provider` rindā (Noteikumu pārbaudei — nepazīstams
+# nosaukums nozīmē klusas lentes, un tas jāpasaka saglabājot, ne pēc nedēļas)
+SUPPORTED_PROVIDERS = frozenset(_SYNTHS)
 
 
 def _cache_path(text: str, voice: str, out_dir: Path) -> Path:

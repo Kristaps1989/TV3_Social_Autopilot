@@ -797,3 +797,79 @@ def test_the_reel_passes_the_section_to_the_voice(monkeypatch, tmp_path):
                      synth=lambda text, **kw: seen.append(kw.get("section"))
                      or "/a.m4a")
     assert set(seen) == {"entertainment"}
+
+
+# --- Kura balss un temps tiešām tika lietots ---------------------------------
+
+def test_voice_choice_says_where_the_voice_and_the_pace_came_from():
+    """Sadaļas balsi no Noteikumu faila nolasīt nevar.
+
+    `reel_voice_by_section` piemērs tur ir komentārs, un izkomentēta rinda
+    izskatās gluži kā iestatījums — redaktors maina rindu, kas neko nedara,
+    un secina, ka nestrādā rīks. Tāpēc rezultāts ir jāpasaka.
+    """
+    rules = {"tts_provider": "elevenlabs", "reel_voice_name": "female",
+             "reel_voice_rate": -4,
+             "reel_voice_by_section": {"entertainment": "balss-id"},
+             "reel_voice_rate_by_section": {"entertainment": 12}}
+
+    news = tts.voice_choice(rules, "news")
+    assert news["voice"] == tts.VOICES["elevenlabs"]["female"]
+    assert news["rate"] == -4
+    assert news["voice_by_section"] is False and news["rate_by_section"] is False
+
+    fun = tts.voice_choice(rules, "entertainment")
+    assert fun["voice"] == "balss-id" and fun["rate"] == 12
+    assert fun["voice_by_section"] is True and fun["rate_by_section"] is True
+
+    # tukšs (vai izkomentēts) saraksts = visas sadaļas lieto kopīgo
+    empty = tts.voice_choice({"reel_voice_by_section": None,
+                              "reel_voice_rate_by_section": None,
+                              "reel_voice_name": "male"}, "entertainment")
+    assert empty["voice"] == tts.VOICES["azure"]["male"]
+    assert empty["voice_by_section"] is False
+
+
+# --- Noteikumu pārbaude saglabājot ------------------------------------------
+
+def test_rules_that_are_valid_yaml_but_do_nothing_are_caught():
+    """Katrs gadījums te ir tāds, kur fails ir derīgs YAML, kods to pieņem
+    un vienkārši nedara neko: balss nemainās, temps nemainās, un iemesls no
+    ekrāna nav redzams."""
+    from app import config
+
+    # atkāpe pazudusi -> nevis sadaļu saraksts, bet viena vērtība
+    assert "atkāpes" in config.validate_editable(
+        "rules", "reel_voice_by_section: male")
+    # pārrakstīts pakalpojums -> klusas lentes
+    assert "tts_provider" in config.validate_editable(
+        "rules", "tts_provider: elevenlab")
+    # temps vārdiem, nevis procentiem
+    assert "veselam skaitlim" in config.validate_editable(
+        "rules", "reel_voice_rate: fast")
+    # ārpus diapazona -> pakalpojums to tik un tā apgrieztu
+    assert "-40..40" in config.validate_editable(
+        "rules", "reel_voice_rate_by_section:\n  entertainment: 90")
+    # un pats piegādātais fails iet cauri
+    text = (config.DEFAULT_RULES_DIR / "rules.yaml").read_text(encoding="utf-8")
+    assert config.validate_editable("rules", text) is None
+
+
+def test_the_commented_examples_can_actually_be_uncommented():
+    """Piemērs, kuru nevar ieslēgt, ir sliktāks par nekādu piemēru.
+
+    Agrāk sadaļu saraksti bija rakstīti `key: {}` ar piemēru komentārā zem
+    tā. Noņemot `#`, sanāca `key: {}` ar atkāpes bloku aiz tā — YAML kļūda.
+    Redaktors piemēram sekoja burtiski un dabūja vai nu neko, vai kļūdu.
+    """
+    import yaml
+
+    from app import config
+
+    text = (config.DEFAULT_RULES_DIR / "rules.yaml").read_text(encoding="utf-8")
+    live = text.replace("#  entertainment", "  entertainment")
+    live = live.replace("#  fb_tv3lv", "  fb_tv3lv")
+    data = yaml.safe_load(live)            # nedrīkst mest YAMLError
+    assert data["reel_voice_by_section"] == {"entertainment": "male"}
+    assert data["reel_voice_rate_by_section"] == {"entertainment": 8}
+    assert config.validate_editable("rules", live) is None
