@@ -60,7 +60,7 @@ this tool's job.
 | Ieruna latviski, rakstīta RUNĀŠANAI | sadaļu `body`; izrunas vārdnīca (`tv3.lv` → «tv trīs punkts lv») |
 | Skatītājs redz, cik tālu stāsts | josla kadra augšā skaita VISUS kadrus, ne tikai nodaļas |
 | Vāks runā tikai virsrakstu | atsevišķs āķis atkārtoja to pašu, ko pirmā nodaļa |
-| Skaitļi izrunāti latviski | `lvnum`: «59. minūtē» → «piecdesmit devītajā minūtē» |
+| Skaitļi izrunāti latviski | `lvnum`: «59. minūtē» → «piecdesmit devītajā minūtē»; «pret 64.» → «pret sešdesmit četri» |
 | Kadrs nekad nav plakans krāsas laukums | foto → izpludināta photopost grafika → gradients. Tas attiecas uz VISIEM pilnekrāna formātiem: vāki, sadaļu kartītes, lentes kadri, «Nedēļas skaitlis», jautājuma karte |
 | Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
 
@@ -79,9 +79,17 @@ Balss «59. minūtē» lasa kā «piecdesmit devītā minūtē»: punkts aiz cip
 nozīmē kārtas skaitli nominatīvā. Latviski tur vajag lokatīvu, un locījumu
 nosaka NĀKAMAIS vārds — analīzi, ko sintēze nedara. `app/lvnum.py` to izdara
 pirms teksts aiziet uz Azure; ekrānā redzamais «59. minūtē» paliek neskarts.
-Apzināta robeža: pārrakstām tikai tad, kad nākamais vārds locījumu tiešām
-pasaka; citādi atstājam ciparus, jo uzminēts locījums skan sliktāk nekā tas,
-ko balss dara šodien.
+Tas pats punkts strādā arī otrādi: teikuma **beigās** punkts nav kārtas
+skaitļa zīme. «Serbija uzvarēja ar rezultātu 76 pret 64.» balss nolasīja kā
+«sešdesmit ceturtais»; tur vajag pamata skaitli. Kontekstu nosaka nākamais
+burts — mazais nozīmē locījumu, lielais (vai teksta beigas) nozīmē jaunu
+teikumu.
+
+Apzināta robeža: pārrakstām tikai tad, kad kontekstu var pateikt droši;
+citādi atstājam ciparus, jo uzminēts locījums skan sliktāk nekā tas, ko balss
+dara šodien. Zināma nepilnība — «1. Maija ielā» iznāk kā «viens. Maija ielā»,
+jo lielais burts te nav jauns teikums; ielu nosaukumi ziņu ierunā ir retāk
+nekā rezultāti, un tādu gadījumu risina izrunas vārdnīca Noteikumos.
 
 ### Kāpēc ieruna ir pa kadriem
 

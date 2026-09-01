@@ -9,10 +9,20 @@ Tāpēc locījumu nosakām mēs, pēc nākamā vārda galotnes, un uzrakstām k�
 skaitli vārdiem PIRMS teksts aiziet uz sintēzi. Ekrānā redzamais teksts
 paliek neskarts — «59. minūtē» ir pareizi rakstīts, tikai nepareizi lasīts.
 
-APZINĀTA ROBEŽA: pārrakstām TIKAI tad, kad nākamais vārds locījumu tiešām
-pasaka. Ja nepasaka (skaitlis teikuma beigās, sveša galotne), atstājam
-ciparus, kā bija. Uzminēts locījums skan sliktāk nekā tas, ko balss dara
-šodien, un kļūdu tad būtu grūtāk pamanīt.
+Otra puse tam pašam punktam: teikuma BEIGĀS punkts nav kārtas skaitļa zīme,
+bet teikuma beigas. «Serbija uzvarēja ar rezultātu 76 pret 64.» balss nolasīja
+kā «sešdesmit ceturtais», jo cipars un punkts izskatās vienādi abos gadījumos.
+Tur skaitlis jāuzraksta kā pamata skaitlis — «sešdesmit četri».
+
+APZINĀTA ROBEŽA: pārrakstām TIKAI tad, kad kontekstu var pateikt droši —
+nākamais vārds ir ar mazo burtu (kārtas skaitlis) vai skaitlis ir teikuma
+beigās (pamata skaitlis). Ja nevar (sveša galotne), atstājam ciparus, kā bija.
+Uzminēts locījums skan sliktāk nekā tas, ko balss dara šodien.
+
+ZINĀMA NEPILNĪBA: «1. Maija ielā» — nākamais vārds te ir ar lielo burtu, bet
+tas nav jauns teikums, tāpēc iznāks «viens Maija ielā». Ielu nosaukumi ziņu
+tekstā ir retāk nekā rezultāti un uzskaitījumi, tāpēc biežākais gadījums
+uzvar; ja tāds parādīsies, to risina izrunas vārdnīca Noteikumos.
 """
 from __future__ import annotations
 
@@ -30,11 +40,22 @@ _STEM = {
     90: "deviņdesmit", 100: "simt",
 }
 
-# Pamata skaitļa vārdi tām daļām, kas paliek priekšā (tikai PĒDĒJĀ daļa ir
-# kārtas skaitlis: piecdesmit devītajā, nevis piecdesmitajā devītajā)
+# Pamata skaitļa vārdi. Vajadzīgi divām lietām: daļām, kas kārtas skaitlī
+# paliek priekšā (piecdesmit devītajā, nevis piecdesmitajā devītajā), un
+# skaitļiem teikuma beigās, kur punkts nav kārtas skaitļa zīme.
 _CARDINAL = {
     1: "viens", 2: "divi", 3: "trīs", 4: "četri", 5: "pieci", 6: "seši",
-    7: "septiņi", 8: "astoņi", 9: "deviņi",
+    7: "septiņi", 8: "astoņi", 9: "deviņi", 10: "desmit",
+}
+_TEENS = {
+    11: "vienpadsmit", 12: "divpadsmit", 13: "trīspadsmit",
+    14: "četrpadsmit", 15: "piecpadsmit", 16: "sešpadsmit",
+    17: "septiņpadsmit", 18: "astoņpadsmit", 19: "deviņpadsmit",
+}
+_TENS = {
+    20: "divdesmit", 30: "trīsdesmit", 40: "četrdesmit", 50: "piecdesmit",
+    60: "sešdesmit", 70: "septiņdesmit", 80: "astoņdesmit",
+    90: "deviņdesmit",
 }
 
 _ENDINGS = {
@@ -113,17 +134,65 @@ def ordinal(n: int, case: str = "loc") -> str:
     return " ".join([*prefix, _STEM[tens], _STEM[units] + end])
 
 
-_ORDINAL_RE = re.compile(r"(?<![\d.,])(\d{1,4})\.(?=\s)\s+([A-Za-zĀ-žā-ž]+)")
+# Kārtas skaitlis: aiz punkta seko vārds ar MAZO burtu (minūtē, vietā,
+# septembrī). Lielais burts nozīmē jaunu teikumu, ne locījumu.
+_ORDINAL_RE = re.compile(
+    r"(?<![\d.,])(\d{1,4})\.(?=\s)\s+([a-zāčēģīķļņšūž]+)")
+# Pamata skaitlis: punkts te beidz teikumu — aiz tā ir teksta beigas vai
+# nākamais teikums ar lielo burtu.
+_CARDINAL_RE = re.compile(
+    r"(?<![\d.,])(\d{1,4})\.(?=\s*$|\s+[A-ZĀČĒĢĪĶĻŅŠŪŽ])")
+
+
+def cardinal(n: int) -> str:
+    """Pamata skaitlis vārdiem ('' ja ārpus atbalstītā apjoma 0-9999)."""
+    if n < 0 or n > 9999:
+        return ""
+    if n == 0:
+        return "nulle"
+    parts: list[str] = []
+    if n >= 1000:
+        th = n // 1000
+        parts.append("tūkstoš" if th == 1 else f"{_CARDINAL[th]} tūkstoši")
+        n %= 1000
+        if n == 0:
+            return ("tūkstotis" if th == 1
+                    else f"{_CARDINAL[th]} tūkstoši")
+    if n >= 100:
+        hu = n // 100
+        parts.append("simt" if hu == 1 else f"{_CARDINAL[hu]} simti")
+        n %= 100
+        if n == 0 and len(parts) == 1 and hu == 1:
+            return "simts"
+    if n == 0:
+        return " ".join(parts)
+    if n in _CARDINAL:
+        parts.append(_CARDINAL[n])
+    elif n in _TEENS:
+        parts.append(_TEENS[n])
+    else:
+        tens, units = n // 10 * 10, n % 10
+        parts.append(_TENS[tens])
+        if units:
+            parts.append(_CARDINAL[units])
+    return " ".join(parts)
 
 
 def speak_ordinals(text: str) -> str:
-    """«59. minūtē» -> «piecdesmit devītajā minūtē».
+    """«59. minūtē» -> «piecdesmit devītajā minūtē»,
+    «...ar rezultātu 76 pret 64.» -> «...septiņdesmit seši pret sešdesmit četri.»
 
-    Nākamo vārdu atstājam, kā bija — locījumu nosakām pēc tā, nevis mainām.
+    Nākamo vārdu atstājam, kā bija — kontekstu nosakām pēc tā, nevis mainām.
     """
-    def sub(m: re.Match) -> str:
+    def as_cardinal(m: re.Match) -> str:
+        spelled = cardinal(int(m.group(1)))
+        return f"{spelled}." if spelled else m.group(0)
+
+    def as_ordinal(m: re.Match) -> str:
         number, word = m.group(1), m.group(2)
         spelled = ordinal(int(number), case_of(word))
         return f"{spelled} {word}" if spelled else m.group(0)
 
-    return _ORDINAL_RE.sub(sub, text)
+    # vispirms teikuma beigas: tur punkts nav kārtas skaitļa zīme
+    text = _CARDINAL_RE.sub(as_cardinal, text)
+    return _ORDINAL_RE.sub(as_ordinal, text)

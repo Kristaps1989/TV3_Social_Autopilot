@@ -41,12 +41,46 @@ def test_ordinals_take_the_case_the_next_word_asks_for(raw, spoken):
 @pytest.mark.parametrize("raw", [
     "Rezultāts 1:0, spēle beidzās.",     # nav punkta aiz cipara
     "Cena ir 12.50 eiro.",               # decimāldaļa, nevis kārtas skaitlis
-    "Spēle beidzās 59.",                 # nav nākamā vārda -> locījums nezināms
     "Notika 2000. gadā.",                # apaļš gadskaitlis -> neaiztiekam
 ])
 def test_untouched_when_the_case_cannot_be_told(raw):
     """Uzminēts locījums skan sliktāk nekā tas, ko balss dara šodien."""
     assert lvnum.speak_ordinals(raw) == raw
+
+
+# --- punkts teikuma beigās nav kārtas skaitļa zīme --------------------------
+
+@pytest.mark.parametrize("raw,spoken", [
+    # tas, ko pamanīja redakcija: balss teica «sešdesmit ceturtais»
+    ("Serbija uzvarēja Itāliju ar rezultātu 76 pret 64.",
+     "Serbija uzvarēja Itāliju ar rezultātu 76 pret sešdesmit četri."),
+    # arī teikuma vidū, kad aiz punkta sākas nākamais teikums
+    ("Rezultāts bija 76 pret 64. Jokičs guva astoņus punktus.",
+     "Rezultāts bija 76 pret sešdesmit četri. Jokičs guva astoņus punktus."),
+    ("Spēle beidzās 59.", "Spēle beidzās piecdesmit deviņi."),
+    ("Cena bija 1250.", "Cena bija tūkstoš divi simti piecdesmit."),
+])
+def test_a_number_ending_a_sentence_is_read_as_a_plain_number(raw, spoken):
+    assert lvnum.speak_ordinals(raw) == spoken
+
+
+def test_a_lowercase_word_after_the_dot_still_means_an_ordinal():
+    """Lielais burts nozīmē jaunu teikumu, mazais — locījumu. Tieši tas
+    atšķir «64. Jokičs» no «64. minūtē»."""
+    assert lvnum.speak_ordinals("Vārti 64. minūtē.") == \
+        "Vārti sešdesmit ceturtajā minūtē."
+    assert lvnum.speak_ordinals("Rezultāts 64. Jokičs guva.") == \
+        "Rezultāts sešdesmit četri. Jokičs guva."
+
+
+@pytest.mark.parametrize("n,words", [
+    (0, "nulle"), (4, "četri"), (10, "desmit"), (11, "vienpadsmit"),
+    (20, "divdesmit"), (64, "sešdesmit četri"), (100, "simts"),
+    (250, "divi simti piecdesmit"), (1000, "tūkstotis"),
+    (2026, "divi tūkstoši divdesmit seši"),
+])
+def test_cardinal_numbers(n, words):
+    assert lvnum.cardinal(n) == words
 
 
 def test_only_the_last_part_of_a_compound_number_is_an_ordinal():
