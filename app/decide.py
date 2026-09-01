@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 # Cik raksta teksta dodam modelim: pietiek faktiem un ierunai,
 # bet netaisa promptu par rēķinu, ko maksā katrā lēmumā.
-BODY_IN_PROMPT = 1500
+BODY_IN_PROMPT = 2500
 
 DECISION_TOOL = {
     "name": "record_decision",

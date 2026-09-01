@@ -286,3 +286,56 @@ pameklē lapas metadatos.
 `featuredFrontPage` ir redakcijas pašas vērtējums — pozīcija 0 nozīmē
 galveno stāstu. Tas aiziet AI promptā kā konteksts, nevis kā automātisks
 reitinga pacēlums: lēmumu joprojām pieņem modelis kopā ar pārējo.
+
+## Pilnas lapas analīze: ko atklāja viss HTML
+
+Visa raksta lapa (nevis DevTools fragments) parādīja divas lietas, kas tieši
+grauza kartīšu kvalitāti.
+
+### 1. Raksta teksts ir SADALĪTS vairākās sadaļās
+
+tv3.lv nepatur rakstu vienā konteinerā. Starp `<section class="tv3-single-content">`
+blokiem ir iesprausta reklāma un "Tevi varētu interesēt" logrīks:
+
+```
+<section class="tv3-single-content">  <p>1. rindkopa</p> </section>
+<div class="tv3-sidebar">…Jaunākais…</div>
+<div class="google-banner">Saturs turpinās pēc reklāmas</div>
+<section class="tv3-single-content">
+  <p>2. rindkopa</p>
+  <div id="tv3-piano-single-related-placeholder">…Tevi varētu interesēt…</div>
+  <p>3.-6. rindkopa</p>
+</section>
+```
+
+Mūsu regex lietoja `search()` — pirmo atbilstību. No sešu rindkopu raksta
+palika **viena** (238 zīmes no 1400), un AI kartītes rakstīja no fragmenta.
+Tagad `finditer()` savāc visas sadaļas, un ieteikto rakstu logrīks, kas sēž
+sadaļas IEKŠPUSĒ, tiek izgriezts — tas ir cits raksts, un tā fakti kartītē
+būtu vienkārši nepareizi.
+
+Tā kā tagad sanāk viss raksts, `BODY_LIMIT` pacelts no 3000 uz 6000 zīmēm un
+promptā aiziet 2500 (agrāk 1500): sadaļām noder arī raksta vidusdaļa, kur
+mēdz būt skaitļi un citāti.
+
+### 2. Pilnizmēra attēls ir JSON-LD, nevis meta tagos
+
+```json
+"image": {"url": "https://tv3cdn.lv/2026/03/a6cc-…-scaled.jpg",
+          "width": 2000, "height": 1333}
+```
+
+`og:image` ir photopost grafika, `dr:say:img` — **672×384 sīktēls**. Kartīte
+ir 1080 px plata, tātad sīktēls tajā ir izplūdis. JSON-LD dod oriģinālu
+(2000 px). Ja JSON-LD nav, `_widest_variant()` izķer platāko `srcset`
+variantu (lapā tie iet līdz 2600 px) — sīktēla ceļš ir
+`/thumbnails/<platums>x<augstums>/<ceļš>`, tāpēc to var pārrakstīt.
+
+### Sīkumi no tās pašas lapas
+
+| Atradums | Ko darām |
+| --- | --- |
+| dataLayer atslēga ir **`Article ID`**, ne `Post ID` | pievienota atslēgu sarakstam |
+| `Editor name` = žurnālists, `Source` = aģentūra (LETA) | autors ir žurnālists |
+| JSON-LD `wordCount` | precīzāks apjoma mērs nekā `Content length` |
+| "Saturs turpinās pēc reklāmas", "Ilustratīvs foto", "Uzzini plašāk" | filtrēti kā ne-raksts |

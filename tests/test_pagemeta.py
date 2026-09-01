@@ -390,3 +390,64 @@ def test_cover_falls_back_to_the_pages_clean_image(session, monkeypatch):
     assert "photopost" not in pipeline.unbranded_image(article)
     clean, blur = pipeline.section_backgrounds(article)
     assert clean and "photopost" not in clean[0]
+
+
+# --- pilnā lapa: teksts vairākās sadaļās, pilnizmēra attēls ----------------
+
+FULL = (FIXTURES / "article_page_full.html").read_text(encoding="utf-8")
+
+
+def test_body_spans_every_content_section():
+    """tv3.lv sadala rakstu vairākās sadaļās (starp tām reklāma un ieteiktie
+    raksti). Ņemot tikai pirmo, no seši rindkopu raksta palika viena."""
+    paras = pagemeta.paragraphs(FULL)
+    assert len(paras) == 8
+    # pirmā sadaļa
+    assert any("Plkst. 3.11 Igaunijas" in p for p in paras)
+    # otrā sadaļa, PĒC reklāmas un ieteikto rakstu logrīka
+    assert any("Uku Arolds" in p for p in paras)
+    assert any("Plkst. 4.17 Alūksnes" in p for p in paras)
+    assert len(pagemeta.body_text(FULL)) > 1300
+
+
+def test_embedded_widgets_and_ads_stay_out():
+    """«Tevi varētu interesēt» sēž raksta sadaļas IEKŠPUSĒ — tas ir cits
+    raksts, un kartītē tas būtu nepareizs fakts."""
+    body = pagemeta.body_text(FULL)
+    assert "Ogres slimnīcā" not in body          # ieteiktais raksts
+    assert "horoskops" not in body               # sānjosla
+    assert "Saturs turpinās" not in body         # reklāmas starplika
+    assert "Ilustratīvs foto" not in body        # attēla paraksts
+    assert "Uzzini plašāk" not in body           # saistīto sadaļa
+    assert "Visas tiesības" not in body          # kājene
+
+
+def test_full_size_image_beats_the_thumbnail():
+    """og:image ir photopost, dr:say:img ir 672 px sīktēls — 1080 px kartītē
+    tas ir izplūdis. JSON-LD dod oriģinālu."""
+    m = pagemeta.parse(FULL)
+    assert m["clean_image"] == "https://tv3cdn.lv/2026/03/a6cc-69cac5f108e1e-scaled.jpg"
+    assert "thumbnails" not in m["clean_image"]
+    assert "photopost" not in m["clean_image"]
+
+
+def test_widest_srcset_variant_when_no_json_ld():
+    """Bez JSON-LD ņemam platāko srcset variantu, nevis to, kas meta tagā."""
+    no_ld = FULL.replace("application/ld+json", "application/x-disabled")
+    m = pagemeta.parse(no_ld)
+    assert "2600x1660" in m["clean_image"]
+
+
+def test_article_id_datalayer_key():
+    """Šī lapa dataLayer'ā lieto «Article ID», nevis «Post ID»."""
+    assert pagemeta.parse(FULL)["post_id"] == "3883754"
+
+
+def test_editor_name_preferred_over_agency():
+    """dataLayer šķir žurnālistu (Editor name) no aģentūras (Source)."""
+    assert pagemeta.parse(FULL)["author"] == "Justīne Jurcika"
+
+
+def test_word_count_from_json_ld():
+    m = pagemeta.parse(FULL)
+    assert m["word_count"] == 1313

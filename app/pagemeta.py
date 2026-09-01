@@ -44,7 +44,7 @@ RETRY_HOURS = 6
 
 # dataLayer atslēgas tā, kā tās raksta tv3.lv GTM slānis.
 _KEYS = {
-    "post_id": ("Post ID", "PostID", "post_id", "postId"),
+    "post_id": ("Post ID", "Article ID", "PostID", "post_id", "postId"),
     "author": ("Editor name", "Author", "author", "Editor"),
     "tags": ("Tags", "tags", "Tag"),
     "label": ("Label", "label"),
@@ -135,6 +135,30 @@ def _split(value: str) -> list[str]:
     return [p.strip() for p in _SPLIT_RE.split(value or "") if p.strip()]
 
 
+# tv3.lv sīktēli: .../thumbnails/<platums>x<augstums>/<ceļš>
+_THUMB_RE = re.compile(r"^(?P<host>https?://[^/]+)/thumbnails/(?P<w>\d+)x\d+"
+                       r"(?P<fmt>x\w+)?/(?P<path>.+)$", re.I)
+
+
+def _widest_variant(html: str, url: str) -> str:
+    """Tā paša attēla platākais variants, kāds lapā atrodams.
+
+    Kartīte ir 1080 px plata; 672 px sīktēls tajā ir izplūdis. srcset lapā
+    piedāvā to pašu attēlu līdz 2600 px — paņemam platāko.
+    """
+    m = _THUMB_RE.match(url or "")
+    if not m:
+        return url
+    path = re.escape(m.group("path"))
+    best, best_w = url, int(m.group("w"))
+    for cand in re.finditer(r"https?://[^\s\"']+/thumbnails/(\d+)x\d+"
+                            r"(?:x\w+)?/" + path, html, re.I):
+        width = int(cand.group(1))
+        if width > best_w:
+            best, best_w = cand.group(0), width
+    return best
+
+
 def _meta_values(html: str, key: str) -> list[str]:
     """Visas <meta> vērtības ar šo name/property (tukšs saraksts, ja nav).
 
@@ -205,15 +229,23 @@ def _meta_fallbacks(html: str) -> dict:
     if lead:
         found["lead"] = lead
 
-    # Attēls BEZ iecepta virsraksta: og:image tv3.lv ir photopost grafika,
-    # bet dr:say:img / twitter:image mēdz būt īstais foto
-    for key in ("dr:say:img", "twitter:image", "og:image"):
-        for value in _meta_values(html, key):
-            if value.startswith("http") and "photopost" not in value:
-                found["clean_image"] = value
+    # Attēls BEZ iecepta virsraksta. Secība pēc IZMĒRA, ne tikai pieejamības:
+    # JSON-LD dod oriģinālu (2000 px), meta tagi — sīktēlu (672 px), un
+    # 1080 px kartītē starpība ir redzama.
+    article_ld = _json_ld_article(html)
+    ld_image = str(article_ld.get("image") or "")
+    if ld_image.startswith("http") and "photopost" not in ld_image:
+        found["clean_image"] = ld_image
+    else:
+        for key in ("dr:say:img", "twitter:image", "og:image"):
+            for value in _meta_values(html, key):
+                if value.startswith("http") and "photopost" not in value:
+                    found["clean_image"] = _widest_variant(html, value)
+                    break
+            if found.get("clean_image"):
                 break
-        if found.get("clean_image"):
-            break
+    if article_ld.get("word_count"):
+        found["word_count"] = article_ld["word_count"]
 
     # Vai raksts ir izcelts sākumlapā un kurā pozīcijā — redakcijas pašas
     # dotais svarīguma signāls, ko feed nenes
@@ -272,6 +304,8 @@ def parse(html: str) -> dict:
         # redakcijas svarīguma signāls: izcelts sākumlapā un kurā pozīcijā
         "front_page": bool(fallbacks.get("front_page")),
         "front_page_position": fallbacks.get("front_page_position"),
+        # vārdu skaits no JSON-LD — precīzāks raksta apjoma mērs
+        "word_count": fallbacks.get("word_count", 0),
         "lead": fallbacks.get("lead", ""),
         # raksta pirmās rindkopas — darba materiāls AI punktiem un ierunai
         "body": body_text(html or ""),
@@ -279,10 +313,10 @@ def parse(html: str) -> dict:
     return meta if any(meta.values()) else {}
 
 
-# Cik raksta teksta paturam. Ierunas tekstam vajag ~90 vārdus, kartīšu
-# punktiem dažas rindkopas; ziņu rakstā būtiskais tāpat ir sākumā (apgrieztā
-# piramīda). Vairāk būtu raksta pārpublicēšana datubāzē, nevis darba materiāls.
-BODY_LIMIT = 3000
+# Cik raksta teksta paturam. Kamēr izvilkums bija fragments, 3000 pietika;
+# tagad, kad sanāk viss raksts, sadaļām ir vērts redzēt arī vidusdaļu — tur
+# mēdz būt tieši tie skaitļi un citāti, no kā top labas kartītes.
+BODY_LIMIT = 6000
 MIN_PARAGRAPH = 40
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -304,12 +338,21 @@ _LEAD_RE = re.compile(
     r"<p\b[^>]*class=[\"'][^\"']*\blead\b[^\"']*[\"'][^>]*>(.*?)</p>",
     re.I | re.S)
 
+# Bloki, kas mēdz atrasties raksta sadaļas IEKŠPUSĒ, bet ir cits saturs.
+_RELATED_RE = re.compile(
+    r"<div\b[^>]*(?:id|class)=[\"'][^\"']*"
+    r"(piano-single-related|cx-response|related-posts|tv3-sidebar|google-banner)"
+    r"[^\"']*[\"'][^>]*>.*?</div>", re.I | re.S)
+
 # Rindkopas, kas nav raksts: saistītie, foto paraksti, aicinājumi, sīkdatnes.
 _JUNK_STARTS = (
     "lasi arī", "lasi vēl", "vairāk par tēmu", "saistītie raksti",
     "foto:", "video:", "attēls:", "avots:", "reklāma", "abonē",
     "seko mums", "pievienojies", "kļūda tekstā", "piesakies jaunumiem",
     "komentāri", "publicitātes foto", "ekrānuzņēmums",
+    # reklāmas starplikas un attēlu paraksti raksta plūsmā
+    "saturs turpinās", "reklāma", "ilustratīvs foto", "tevi varētu interesēt",
+    "uzzini plašāk", "© sia", "visas tiesības",
 )
 
 
@@ -341,10 +384,19 @@ def paragraphs(html: str) -> list[str]:
     if ld:
         return [p for p in (x.strip() for x in re.split(r"\n+", ld)) if p]
     cleaned = _SCRIPT_RE.sub(" ", html)
-    match = _CONTENT_RE.search(cleaned)
-    scope = match.group("body") if match else cleaned
+    # tv3.lv raksta teksts ir SADALĪTS vairākās sadaļās — starp tām iesprausta
+    # reklāma un "Tevi varētu interesēt". Ņemot tikai pirmo (search), no seši
+    # rindkopu raksta paliek viena, un AI kartītes raksta no fragmenta.
+    scopes = [m.group("body") for m in _CONTENT_RE.finditer(cleaned)]
+    scope = "\n".join(scopes) if scopes else cleaned
+    # ieteikto rakstu logrīks mēdz būt sadaļas IEKŠPUSĒ — tas ir cits raksts
+    scope = _RELATED_RE.sub(" ", scope)
     found = [_clean_paragraph(m) for m in _P_RE.findall(scope)]
-    out = [p for p in found if not _is_junk(p)]
+    out = []
+    for para in found:
+        if _is_junk(para) or para in out:
+            continue
+        out.append(para)
 
     lead_m = _LEAD_RE.search(cleaned)
     if lead_m:
@@ -356,8 +408,9 @@ def paragraphs(html: str) -> list[str]:
     return out
 
 
-def _json_ld_body(html: str) -> str:
-    """`articleBody` no schema.org JSON-LD ('' ja nav)."""
+def _json_ld_nodes(html: str) -> list[dict]:
+    """Visi schema.org JSON-LD objekti lapā."""
+    out = []
     for m in re.finditer(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
                          html, re.I | re.S):
         try:
@@ -365,9 +418,43 @@ def _json_ld_body(html: str) -> str:
         except ValueError:
             continue
         for node in (data if isinstance(data, list) else [data]):
-            if isinstance(node, dict) and node.get("articleBody"):
-                return str(node["articleBody"])
+            if isinstance(node, dict):
+                out.append(node)
+    return out
+
+
+def _json_ld_body(html: str) -> str:
+    """`articleBody` no schema.org JSON-LD ('' ja nav)."""
+    for node in _json_ld_nodes(html):
+        if node.get("articleBody"):
+            return str(node["articleBody"])
     return ""
+
+
+def _json_ld_article(html: str) -> dict:
+    """Raksta metadati no JSON-LD: pilnizmēra attēls, vārdu skaits, datums.
+
+    Šeit ir tas, ko meta tagos nav — attēls PILNĀ izmērā. og:image un
+    dr:say:img rāda uz sīktēliem (672x384), un 1080 px kartītē tāds ir
+    izplūdis; JSON-LD `image.url` ir oriģināls (šim rakstam 2000x1333).
+    """
+    for node in _json_ld_nodes(html):
+        if "article" not in str(node.get("@type", "")).lower():
+            continue
+        out: dict[str, object] = {}
+        image = node.get("image")
+        if isinstance(image, dict) and image.get("url"):
+            out["image"] = str(image["url"])
+            if isinstance(image.get("width"), int):
+                out["image_width"] = image["width"]
+        elif isinstance(image, str):
+            out["image"] = image
+        if isinstance(node.get("wordCount"), int):
+            out["word_count"] = node["wordCount"]
+        if node.get("datePublished"):
+            out["published"] = str(node["datePublished"])
+        return out
+    return {}
 
 
 def body_text(html: str, limit: int = BODY_LIMIT) -> str:
