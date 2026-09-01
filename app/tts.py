@@ -54,7 +54,11 @@ DEFAULT_VOICE = VOICES["azure"]["female"]
 ELEVENLABS_MODEL = "eleven_v3"
 # Ziņu ierunai neitrāls temps; nedaudz lēnāk par noklusējumu, jo lentē
 # skatītājs vienlaikus lasa arī kadra tekstu.
-DEFAULT_RATE = "-4%"
+# Ziņu ierunai neitrāls temps; nedaudz lēnāk par pakalpojuma noklusējumu, jo
+# lentē skatītājs vienlaikus lasa arī kadra tekstu. Procentos, lai to varētu
+# pateikt abiem pakalpojumiem: Azure gaida "+6%", ElevenLabs — reizinātāju.
+DEFAULT_RATE_PERCENT = -4
+DEFAULT_RATE = f"{DEFAULT_RATE_PERCENT}%"
 OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3"
 TIMEOUT = 30
 
@@ -131,17 +135,42 @@ def enabled(rules: dict | None = None, session=None) -> bool:
     return bool(_key(session, rules))
 
 
-def voice_name(rules: dict | None = None) -> str:
-    """Balss izvēlētajam pakalpojumam.
+def voice_name(rules: dict | None = None, section: str = "") -> str:
+    """Balss izvēlētajam pakalpojumam un sadaļai.
 
     Noteikumos raksta "female"/"male"; pilns pakalpojuma balss nosaukums vai
     ID arī iet cauri, lai varētu izmēģināt balsi, kas šeit vēl nav sarakstā.
+
+    `reel_voice_by_section` ļauj sadaļai savu balsi: izklaides ziņas panes
+    dzīvāku balsi nekā tā, ar kuru stāsta par pierobežu, un tā ir redakcijas
+    izvēle, ne tehnisks jautājums.
     """
     rules = config.load_rules() if rules is None else rules
-    choice = str((rules or {}).get("reel_voice_name") or "").strip()
+    per_section = (rules or {}).get("reel_voice_by_section") or {}
+    choice = str(per_section.get(section)
+                 or (rules or {}).get("reel_voice_name") or "").strip()
     catalogue = VOICES.get(provider(rules), {})
     fallback = catalogue.get("female", DEFAULT_VOICE)
     return catalogue.get(choice.lower(), choice or fallback)
+
+
+def speech_rate(rules: dict | None = None, section: str = "") -> int:
+    """Runas temps procentos pret pakalpojuma noklusējumu (0 = neaiztikts).
+
+    Ziņu ierunai noklusējums ir nedaudz lēnāks (-4%), jo lentē skatītājs
+    vienlaikus lasa arī kadra tekstu. Izklaidei der ātrāk, un tas ir tas
+    pats sadaļas jautājums, kas balss.
+    """
+    rules = config.load_rules() if rules is None else rules
+    per_section = (rules or {}).get("reel_voice_rate_by_section") or {}
+    value = per_section.get(section, (rules or {}).get("reel_voice_rate"))
+    if value is None:
+        value = DEFAULT_RATE_PERCENT
+    try:
+        return max(-40, min(40, int(value)))
+    except (TypeError, ValueError):
+        log.warning("nederīgs runas temps %r — lietoju noklusējumu", value)
+        return DEFAULT_RATE_PERCENT
 
 
 def spoken_text(text: str, rules: dict | None = None) -> str:
@@ -190,7 +219,7 @@ def build_ssml(text: str, voice: str = DEFAULT_VOICE,
 
 def _azure_audio(text: str, voice: str, session=None,
                  errors: list | None = None,
-                 rules: dict | None = None) -> bytes:
+                 rules: dict | None = None, rate: int = 0) -> bytes:
     """Azure Speech REST atbilde (b"" pie jebkuras kļūdas).
 
     errors: saraksts, kurā ielikt neizdošanās iemeslu. Azure atbilde pasaka,
@@ -210,7 +239,8 @@ def _azure_audio(text: str, voice: str, session=None,
                 "X-Microsoft-OutputFormat": OUTPUT_FORMAT,
                 "User-Agent": "TV3-Social-Autopilot/1.0",
             },
-            content=build_ssml(text, voice, rules=rules).encode("utf-8"))
+            content=build_ssml(text, voice, rate=f"{rate:+d}%",
+                               rules=rules).encode("utf-8"))
         if resp.status_code != 200:
             log.warning("TTS failed: HTTP %s %s", resp.status_code,
                         resp.text[:200])
@@ -290,7 +320,7 @@ def elevenlabs_catalogue(session=None, rules: dict | None = None) -> dict:
 
 def _elevenlabs_audio(text: str, voice: str, session=None,
                       errors: list | None = None,
-                      rules: dict | None = None) -> bytes:
+                      rules: dict | None = None, rate: int = 0) -> bytes:
     """ElevenLabs TTS atbilde (b"" pie jebkuras kļūdas).
 
     SSML te nav: modelis pats liek pauzes pēc pieturzīmēm, tāpēc pietiek ar
@@ -304,12 +334,19 @@ def _elevenlabs_audio(text: str, voice: str, session=None,
                 or ELEVENLABS_MODEL).strip()
     url = (f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
            "?output_format=mp3_44100_128")
+    payload = {"text": spoken_text(text, rules), "model_id": model}
+    if rate:
+        # ElevenLabs temps ir reizinātājs (1.0 = normāli). Sūtām TIKAI tad,
+        # kad temps tiešām mainīts: vecāki modeļi šo lauku nepieņem, un
+        # nederīgs lauks nozīmētu klusu lenti visiem, ne tikai ātrākiem.
+        payload["voice_settings"] = {
+            "speed": round(max(0.7, min(1.2, 1 + rate / 100)), 2)}
     try:
         resp = httpx.post(
             url, timeout=TIMEOUT,
             headers={"xi-api-key": _key(session, rules),
                      "User-Agent": "TV3-Social-Autopilot/1.0"},
-            json={"text": spoken_text(text, rules), "model_id": model})
+            json=payload)
         if resp.status_code != 200:
             log.warning("ElevenLabs TTS failed: HTTP %s %s", resp.status_code,
                         resp.text[:200])
@@ -351,7 +388,8 @@ def _cache_path(text: str, voice: str, out_dir: Path) -> Path:
 
 def synthesize(text: str, out_dir: Path | str | None = None,
                rules: dict | None = None, session=None,
-               force: bool = False, errors: list | None = None) -> str:
+               force: bool = False, errors: list | None = None,
+               section: str = "") -> str:
     """Ierunas mp3 ceļš ('' ja balss nav pieejama vai neizdodas).
 
     Nemet kļūdu: ja Azure neatbild, reels vienkārši iznāk kluss.
@@ -371,14 +409,17 @@ def synthesize(text: str, out_dir: Path | str | None = None,
 
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
-    voice = voice_name(rules)
-    # kešojam pēc tā, kas tiks IZRUNĀTS: pielabojot izrunas vārdnīcu, vecais
-    # ieraksts kļūst nederīgs, un pēc šī atslēgas tas atkrīt pats
-    cached = _cache_path(spoken_text(text, rules), voice, out_dir)
+    voice = voice_name(rules, section)
+    rate = speech_rate(rules, section)
+    # kešojam pēc tā, kas tiks IZRUNĀTS: pielabojot izrunas vārdnīcu vai
+    # tempu, vecais ieraksts kļūst nederīgs, un pēc šīs atslēgas tas atkrīt
+    # pats. Temps atslēgā ir obligāts — citādi ātrāka izklaides ieruna
+    # atbildētu ar vecāko, lēnāko failu.
+    cached = _cache_path(spoken_text(text, rules), f"{voice}@{rate:+d}", out_dir)
     if not force and cached.exists() and cached.stat().st_size > 0:
         return str(cached)
 
-    audio = _SYNTHS[provider(rules)](text, voice, session, errors, rules)
+    audio = _SYNTHS[provider(rules)](text, voice, session, errors, rules, rate)
     if not audio:
         return ""
 
@@ -386,8 +427,9 @@ def synthesize(text: str, out_dir: Path | str | None = None,
     tmp = out_dir / f"voice_{secrets.token_hex(6)}.part"
     tmp.write_bytes(audio)
     tmp.replace(cached)
-    log.info("voice synthesized: %s (%d bytes, %s)", cached.name,
-             len(audio), voice)
+    log.info("voice synthesized: %s (%d bytes, %s, temps %+d%%%s)",
+             cached.name, len(audio), voice, rate,
+             f", sadaļa {section}" if section else "")
     return str(cached)
 
 

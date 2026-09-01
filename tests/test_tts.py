@@ -690,3 +690,110 @@ def test_choosing_a_voice_is_verified_before_it_is_accepted(client, session,
     assert resp.status_code == 303
     assert "error" in resp.headers["location"]
     assert "lib-voice" in used["url"]
+
+
+# --- balss un temps pa sadaļām ---------------------------------------------
+
+def test_a_section_may_have_its_own_voice_and_pace():
+    """Izklaides ziņa panes citu balsi un ātrāku tempu nekā stāsts par
+    pierobežu. Sadaļas, kas nav uzskaitītas, lieto kopīgo izvēli."""
+    rules = {"tts_provider": "azure", "reel_voice_name": "female",
+             "reel_voice_rate": -4,
+             "reel_voice_by_section": {"entertainment": "male"},
+             "reel_voice_rate_by_section": {"entertainment": 8}}
+    assert tts.voice_name(rules, "news") == "lv-LV-EveritaNeural"
+    assert tts.voice_name(rules, "entertainment") == "lv-LV-NilsNeural"
+    assert tts.speech_rate(rules, "news") == -4
+    assert tts.speech_rate(rules, "entertainment") == 8
+    # bez sadaļas — kopīgā izvēle
+    assert tts.voice_name(rules) == "lv-LV-EveritaNeural"
+
+
+def test_the_rate_is_clamped_and_a_bad_value_falls_back():
+    assert tts.speech_rate({"reel_voice_rate": 500}) == 40
+    assert tts.speech_rate({"reel_voice_rate": -500}) == -40
+    assert tts.speech_rate({"reel_voice_rate": "ātri"}) == tts.DEFAULT_RATE_PERCENT
+    assert tts.speech_rate({}) == tts.DEFAULT_RATE_PERCENT
+
+
+def test_azure_receives_the_rate_as_ssml_prosody(session, monkeypatch):
+    credentials.put(session, "azure_speech_key", "az-key")
+    seen = {}
+
+    def fake_post(url, timeout=None, headers=None, content=None, **kw):
+        seen["ssml"] = content.decode("utf-8")
+        return httpx.Response(200, content=b"ID3mp3")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    tts._azure_audio("Teksts.", "lv-LV-NilsNeural", session=session,
+                     rules={"tts_provider": "azure"}, rate=8)
+    assert 'rate="+8%"' in seen["ssml"]
+
+
+def test_elevenlabs_only_sends_speed_when_it_is_changed(session, monkeypatch):
+    """Vecāki modeļi voice_settings.speed nepieņem, un nederīgs lauks
+    nozīmētu klusu lenti visiem, ne tikai ātrākiem."""
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+    sent = {}
+
+    def fake_post(url, timeout=None, headers=None, json=None, **kw):
+        sent.update(json or {})
+        return httpx.Response(200, content=b"ID3mp3")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    rules = {"tts_provider": "elevenlabs"}
+    tts._elevenlabs_audio("T.", "v", session=session, rules=rules, rate=0)
+    assert "voice_settings" not in sent
+
+    tts._elevenlabs_audio("T.", "v", session=session, rules=rules, rate=10)
+    assert sent["voice_settings"]["speed"] == 1.1
+    # ārpus ElevenLabs diapazona netiek izlaists
+    tts._elevenlabs_audio("T.", "v", session=session, rules=rules, rate=40)
+    assert sent["voice_settings"]["speed"] == 1.2
+
+
+def test_the_cache_key_includes_the_rate(session, monkeypatch, tmp_path):
+    """Bez tempa atslēgā ātrāka izklaides ieruna atbildētu ar veco, lēnāko
+    failu, un temps izskatītos pēc neieviesta iestatījuma."""
+    credentials.put(session, "azure_speech_key", "az-key")
+    calls = []
+
+    def fake_post(url, timeout=None, headers=None, content=None, **kw):
+        calls.append(content.decode("utf-8"))
+        return httpx.Response(200, content=b"ID3mp3")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    base = {"tts_provider": "azure", "reel_voice_name": "female",
+            "reel_voice_rate": -4,
+            "reel_voice_rate_by_section": {"entertainment": 10}}
+    slow = tts.synthesize("Viens teikums.", tmp_path, rules=base,
+                          session=session, section="news")
+    fast = tts.synthesize("Viens teikums.", tmp_path, rules=base,
+                          session=session, section="entertainment")
+    assert slow and fast and slow != fast
+    assert len(calls) == 2 and 'rate="-4%"' in calls[0] and 'rate="+10%"' in calls[1]
+
+
+def test_the_reel_passes_the_section_to_the_voice(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from app import reels
+
+    seen = []
+
+    def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
+                      voice=None, voices=None):
+        Path(out).write_bytes(b"mp4")
+        return sum(durations)
+
+    monkeypatch.setattr(reels, "_render_frames",
+                        lambda docs, out_dir: [tmp_path / f"f{i}.png"
+                                               for i in range(len(docs))])
+    monkeypatch.setattr(reels, "_assemble", fake_assemble)
+    monkeypatch.setattr(reels, "media_duration", lambda p: 3.0)
+    reels.build_reel("T", "entertainment", "", [], out_dir=tmp_path,
+                     sections=[{"title": "A", "body": "Teksts."}],
+                     cover_voice="Virsraksts.", end_voice="Beigas.",
+                     synth=lambda text, **kw: seen.append(kw.get("section"))
+                     or "/a.m4a")
+    assert set(seen) == {"entertainment"}

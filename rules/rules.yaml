@@ -125,6 +125,23 @@ tts_provider: azure
 # balss nosaukums. elevenlabs: female/male (priekšdefinētās Rachel/Adam) vai
 # balss ID no Voice Library — latviešu balsij ņem ID no bibliotēkas.
 reel_voice_name: female
+
+# Balss PA SADAĻĀM. Izklaides ziņas panes citu balsi nekā tā, ar kuru stāsta
+# par pierobežu — tā ir redakcijas izvēle. Sadaļas, kas te nav uzskaitītas,
+# lieto reel_voice_name. Vērtība ir tā pati, kas tur: female/male vai ID.
+reel_voice_by_section: {}
+#  entertainment: male
+
+# Runas temps procentos pret pakalpojuma noklusējumu. -4 ir nedaudz lēnāk,
+# jo lentē skatītājs vienlaikus lasa arī kadra tekstu. Azure to saņem kā
+# SSML prosody rate, ElevenLabs — kā speed reizinātāju (tas tiek sūtīts
+# TIKAI tad, kad temps ir mainīts, jo vecāki modeļi lauku nepieņem).
+# Diapazons -40..+40; ElevenLabs praksē griež pie -30..+20.
+reel_voice_rate: -4
+
+# Temps pa sadaļām — tas pats sadaļas jautājums, kas balss.
+reel_voice_rate_by_section: {}
+#  entertainment: 8
 # ElevenLabs modelis. Latviski runā tikai eleven_v3; multilingual_v2
 # latviešu valodas sarakstā nav.
 elevenlabs_model: eleven_v3

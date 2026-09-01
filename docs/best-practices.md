@@ -90,6 +90,7 @@ atzīmēti uz paša ieraksta, ne uzminēti pēc receptes veida:
 | Kadrā tik teksta, cik paspēj izlasīt | vismaz `MIN_FRAME_SECONDS`; klusam kadram 5.5 s (punkts 2.8 s) |
 | Balss nelasa to, kas jau ir uz ekrāna | `chapter_voice`: nodaļas virsraksts ir vizuāls marķieris, balss saka tikai tekstu |
 | Ieruna latviski, rakstīta RUNĀŠANAI | sadaļu `body`; izrunas vārdnīca (`tv3.lv` → «tv trīs punkts lv») |
+| Balss un temps pa sadaļām | `reel_voice_by_section`, `reel_voice_rate_by_section` — izklaidei cita balss un ātrāks temps nekā pierobežas ziņai |
 | Skatītājs redz, cik tālu stāsts | josla kadra augšā skaita VISUS kadrus, ne tikai nodaļas |
 | Vāks runā tikai virsrakstu | atsevišķs āķis atkārtoja to pašu, ko pirmā nodaļa |
 | Skaitļi izrunāti latviski | `lvnum`: «59. minūtē» → «piecdesmit devītajā minūtē»; «pret 64.» → «pret sešdesmit četri» |
@@ -104,6 +105,20 @@ lentē, kurā nodaļu bija divas. Tagad ir plāns (`plan_beats`) → ieruna →
 apgriešana → un tikai tad HTML. Katrs kadrs plānā nes savu ierunu un savu
 ilgumu, tāpēc teksti un kadri vairs nav divi paralēli saraksti, kas var
 izšķirties.
+
+### Balss temps
+
+`reel_voice_rate` ir procenti pret pakalpojuma noklusējumu; noklusējums ir
+**-4%**, jo lentē skatītājs vienlaikus lasa arī kadra tekstu. Vienu skaitli
+saprot abi pakalpojumi: Azure to saņem kā SSML `prosody rate`, ElevenLabs —
+kā `voice_settings.speed` reizinātāju.
+
+ElevenLabs `speed` tiek sūtīts **tikai tad, kad temps ir mainīts**. Vecāki
+modeļi šo lauku nepieņem, un nederīgs lauks nozīmētu klusu lenti visiem, ne
+tikai tiem, kam gribējām ātrāk.
+
+Temps ir arī keša atslēgā. Bez tā ātrāka izklaides ieruna atbildētu ar veco,
+lēnāko failu, un iestatījums izskatītos pēc neieviesta.
 
 ### Kāpēc skaitļus pārrakstām pirms sintēzes
 

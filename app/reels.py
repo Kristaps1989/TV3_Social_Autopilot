@@ -775,7 +775,10 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
             from app import tts
 
             synth = tts.synthesize
-        voices = [synth(b["text"]) if b["text"].strip() else "" for b in beats]
+        # sadaļa iet līdzi: balsi un tempu var izvēlēties pa sadaļām
+        # (izklaidei dzīvāka balss un ātrāks temps nekā pierobežas ziņai)
+        voices = [synth(b["text"], section=section) if b["text"].strip() else ""
+                  for b in beats]
         speech = [media_duration(v) if v else 0.0 for v in voices]
         for beat, planned in zip(beats, plan_durations(
                 [b["duration"] for b in beats], voices, speech)):
