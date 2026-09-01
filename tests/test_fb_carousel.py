@@ -215,3 +215,41 @@ def test_resolve_format_prefers_sections_over_points(session, monkeypatch):
     assert recipe["sections"][0]["title"] == "Palikt mājās"
     assert "points" not in recipe
     assert captured["images"] == ["https://cdn/foto.jpg"]
+
+
+def test_a_ready_made_graphic_is_shown_whole_not_cropped_into_the_frame():
+    """Photopost grafikas izkārtojums IR vāks: virsraksta plāksne, atkāpes,
+    sarkanā svītra. `cover` to iegrieza kartes rāmī — plāksne tika nogriezta
+    pusvārdā un uzgulās mūsu baltajai apakšjoslai, tā ka divi balti saplūda
+    vienā laukumā."""
+    from app import cards
+
+    graphic = "https://cdn/photopost-x.jpg"
+    doc = cards.build_section_cards_html(
+        "Virsraksts", "news", "#ZIŅAS",
+        [{"title": "A", "body": "Pirmais teksts par notikumu."}],
+        [], "Ko tālāk?", cover_image=graphic, cover_title=False)
+    assert 'class="whole"' in doc          # vesela grafika
+    assert "object-fit: contain" in doc.replace("object-fit:contain",
+                                                "object-fit: contain")
+    assert "blurbg" in doc                 # uz savas izpludinātās kopijas
+    # tīram foto vāks paliek pilnekrāna ar mūsu virsrakstu
+    clean = cards.build_section_cards_html(
+        "Virsraksts", "news", "#ZIŅAS",
+        [{"title": "A", "body": "Pirmais teksts par notikumu."}],
+        [], "Ko tālāk?", cover_image="https://cdn/foto.jpg", cover_title=True)
+    assert 'class="whole"' not in clean
+    assert "cover-txt" in clean
+
+
+def test_the_progress_rail_separates_the_photo_from_the_white_footer():
+    """Gaiši pelēkas nepildītās daļas saplūda ar balto joslu, un gatavās
+    grafikas baltā plāksne tad izskatījās iesprūdusi joslā."""
+    from app import cards
+
+    doc = cards.build_section_cards_html(
+        "Virsraksts", "news", "#ZIŅAS",
+        [{"title": "A", "body": "Pirmais teksts par notikumu."}],
+        [], "Ko tālāk?", cover_image="https://cdn/foto.jpg")
+    assert "#1c1f24" in doc      # tumša sliede zem nepildītajām daļām
+    assert "#e6e8ec" not in doc  # vecā gaišā, kas saplūda ar balto

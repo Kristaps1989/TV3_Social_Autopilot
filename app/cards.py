@@ -465,13 +465,25 @@ def build_section_cards_html(title: str, section: str, tag: str,
           <div class="tag">{esc(tag)}</div></div></div>"""
 
     cards = []
-    # --- vāks: kā līdz šim (foto + kicker + balts virsraksts), plus ">>>"
-    if cover_image:
+    # --- vāks
+    gradient = (f"background:linear-gradient(160deg,"
+                f"{_shade(color, .06)},{_shade(color, -.2)});")
+    whole = ""
+    if cover_image and not cover_title:
+        # Gatava photopost grafika: tās pašas izkārtojums IR vāks — virsraksta
+        # plāksne, atkāpes, sarkanā svītra. `cover` to iegriež kartes rāmī,
+        # un plāksne tad tiek nogriezta pusvārdā un uzguļas mūsu baltajai
+        # apakšjoslai. Tāpēc rādām grafiku VESELU uz tās pašas izpludinātās
+        # kopijas — tāpat, kā to jau dara vertikālais stāsts.
+        cover_bg = gradient
+        blur_layer = (f'<div class="blurbg" style="background-image:'
+                      f'url({attr(cover_image)})"></div>')
+        whole = f'<img class="whole" src="{attr(cover_image)}">'
+    elif cover_image:
         cover_bg = f'background:url({attr(cover_image)}) center/cover, {color};'
         blur_layer = ""
     elif blur_image:
-        cover_bg = (f"background:linear-gradient(160deg,"
-                    f"{_shade(color, .06)},{_shade(color, -.2)});")
+        cover_bg = gradient
         blur_layer = (f'<div class="blurbg" style="background-image:'
                       f'url({attr(blur_image)})"></div>')
     else:
@@ -485,7 +497,7 @@ def build_section_cards_html(title: str, section: str, tag: str,
     cards.append(f"""
     <div class="card">
       <div class="art" style="{cover_bg}">
-        {blur_layer}{shade}
+        {blur_layer}{whole}{shade}
         {date_chip(date_txt)}
         {cover_txt}
         {disclosure.badge_html() if ai_note else ""}
@@ -544,11 +556,17 @@ def build_section_cards_html(title: str, section: str, tag: str,
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
 .blurbg {{ position:absolute; inset:-60px; background-size:cover;
   background-position:center; filter:blur(30px) brightness(.78) saturate(1.15); }}
+/* Gatavā grafika redzama VESELA. Atkāpe no apakšas ir apzināta: tās pašas
+   virsraksta plāksne citādi pieskaras mūsu baltajai joslai, un divi balti
+   saplūst vienā laukumā, kurā virsraksts izskatās iesprūdis. */
+.whole {{ position:absolute; top:20px; left:0; right:0; bottom:36px;
+  width:100%; height:calc(100% - 56px); object-fit:contain;
+  filter:drop-shadow(0 10px 34px rgba(0,0,0,.45)); }}
 .veil {{ position:absolute; inset:0; background:rgba(10,8,14,.28); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(10,5,15,.92) 18%, rgba(10,5,15,.1) 55%); }}
 .cover-txt {{ position:absolute; bottom:0; left:0; right:0;
-              padding:56px 64px 56px 56px; color:#fff; }}
+              padding:56px 64px 76px 56px; color:#fff; }}
 .kicker {{ display:inline-block; color:#fff; font-weight:bold; font-size:28px;
            letter-spacing:.12em; padding:10px 24px; border-radius:8px;
            margin-bottom:26px; }}
@@ -575,9 +593,12 @@ h1 {{ line-height:1.14; font-weight:bold; }}
 .bar {{ position:relative; height:140px; background:#fff; display:flex;
         align-items:center; justify-content:space-between; padding:0 48px;
         flex:none; }}
-.prog {{ position:absolute; top:0; left:0; right:0; height:10px;
-         display:flex; gap:4px; }}
-.prog i {{ flex:1; background:#e6e8ec; }}
+/* Sliede ir TUMŠA ar nolūku: tā vienlaikus rāda progresu un novelk skaidru
+   robežu starp attēlu un balto joslu. Gaiši pelēkas nepildītās daļas ar
+   balto joslu saplūda vienā laukumā. */
+.prog {{ position:absolute; top:0; left:0; right:0; height:11px;
+         display:flex; gap:4px; background:#1c1f24; }}
+.prog i {{ flex:1; background:transparent; }}
 .prog i.on {{ background:#e3000f; }}
 .step {{ display:flex; align-items:center; gap:14px; color:#6b7280;
          font-weight:800; font-size:32px; letter-spacing:.02em; }}
