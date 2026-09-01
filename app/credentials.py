@@ -44,6 +44,7 @@ ENV_FALLBACK = {
     "x_ads_account_id": "X_ADS_ACCOUNT_ID",
     "azure_speech_key": "AZURE_SPEECH_KEY",
     "azure_speech_region": "AZURE_SPEECH_REGION",
+    "elevenlabs_api_key": "ELEVENLABS_API_KEY",
 }
 
 

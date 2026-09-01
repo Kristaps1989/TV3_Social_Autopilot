@@ -507,3 +507,84 @@ def test_cache_key_follows_the_spoken_form(keyed, tmp_path, monkeypatch):
         "reel_voice": True,
         "tts_pronunciation": {"tv3.lv": "tevē trīs punkts el vē"}})
     assert other != first and len(calls) == 2
+
+
+# --- ElevenLabs aiz tās pašas pakalpojumu robežas ---------------------------
+
+def test_elevenlabs_sits_behind_the_same_provider_boundary(session, monkeypatch):
+    """Pakalpojumu maina viens noteikums; kešs, teksta sagatavošana un kļūdu
+    apstrāde ir kopīga."""
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+    rules = {"tts_provider": "elevenlabs", "reel_voice": True}
+    assert tts.provider(rules) == "elevenlabs"
+    assert tts.enabled(rules, session)
+    # bez elevenlabs atslēgas elevenlabs nav gatavs, kaut Azure atslēga būtu
+    credentials.put(session, "elevenlabs_api_key", "")
+    credentials.put(session, "azure_speech_key", "az-key")
+    assert not tts.enabled(rules, session)
+    assert tts.enabled({"tts_provider": "azure", "reel_voice": True}, session)
+
+
+def test_elevenlabs_request_carries_key_model_and_spoken_text(session, monkeypatch):
+    """Pieprasījumam jāaiziet ar xi-api-key, izvēlēto modeli un jau
+    sagatavotu tekstu — izrunas vārdnīca un skaitļi vārdos strādā tāpat kā
+    Azure ceļā, jo pārraksta tekstu, ne marķējumu."""
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+    seen = {}
+
+    def fake_post(url, timeout=None, headers=None, json=None, **kw):
+        seen.update(url=url, headers=headers, json=json)
+        return httpx.Response(200, content=b"ID3mp3")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    rules = {"tts_provider": "elevenlabs", "reel_voice_name": "balss-id-123",
+             "tts_pronunciation": {"tv3.lv": "tv trīs punkts lv"}}
+    audio = tts._elevenlabs_audio("Vārti 59. minūtē. Lasi tv3.lv",
+                                  tts.voice_name(rules), session=session,
+                                  rules=rules)
+    assert audio == b"ID3mp3"
+    assert "/v1/text-to-speech/balss-id-123" in seen["url"]
+    assert seen["headers"]["xi-api-key"] == "el-key"
+    assert seen["json"]["model_id"] == "eleven_v3"
+    assert "piecdesmit devītajā minūtē" in seen["json"]["text"]
+    assert "tv trīs punkts lv" in seen["json"]["text"]
+
+
+def test_elevenlabs_failure_is_reported_not_raised(session, monkeypatch):
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+    monkeypatch.setattr(httpx, "post",
+                        lambda *a, **k: httpx.Response(401, text="bad key"))
+    errors: list = []
+    out = tts._elevenlabs_audio("Teksts.", "v", session=session, errors=errors,
+                                rules={"tts_provider": "elevenlabs"})
+    assert out == b"" and errors and "401" in errors[0]
+
+
+def test_voice_names_resolve_per_provider():
+    assert tts.voice_name({"tts_provider": "azure",
+                           "reel_voice_name": "female"}) == "lv-LV-EveritaNeural"
+    assert tts.voice_name({"tts_provider": "elevenlabs",
+                           "reel_voice_name": "female"}) == "21m00Tcm4TlvDq8ikWAM"
+    # balss ID iet cauri tāds, kāds ir
+    assert tts.voice_name({"tts_provider": "elevenlabs",
+                           "reel_voice_name": "xYz123"}) == "xYz123"
+    # bez izvēles katrs pakalpojums krīt uz SAVU sievietes balsi, ne Azure
+    assert tts.voice_name({"tts_provider": "elevenlabs"}) == "21m00Tcm4TlvDq8ikWAM"
+
+
+def test_saving_an_elevenlabs_key_verifies_against_elevenlabs(client, session,
+                                                              monkeypatch):
+    """Pārbaudei jāiet ar elevenlabs arī tad, ja Noteikumos vēl ir azure —
+    atslēgu pārbauda tam pakalpojumam, kuram tā pieder."""
+    hit = {}
+
+    def fake_post(url, timeout=None, headers=None, json=None, **kw):
+        hit.update(url=url, key=(headers or {}).get("xi-api-key"))
+        return httpx.Response(200, content=b"ID3mp3")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    resp = client.post("/connect/elevenlabs", data={"api_key": "el-new"},
+                       follow_redirects=False)
+    assert resp.status_code == 303 and "error" not in resp.headers["location"]
+    assert "api.elevenlabs.io" in hit["url"] and hit["key"] == "el-new"
+    assert credentials.get("elevenlabs_api_key", session) == "el-new"

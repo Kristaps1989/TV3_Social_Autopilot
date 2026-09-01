@@ -3,9 +3,12 @@
 Reela ierunas teksts (`voice_script`) top lēmumu solī un glabājas receptē;
 šis modulis to pārvērš skaņā.
 
-Pakalpojumu izvēlas noteikumos (`tts_provider`). Šobrīd ieviests ir
-**Azure Speech**: divas latviešu neironu balsis un SSML, ar ko var pateikt,
-kā runāt — ziņu tempu un pauzes starp teikumiem.
+Pakalpojumu izvēlas noteikumos (`tts_provider`). Ieviesti divi:
+**Azure Speech** (divas latviešu neironu balsis, SSML ar ziņu tempu un
+pauzēm) un **ElevenLabs** (balsis pēc ID no balsu bibliotēkas; latviski runā
+tikai v3 modelis, tāpēc tas ir noklusējums). Atslēgas glabājas Konti sadaļā,
+katram pakalpojumam sava; izrunas vārdnīca un skaitļi vārdos strādā abos
+vienādi, jo pārraksta tekstu, ne marķējumu.
 
 Otrs nopietnais kandidāts ir **Tilde** (tilde.ai): latviešu balsis, kas
 taisītas latviešu valodai, un — kas mums svarīgākais — pielāgojamas izrunas
@@ -38,8 +41,17 @@ DEFAULT_PROVIDER = "azure"
 # noteikumos nebūtu jāraksta pakalpojuma iekšējie nosaukumi.
 VOICES = {
     "azure": {"female": "lv-LV-EveritaNeural", "male": "lv-LV-NilsNeural"},
+    # ElevenLabs balsis ir ID, ne vārdi. Noklusējumā divas plaši zināmās
+    # priekšdefinētās (Rachel / Adam) — daudzvalodu modelī tās runā arī
+    # latviski. Labāku latviešu balsi izvēlas balsu bibliotēkā un tās ID
+    # ieraksta Noteikumos: reel_voice_name: <voice_id>.
+    "elevenlabs": {"female": "21m00Tcm4TlvDq8ikWAM",
+                   "male": "pNInz6obpgDQGcFmaJgB"},
 }
 DEFAULT_VOICE = VOICES["azure"]["female"]
+# Vienīgais ElevenLabs modelis, kura valodu sarakstā ir latviešu, ir v3;
+# multilingual_v2 latviski nerunā. Maināms Noteikumos (elevenlabs_model).
+ELEVENLABS_MODEL = "eleven_v3"
 # Ziņu ierunai neitrāls temps; nedaudz lēnāk par noklusējumu, jo lentē
 # skatītājs vienlaikus lasa arī kadra tekstu.
 DEFAULT_RATE = "-4%"
@@ -60,8 +72,13 @@ PRONUNCIATION = {
 }
 
 
-def _key(session=None) -> str:
-    return credentials.get("azure_speech_key", session)
+# pakalpojums -> atslēgas vārds krātuvē
+_KEY_NAMES = {"azure": "azure_speech_key", "elevenlabs": "elevenlabs_api_key"}
+
+
+def _key(session=None, rules: dict | None = None) -> str:
+    name = _KEY_NAMES.get(provider(rules), "azure_speech_key")
+    return credentials.get(name, session)
 
 
 # Hosti, kuru PIRMĀ etiķete ir reģions. Uzmanību: pie
@@ -111,19 +128,20 @@ def enabled(rules: dict | None = None, session=None) -> bool:
         return False
     if provider(rules) not in _SYNTHS:
         return False
-    return bool(_key(session))
+    return bool(_key(session, rules))
 
 
 def voice_name(rules: dict | None = None) -> str:
-    """Balss nosaukums izvēlētajam pakalpojumam.
+    """Balss izvēlētajam pakalpojumam.
 
-    Noteikumos raksta "female"/"male"; pilns pakalpojuma nosaukums arī iet
-    cauri, lai varētu izmēģināt balsi, kas šeit vēl nav sarakstā.
+    Noteikumos raksta "female"/"male"; pilns pakalpojuma balss nosaukums vai
+    ID arī iet cauri, lai varētu izmēģināt balsi, kas šeit vēl nav sarakstā.
     """
     rules = config.load_rules() if rules is None else rules
     choice = str((rules or {}).get("reel_voice_name") or "").strip()
     catalogue = VOICES.get(provider(rules), {})
-    return catalogue.get(choice.lower(), choice or DEFAULT_VOICE)
+    fallback = catalogue.get("female", DEFAULT_VOICE)
+    return catalogue.get(choice.lower(), choice or fallback)
 
 
 def spoken_text(text: str, rules: dict | None = None) -> str:
@@ -210,9 +228,49 @@ def _azure_audio(text: str, voice: str, session=None,
         return b""
 
 
+def _elevenlabs_audio(text: str, voice: str, session=None,
+                      errors: list | None = None,
+                      rules: dict | None = None) -> bytes:
+    """ElevenLabs TTS atbilde (b"" pie jebkuras kļūdas).
+
+    SSML te nav: modelis pats liek pauzes pēc pieturzīmēm, tāpēc pietiek ar
+    `spoken_text` — izrunas vārdnīca un skaitļi vārdos (lvnum) strādā tieši
+    tāpat kā Azure ceļā, jo tie pārraksta tekstu, ne marķējumu.
+    """
+    import httpx
+
+    rules = config.load_rules() if rules is None else rules
+    model = str((rules or {}).get("elevenlabs_model")
+                or ELEVENLABS_MODEL).strip()
+    url = (f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
+           "?output_format=mp3_44100_128")
+    try:
+        resp = httpx.post(
+            url, timeout=TIMEOUT,
+            headers={"xi-api-key": _key(session, rules),
+                     "User-Agent": "TV3-Social-Autopilot/1.0"},
+            json={"text": spoken_text(text, rules), "model_id": model})
+        if resp.status_code != 200:
+            log.warning("ElevenLabs TTS failed: HTTP %s %s", resp.status_code,
+                        resp.text[:200])
+            if errors is not None:
+                errors.append(f"HTTP {resp.status_code}: "
+                              f"{(resp.text or '').strip()[:160] or 'bez ziņojuma'}")
+            return b""
+        if not resp.content and errors is not None:
+            errors.append("ElevenLabs atbildēja bez audio")
+        return resp.content or b""
+    except Exception as e:  # noqa: BLE001 — kluss reels ir labāks par nekādu
+        log.warning("ElevenLabs TTS request failed: %s", e)
+        if errors is not None:
+            errors.append(f"{type(e).__name__}: {str(e)[:160]}")
+        return b""
+
+
 # pakalpojums -> funkcija, kas atgriež audio baitus. Jauna pakalpojuma
-# pievienošana ir viens ieraksts šeit: kešs, SSML un kļūdu apstrāde ir kopīga.
-_SYNTHS = {"azure": _azure_audio}
+# pievienošana ir viens ieraksts šeit: kešs, teksta sagatavošana un kļūdu
+# apstrāde ir kopīga.
+_SYNTHS = {"azure": _azure_audio, "elevenlabs": _elevenlabs_audio}
 
 
 def _cache_path(text: str, voice: str, out_dir: Path) -> Path:

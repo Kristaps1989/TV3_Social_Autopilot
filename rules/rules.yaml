@@ -115,14 +115,19 @@ reel_voice: true
 # un tieši stāstos ieruna nostrādā vislabāk: stāstus skatās ar skaņu, plūsmā
 # lentes bieži sākas klusas. false = stāstos paliek attēls.
 story_reuses_reel: true
-# Balss pakalpojums. Ieviests: azure (Azure Speech, atslēga Konti sadaļā).
-# Otrs kandidāts ir tilde (tilde.ai) — latviešu balsis ar pielāgojamām
-# izrunas vārdnīcām, kas īpašvārdus lokatīvā izrunā pareizāk; tā cena un
-# API nāk caur sarunu ar pārdošanu, tāpēc adapters vēl nav uzrakstīts.
+# Balss pakalpojums: azure vai elevenlabs (katram sava atslēga Konti sadaļā;
+# pārslēdzoties atslēgas paliek, mainās tikai tas, kurš runā). Trešais
+# kandidāts ir tilde (tilde.ai) — latviešu balsis ar pielāgojamām izrunas
+# vārdnīcām; tā cena un API nāk caur sarunu ar pārdošanu, tāpēc adapters
+# vēl nav uzrakstīts.
 tts_provider: azure
-# female (lv-LV-EveritaNeural) vai male (lv-LV-NilsNeural); var ierakstīt
-# arī pilnu balss nosaukumu.
+# azure: female (lv-LV-EveritaNeural) vai male (lv-LV-NilsNeural), vai pilns
+# balss nosaukums. elevenlabs: female/male (priekšdefinētās Rachel/Adam) vai
+# balss ID no Voice Library — latviešu balsij ņem ID no bibliotēkas.
 reel_voice_name: female
+# ElevenLabs modelis. Latviski runā tikai eleven_v3; multilingual_v2
+# latviešu valodas sarakstā nav.
+elevenlabs_model: eleven_v3
 # Izrunas vārdnīca ierunai. Latviski punkts aiz cipara nozīmē kārtas
 # skaitli, tāpēc balss «tv3.lv» pati nolasa kā «tv trešais punkts lv».
 # Šeit pasakām, kā to izrunāt pareizi; papildini, kad kāds vārds skan greizi

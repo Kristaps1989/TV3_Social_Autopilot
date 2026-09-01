@@ -662,6 +662,7 @@ def connect(request: Request, error: str = "", connected: str = ""):
         th_app_id, _ = credentials.threads_app()
         ai_key = credentials.get("anthropic_api_key", session)
         tts_key = credentials.get("azure_speech_key", session)
+        el_key = credentials.get("elevenlabs_api_key", session)
 
         def _env(name: str, secret: bool = False) -> str:
             value = os.environ.get(name, "")
@@ -731,6 +732,8 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "tts_region": credentials.get("azure_speech_region", session)
                           or "westeurope",
             "tts_voice": tts.voice_name(),
+            "tts_provider": tts.provider(),
+            "el_key_masked": (f"…{el_key[-4:]}" if el_key else ""),
             "meta_app_ready": bool(fb_app_id),
             "meta_app_id": fb_app_id,
             "meta_config_id": credentials.get("meta_login_config_id", session),
@@ -928,6 +931,42 @@ def connect_anthropic(api_key: str = Form("")):
                 status_code=303)
         credentials.put(session, "anthropic_api_key", api_key)
         return RedirectResponse("/connect?connected=AI+(Claude)", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/elevenlabs")
+def connect_elevenlabs(api_key: str = Form("")):
+    """Saglabā (vai noņem) ElevenLabs atslēgu reelu ierunai.
+
+    Pārbaudām tāpat kā Azure: ierunājam paraugu ar TIEŠI šo pakalpojumu —
+    citādi nepareiza atslēga parādītos tikai pēc nedēļas klusiem reeliem.
+    Pārbaude iet ar elevenlabs pakalpojumu arī tad, ja Noteikumos vēl ir
+    azure: atslēgu pārbauda tam pakalpojumam, kuram tā pieder.
+    """
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        api_key = api_key.strip()
+        if not api_key:
+            credentials.put(session, "elevenlabs_api_key", "")
+            return RedirectResponse(
+                "/connect?connected=ElevenLabs+atslēga+noņemta", status_code=303)
+        credentials.put(session, "elevenlabs_api_key", api_key)
+        el_rules = {**config.load_rules(), "tts_provider": "elevenlabs"}
+        errors: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = tts.synthesize("Pārbaudes ieraksts.", tmp, rules=el_rules,
+                                    session=session, force=True, errors=errors)
+        if not sample:
+            detail = errors[0] if errors else "nezināms iemesls"
+            return RedirectResponse(
+                f"/connect?error={quote(f'Atslēga saglabāta, bet parauga ieruna neizdevās — {detail}')}",
+                status_code=303)
+        note = ("Balss+(ElevenLabs)" if tts.provider() == "elevenlabs" else
+                "Balss+(ElevenLabs)+—+lai+to+lietotu,+Noteikumos+ieraksti+tts_provider:+elevenlabs")
+        return RedirectResponse(f"/connect?connected={note}", status_code=303)
     finally:
         session.close()
 

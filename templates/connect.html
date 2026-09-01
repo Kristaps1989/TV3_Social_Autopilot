@@ -40,9 +40,49 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
   </div>
 
   <div class="card">
+    <h2>Reelu balss (ElevenLabs)
+      {% if el_key_masked %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+      {% if tts_provider == 'elevenlabs' %}<span class="badge live">aktīvais pakalpojums</span>{% endif %}
+    </h2>
+    <div class="meta">
+      {% if el_key_masked %}
+        Atslēga: <code>{{ el_key_masked }}</code>.
+        {% if tts_provider != 'elevenlabs' %}Šobrīd ierunu veido
+        <code>{{ tts_provider }}</code> — lai pārslēgtos, Noteikumos ieraksti
+        <code>tts_provider: elevenlabs</code>.{% endif %}
+      {% else %}
+        Alternatīva Azure balsij. Atslēgu izveido
+        elevenlabs.io → Profile → API keys.
+      {% endif %}
+    </div>
+    <form method="post" action="/connect/elevenlabs">
+      <input type="password" name="api_key" placeholder="ElevenLabs API atslēga"
+             autocomplete="off" required>
+      <div style="margin-top:.5rem">
+        <button class="primary">{{ 'Nomainīt atslēgu' if el_key_masked else 'Saglabāt atslēgu' }}</button>
+      </div>
+    </form>
+    {% if el_key_masked %}
+    <form method="post" action="/connect/elevenlabs" style="margin-top:.4rem">
+      <input type="hidden" name="api_key" value="">
+      <button class="danger">Noņemt atslēgu</button>
+    </form>
+    {% endif %}
+    <p class="muted">Saglabājot tiek ierunāts parauga teikums ar šo
+    pakalpojumu, tāpēc nederīga atslēga redzama uzreiz. Latviski runā tikai
+    <code>eleven_v3</code> modelis (noklusējums; maināms Noteikumos ar
+    <code>elevenlabs_model</code>). Balsi izvēlas Noteikumos:
+    <code>reel_voice_name: female</code>/<code>male</code> vai konkrētas
+    balss <b>ID</b> no ElevenLabs balsu bibliotēkas — latviešu balsij ņem ID
+    no Voice Library.</p>
+  </div>
+
+  <div class="card">
     <h2>Reelu balss (Azure Speech)
       {% if tts_key_masked %}<span class="badge live">savienots</span>
       {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+      {% if tts_provider == 'azure' %}<span class="badge live">aktīvais pakalpojums</span>{% endif %}
     </h2>
     <div class="meta">
       {% if tts_key_masked %}
