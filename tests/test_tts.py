@@ -600,7 +600,10 @@ def test_the_catalogue_reports_what_the_account_may_actually_use(session,
         assert headers["xi-api-key"] == "el-key"
         if "/v2/voices" in url:
             return httpx.Response(200, json={"voices": [
-                {"voice_id": "own-1", "name": "Mana balss", "category": "cloned"},
+                {"voice_id": "own-1", "name": "Mana balss", "category": "cloned",
+                 "labels": {"gender": "Male", "accent": "american",
+                            "description": "deep"},
+                 "preview_url": "https://cdn/own-1.mp3"},
                 {"voice_id": "lib-1", "name": "Rachel", "category": "premade"},
                 {"name": "bez id"}]})
         return httpx.Response(200, json=[
@@ -612,6 +615,12 @@ def test_the_catalogue_reports_what_the_account_may_actually_use(session,
     monkeypatch.setattr(httpx, "get", fake_get)
     cat = tts.elevenlabs_catalogue(session)
     assert [v["id"] for v in cat["voices"]] == ["own-1", "lib-1"]
+    # dzimums, akcents un paraugs: bez tiem «kuru vīriešu balsi» nav atbildams
+    male = cat["voices"][0]
+    assert male["gender"] == "male" and male["accent"] == "american"
+    assert male["preview"] == "https://cdn/own-1.mp3"
+    # trūkstoši lauki nav kļūda — vienkārši tukši
+    assert cat["voices"][1]["gender"] == "" and cat["voices"][1]["preview"] == ""
     assert {m["id"]: m["latvian"] for m in cat["models"]} == {
         "eleven_v3": True, "eleven_multilingual_v2": False}
 

@@ -228,6 +228,26 @@ def _azure_audio(text: str, voice: str, session=None,
         return b""
 
 
+def _voice_row(v: dict) -> dict:
+    """Viena balss no /v2/voices tā, kā to vajag redaktoram.
+
+    ElevenLabs balsis NAV piesaistītas valodai — valodu nosaka modelis, un
+    balss nes tembru un akcentu. Tāpēc izvēles ass te nav «vai prot latviski»,
+    bet «kā tā skan latviski», un uz to atbild tikai klausīšanās. `preview`
+    ir pašas ElevenLabs parauga ieraksts; bez tā saraksts ir vārdi bez skaņas.
+    """
+    labels = v.get("labels") or {}
+    return {
+        "id": v.get("voice_id", ""),
+        "name": v.get("name", ""),
+        "category": v.get("category", ""),
+        "gender": str(labels.get("gender") or "").lower(),
+        "accent": str(labels.get("accent") or ""),
+        "description": str(labels.get("description") or ""),
+        "preview": v.get("preview_url") or "",
+    }
+
+
 def elevenlabs_catalogue(session=None, rules: dict | None = None) -> dict:
     """Ko konts TIEŠĀM drīkst lietot: balsis un modeļi ({} pie kļūmes).
 
@@ -248,10 +268,9 @@ def elevenlabs_catalogue(session=None, rules: dict | None = None) -> dict:
         r = httpx.get("https://api.elevenlabs.io/v2/voices?page_size=100",
                       headers=headers, timeout=TIMEOUT)
         if r.status_code == 200:
-            out["voices"] = [
-                {"id": v.get("voice_id", ""), "name": v.get("name", ""),
-                 "category": v.get("category", "")}
-                for v in (r.json().get("voices") or []) if v.get("voice_id")]
+            out["voices"] = [_voice_row(v)
+                              for v in (r.json().get("voices") or [])
+                              if v.get("voice_id")]
         r = httpx.get("https://api.elevenlabs.io/v1/models",
                       headers=headers, timeout=TIMEOUT)
         if r.status_code == 200:

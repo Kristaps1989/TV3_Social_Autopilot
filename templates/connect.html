@@ -70,15 +70,32 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
     </form>
     {% endif %}
     {% if el_catalogue.voices %}
-    <details style="margin-top:.6rem">
+    <details style="margin-top:.6rem" open>
       <summary class="muted">Šī konta balsis ({{ el_catalogue.voices|length }}) —
         ID ieraksta Noteikumos <code>reel_voice_name</code>.
         Šobrīd izvēlēta: <code>{{ el_voice }}</code></summary>
+      <p class="muted" style="margin:.4rem 0">ElevenLabs balsis <b>nav
+      piesaistītas valodai</b> — latviski runā modelis, balss dod tembru un
+      akcentu. Tāpēc izvēlies pēc tā, <b>kā tā skan</b>: noklausies paraugu.
+      Atceries, ka paraugs parasti ir angliski, un latviešu tekstā akcents
+      būs manāmāks.</p>
       <table style="margin-top:.4rem">
-        <tr><th>Balss</th><th>Veids</th><th>ID</th></tr>
+        <tr><th>Balss</th><th>Dzimums</th><th>Akcents</th><th>Veids</th>
+            <th>Paraugs</th><th>ID</th></tr>
         {% for v in el_catalogue.voices %}
-        <tr><td>{{ v.name }}</td><td class="muted">{{ v.category }}</td>
-            <td><code>{{ v.id }}</code></td></tr>
+        <tr{% if v.gender == 'male' %} style="background:#f6f8fb"{% endif %}>
+          <td>{{ v.name }}{% if v.description %}
+              <div class="muted" style="font-size:.75rem">{{ v.description }}</div>
+              {% endif %}</td>
+          <td class="muted">{{ v.gender or '—' }}</td>
+          <td class="muted">{{ v.accent or '—' }}</td>
+          <td class="muted">{{ v.category }}</td>
+          <td>{% if v.preview %}
+              <audio controls preload="none" src="{{ v.preview }}"
+                     style="height:30px;max-width:190px"></audio>
+              {% else %}<span class="muted">—</span>{% endif %}</td>
+          <td><code>{{ v.id }}</code></td>
+        </tr>
         {% endfor %}
       </table>
       <p class="muted" style="margin-top:.4rem">Ja saglabājot nāca
