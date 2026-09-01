@@ -118,6 +118,26 @@ def missing_rules() -> list[str]:
         return []
 
 
+def set_rule(key: str, value: str) -> None:
+    """Nomaina VIENU noteikumu rediģējamajā rules.yaml, saglabājot pārējo.
+
+    Rindas līmenī, nevis ielasot un izrakstot YAML: dump nogalinātu visus
+    komentārus, un tieši tie šajā failā redaktoram pasaka, ko katrs noteikums
+    dara. Ja atslēgas nav, pieliekam beigās.
+    """
+    import re
+
+    path = RULES_DIR / "rules.yaml"
+    if not path.exists():
+        path = DEFAULT_RULES_DIR / "rules.yaml"
+    text = path.read_text(encoding="utf-8")
+    line = f'{key}: "{value}"'
+    pattern = re.compile(rf"^{re.escape(key)}:[^\n]*$", re.M)
+    text = (pattern.sub(line, text, count=1) if pattern.search(text)
+            else text.rstrip("\n") + f"\n{line}\n")
+    path.write_text(text, encoding="utf-8")
+
+
 def load_channels() -> dict[str, Any]:
     """Channels with active: false are hidden everywhere (dashboard,
     scheduling, publishing) until the flag is flipped — used to ship

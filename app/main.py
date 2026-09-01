@@ -977,6 +977,43 @@ def connect_elevenlabs(api_key: str = Form("")):
         session.close()
 
 
+@app.post("/connect/elevenlabs/voice")
+def connect_elevenlabs_voice(voice_id: str = Form("")):
+    """Ieraksta izvēlēto balsi Noteikumos un uzreiz to pamēģina.
+
+    Bez šī redaktoram ID būtu jāpārkopē ar roku uz Noteikumu lapu, un vai
+    balss vispār strādā, noskaidrotos tikai pēc tam — bezmaksas plānā
+    bibliotēkas balsis caur API atbild ar 402.
+    """
+    from urllib.parse import quote
+
+    voice_id = voice_id.strip()
+    if not voice_id:
+        return RedirectResponse("/connect?error=Balss+nav+izvēlēta",
+                                status_code=303)
+    session = get_session()
+    try:
+        config.set_rule("reel_voice_name", voice_id)
+        el_rules = {**config.load_rules(), "tts_provider": "elevenlabs",
+                    "reel_voice_name": voice_id}
+        errors: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = tts.synthesize("Pārbaudes ieraksts.", tmp, rules=el_rules,
+                                    session=session, force=True, errors=errors)
+        if not sample:
+            detail = errors[0] if errors else "nezināms iemesls"
+            return RedirectResponse(
+                f"/connect?error={quote(f'Balss saglabāta, bet ieruna ar to neizdevās — {detail}')}",
+                status_code=303)
+        note = f"Balss saglabāta un pārbaudīta: {voice_id}"
+        if tts.provider() != "elevenlabs":
+            note += " — lai to lietotu, Noteikumos ieraksti tts_provider: elevenlabs"
+        return RedirectResponse(f"/connect?connected={quote(note)}",
+                                status_code=303)
+    finally:
+        session.close()
+
+
 @app.post("/connect/azure-speech")
 def connect_azure_speech(api_key: str = Form(""), region: str = Form("")):
     """Save (or clear) the Azure Speech key used for reel voice-overs.

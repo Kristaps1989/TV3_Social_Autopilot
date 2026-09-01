@@ -645,3 +645,48 @@ def test_a_blocked_voice_says_what_to_do_about_it(session, monkeypatch):
     tts._elevenlabs_audio("Teksts.", "lib-voice", session=session,
                           errors=errors, rules={"tts_provider": "elevenlabs"})
     assert "402" in errors[0] and "reel_voice_name" in errors[0]
+
+
+def test_choosing_a_voice_writes_the_rule_and_keeps_the_comments(tmp_path,
+                                                                 monkeypatch):
+    """Ielasīt un izrakstīt YAML nogalinātu komentārus, un tieši tie šajā
+    failā redaktoram pasaka, ko katrs noteikums dara."""
+    from app import config
+
+    rules = tmp_path / "rules.yaml"
+    rules.write_text("# balss izvēle\nreel_voice_name: female\n"
+                     "# cits noteikums\ntts_provider: azure\n", encoding="utf-8")
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    config.set_rule("reel_voice_name", "JBFqnCBsd6RMkjVDRZzb")
+    out = rules.read_text(encoding="utf-8")
+    assert 'reel_voice_name: "JBFqnCBsd6RMkjVDRZzb"' in out
+    assert "# balss izvēle" in out and "tts_provider: azure" in out
+
+    # atslēga, kuras failā nav, tiek pielikta beigās
+    config.set_rule("elevenlabs_model", "eleven_v3")
+    assert rules.read_text(encoding="utf-8").rstrip().endswith(
+        'elevenlabs_model: "eleven_v3"')
+
+
+def test_choosing_a_voice_is_verified_before_it_is_accepted(client, session,
+                                                            monkeypatch, tmp_path):
+    """Bez pārbaudes bezmaksas plāna 402 parādītos tikai pēc pirmā reela."""
+    from app import config
+
+    rules = tmp_path / "rules.yaml"
+    rules.write_text("reel_voice_name: female\ntts_provider: elevenlabs\n",
+                     encoding="utf-8")
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+    used = {}
+
+    def fake_post(url, timeout=None, headers=None, json=None, **kw):
+        used["url"] = url
+        return httpx.Response(402, text='{"detail":{"code":"paid_plan_required"}}')
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    resp = client.post("/connect/elevenlabs/voice",
+                       data={"voice_id": "lib-voice"}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "error" in resp.headers["location"]
+    assert "lib-voice" in used["url"]
