@@ -152,17 +152,21 @@ class FacebookPageAdapter(Adapter):
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
-                card_titles: list[str] | None = None) -> str:
+                card_titles: list[str] | None = None,
+                alt_text: str = "") -> str:
+        # alt_text_custom ir vienīgais lauks, ko FB pieņem pie /photos;
+        # video un saites to neatbalsta, tāpēc tur to nesūtām
+        alt = {"alt_text_custom": alt_text} if alt_text else {}
         if fmt == "reel" and images:
             return self._publish_reel(images[0], text)
         if fmt == "story" and images:
             if is_video(images[0]):
                 return self._publish_video_story(images[0])
-            up = self._upload_photo(images[0], {"published": "false"})
+            up = self._upload_photo(images[0], {"published": "false", **alt})
             out = self._post(f"{self.page_id}/photo_stories", {"photo_id": up["id"]})
             return out.get("post_id") or out.get("id", "")
         if fmt == "photo" and images:
-            out = self._upload_photo(images[0], {"caption": text})
+            out = self._upload_photo(images[0], {"caption": text, **alt})
             return out.get("post_id") or out.get("id", "")
         if fmt == "card_carousel" and link and len(images) > 1:
             post_id = self._publish_link_carousel(text, link, images,
@@ -173,7 +177,7 @@ class FacebookPageAdapter(Adapter):
         if fmt in ("photo_album", "card_carousel") and len(images) > 1:
             media_ids = []
             for img in images[:10]:
-                out = self._upload_photo(img, {"published": "false"})
+                out = self._upload_photo(img, {"published": "false", **alt})
                 media_ids.append(out["id"])
             data = {"message": text}
             for i, mid in enumerate(media_ids):

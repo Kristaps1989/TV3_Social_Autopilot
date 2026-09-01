@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import secrets as pysecrets
 import time
+import logging
 from pathlib import Path
 from urllib.parse import quote
 
@@ -20,8 +21,11 @@ import httpx
 
 from adapters.base import Adapter, PublishError
 
+log = logging.getLogger(__name__)
+
 TWEETS_URL = "https://api.twitter.com/2/tweets"
 UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+MEDIA_META_URL = "https://upload.twitter.com/1.1/media/metadata/create.json"
 
 
 def oauth1_header(method: str, url: str, *, consumer_key: str, consumer_secret: str,
@@ -89,13 +93,32 @@ class XAdapter(Adapter):
         self._check(resp, "media upload")
         return resp.json()["media_id_string"]
 
+    def _set_alt_text(self, media_id: str, alt_text: str) -> None:
+        """Attēla apraksts ekrānlasītājiem (v1.1 media/metadata/create).
+
+        Neizdošanās nedrīkst apturēt ierakstu: bez apraksta tvīts ir sliktāks,
+        bez tvīta — nav nekāda.
+        """
+        try:
+            httpx.post(MEDIA_META_URL,
+                       headers=self._auth("POST", MEDIA_META_URL),
+                       json={"media_id": media_id,
+                             "alt_text": {"text": alt_text[:1000]}},
+                       timeout=30)
+        except (httpx.HTTPError, OSError) as e:
+            log.warning("X alt text failed for %s: %s", media_id, e)
+
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
-                card_titles: list[str] | None = None) -> str:
+                card_titles: list[str] | None = None,
+                alt_text: str = "") -> str:
         payload: dict = {"text": text}
         if fmt in ("photo", "story") and images:
             try:
-                payload["media"] = {"media_ids": [self._upload_media(images[0])]}
+                media_id = self._upload_media(images[0])
+                if alt_text:
+                    self._set_alt_text(media_id, alt_text)
+                payload["media"] = {"media_ids": [media_id]}
             except (PublishError, httpx.HTTPError, OSError):
                 pass  # image failed -> still worth posting the text+link tweet
         resp = httpx.post(TWEETS_URL, json=payload,

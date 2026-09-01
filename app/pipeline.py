@@ -13,7 +13,8 @@ from sqlalchemy import select
 from adapters import get_adapter
 from adapters.base import PublishError
 from app import config, pagemeta, shortlinks, tts
-from app.best_practices import add_utm, assemble_post_text, sanitize_copy
+from app.best_practices import (add_utm, alt_text, assemble_post_text,
+                                sanitize_copy)
 from app.decide import decide
 from app.formats import choose_format, mix_deficit, recent_format_shares
 from app.models import Article, Evaluation, Post, get_setting, utcnow
@@ -752,6 +753,12 @@ def publish_due(session) -> int:
                 extra_kwargs["card_links"] = card_links
             if card_titles:
                 extra_kwargs["card_titles"] = card_titles
+            # attēla apraksts ekrānlasītājiem: mūsu grafikas nes virsrakstu,
+            # tāpēc godīgākais apraksts ir tas, kas uz tās tiešām rakstīts
+            if post.article is not None and post.media:
+                extra_kwargs["alt_text"] = alt_text(
+                    post.article.title, post.article.section,
+                    pagemeta.author(post.article))
             post.platform_post_id = adapter.publish(
                 text=text, link=link, images=post.media or [], fmt=post.format,
                 **extra_kwargs)

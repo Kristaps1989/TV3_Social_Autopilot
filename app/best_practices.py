@@ -78,6 +78,29 @@ def add_utm(url: str, platform: str, post_id: int | str, hook: str = "") -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def alt_text(title: str, section: str = "", author: str = "",
+             limit: int = 300) -> str:
+    """Attēla apraksts ekrānlasītājiem (un Meta indeksācijai).
+
+    Mūsu attēli ir brendētas grafikas ar virsrakstu, tāpēc godīgākais
+    apraksts ir tas, kas uz tās TIEŠĀM rakstīts — nevis izdomāta ainas
+    interpretācija. Ekrānlasītāja lietotājs tā dabū to pašu, ko redzīgais:
+    zīmolu, sadaļu un virsrakstu.
+    """
+    title = (title or "").strip()
+    if not title:
+        return ""
+    parts = ["tv3.lv"]
+    if section:
+        parts.append(str(section).strip())
+    text = f"{' · '.join(parts)}: {title}"
+    if author:
+        text = f"{text} (autors: {author.strip()})"
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip(" ,;:.") + "…"
+    return text
+
+
 def effective_length(text: str, spec: PlatformSpec) -> int:
     """Length as the platform counts it (X: URLs cost 23 chars each)."""
     if spec.link_char_cost is None:

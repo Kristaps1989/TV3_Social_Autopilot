@@ -46,10 +46,12 @@ class Adapter(ABC):
     @abstractmethod
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
-                card_titles: list[str] | None = None) -> str:
+                card_titles: list[str] | None = None,
+                alt_text: str = "") -> str:
         """Publish and return the platform post id. card_links: per-card
         destinations for digest carousels (platforms without carousel link
-        support ignore it)."""
+        support ignore it). alt_text: attēla apraksts ekrānlasītājiem —
+        platformas, kas to neatbalsta, to ignorē."""
 
     def fetch_insights(self, platform_post_id: str) -> dict | None:
         """Return {impressions, clicks, reactions} or None if unavailable."""
@@ -71,9 +73,11 @@ class DryRunAdapter(Adapter):
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
-                card_titles: list[str] | None = None) -> str:
-        log.info("[DRY RUN %s] %s | %s | link=%s images=%d",
-                 self.platform, fmt, text[:120], link, len(images))
+                card_titles: list[str] | None = None,
+                alt_text: str = "") -> str:
+        log.info("[DRY RUN %s] %s | %s | link=%s images=%d alt=%s",
+                 self.platform, fmt, text[:120], link, len(images),
+                 (alt_text or "—")[:60])
         return f"dry-run{'-' + self.note if self.note else ''}"
 
     def comment(self, post_id: str, message: str) -> str:

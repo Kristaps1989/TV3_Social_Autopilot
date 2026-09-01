@@ -84,3 +84,62 @@ def test_pick_format_defaults():
                        ["link", "photo", "photo_album"]) == "photo_album"
     assert pick_format("entertainment", ["i1"], "can", ["link", "photo"]) == "photo"
     assert pick_format("sport", ["i1"], "can", ["link", "text_only"]) == "link"
+
+
+# --- attēlu apraksti (piekļūstamība) ---------------------------------------
+
+def test_alt_text_describes_what_the_graphic_says():
+    from app.best_practices import alt_text
+
+    out = alt_text("Gaidāmas ekstremālas lietusgāzes un spēcīga vētra",
+                   "news", "Justīne Jurcika")
+    assert out.startswith("tv3.lv · news: ")
+    assert "Gaidāmas ekstremālas lietusgāzes" in out
+    assert "Justīne Jurcika" in out
+
+
+def test_alt_text_without_optional_parts():
+    from app.best_practices import alt_text
+
+    assert alt_text("Virsraksts") == "tv3.lv: Virsraksts"
+    assert alt_text("") == ""
+
+
+def test_alt_text_is_capped_at_a_word_boundary():
+    from app.best_practices import alt_text
+
+    out = alt_text("vārds " * 100, "news", limit=80)
+    assert len(out) <= 80 and out.endswith("…")
+
+
+def test_publish_sends_alt_text(session, monkeypatch):
+    """Katrs attēlu ieraksts aiziet ar aprakstu."""
+    from datetime import timedelta
+
+    from adapters import base as adapters_base
+    from app import pipeline, runtime
+    from app.models import Article, Post, utcnow
+
+    a = Article(guid="alt-1", url="https://tv3.lv/a", canonical_url="https://tv3.lv/a",
+                title="Vētra tuvojas Latvijai", section="news", raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb_tv3lv", format="photo",
+                     copy="Teksts", link_url=a.canonical_url, media=["card.png"],
+                     state="scheduled", dry_run=True,
+                     scheduled_at=utcnow() - timedelta(minutes=1)))
+    session.commit()
+
+    seen = {}
+
+    class Recorder(adapters_base.DryRunAdapter):
+        def publish(self, **kwargs):
+            seen.update(kwargs)
+            return "dry-run"
+
+    monkeypatch.setattr(pipeline, "get_adapter",
+                        lambda platform: Recorder(platform))
+    monkeypatch.setattr(runtime, "is_dry_run", lambda s: True)
+    pipeline.publish_due(session)
+
+    assert "Vētra tuvojas Latvijai" in seen.get("alt_text", "")

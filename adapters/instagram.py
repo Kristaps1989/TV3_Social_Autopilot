@@ -41,7 +41,10 @@ class InstagramAdapter(Adapter):
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
-                card_titles: list[str] | None = None) -> str:
+                card_titles: list[str] | None = None,
+                alt_text: str = "") -> str:
+        # IG pieņem alt_text tikai attēlu konteineriem (ne REELS/STORIES)
+        alt = {"alt_text": alt_text} if alt_text else {}
         urls = [u for u in (public_image_url(i) for i in images) if u]
         if not urls:
             raise PublishError(
@@ -62,13 +65,15 @@ class InstagramAdapter(Adapter):
                 container = self._container({"media_type": "STORIES",
                                              "image_url": urls[0]})
         elif fmt in ("photo_album", "card_carousel") and len(urls) > 1:
-            children = [self._container({"image_url": u, "is_carousel_item": "true"})
+            children = [self._container({"image_url": u, "is_carousel_item": "true",
+                                         **alt})
                         for u in urls[:10]]
             container = self._container({"media_type": "CAROUSEL",
                                          "children": ",".join(children),
                                          "caption": text})
         else:
-            container = self._container({"image_url": urls[0], "caption": text})
+            container = self._container({"image_url": urls[0], "caption": text,
+                                         **alt})
         return self._post(f"{self.user_id}/media_publish",
                           {"creation_id": container})["id"]
 

@@ -241,7 +241,7 @@ def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
 
     class FakeAdapter:
         def publish(self, *, text, link, images, fmt, card_links=None,
-                    card_titles=None):
+                    card_titles=None, **kw):
             captured.update(link=link, card_links=card_links,
                             card_titles=card_titles)
             return "fb-9"
@@ -791,7 +791,7 @@ def test_every_carousel_card_gets_its_own_utm_term(session, monkeypatch):
 
     class FakeAdapter:
         def publish(self, *, text, link, images, fmt, card_links=None,
-                    card_titles=None):
+                    card_titles=None, **kw):
             captured.update(card_links=card_links)
             return "fb-1"
 

@@ -32,7 +32,11 @@ class ThreadsAdapter(Adapter):
 
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
-                card_titles: list[str] | None = None) -> str:
+                card_titles: list[str] | None = None,
+                alt_text: str = "") -> str:
+        # Threads API attēlu aprakstu pagaidām nepieņem — parametru saņemam,
+        # lai adapteru līgums būtu vienāds, un ignorējam
+        del alt_text
         data: dict = {"text": text}
         image_url = public_image_url(images[0]) if images else ""
         if fmt == "photo" and image_url:

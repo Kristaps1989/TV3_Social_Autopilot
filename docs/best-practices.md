@@ -34,6 +34,30 @@ this tool's job.
 - No 2 near-duplicate stories in the last 3 posts (similarity guard).
 - Never the same article twice on the same channel.
 
+## Piekļūstamība
+
+- Katram attēla ierakstam aiziet **alt teksts** (FB `alt_text_custom`, IG
+  `alt_text`, X `media/metadata/create`). Mūsu grafikas nes virsrakstu, tāpēc
+  apraksts ir tas, kas uz tās TIEŠĀM rakstīts — ekrānlasītāja lietotājs dabū
+  to pašu, ko redzīgais. Threads API to pagaidām nepieņem.
+- Reelu kadros teksts ir SAFE_INSET drošajā zonā (64 px), jo Ken Burns
+  tuvinājums apgriež malas; teksta izmērs krītas garam saturam (`fit_size`,
+  `body_fit`), lai neviens vārds netiktu nogriezts.
+
+## Karuseļi, lentes un stāsti
+
+| Prakse | Kā piemērots |
+|---|---|
+| Katra kartīte ir sadaļa: virsraksts + 2-4 teikumi | `card_sections` no raksta TEKSTA, ne virsraksta |
+| Katrai kartītei savs foto | raksta galerija pēc kārtas; photopost grafikas izslēgtas |
+| Pirmā kartīte āķē, pēdējā ir CTA | vāks + CTA kartīte `build_section_cards_html` |
+| Katra kartīte klikšķināma uz rakstu | `card_links` + savs `utm_term` katrai (`quiz-karte2`) |
+| Švīkošanas norāde | sarkanās ">>>" bultas |
+| Lente 9:16, ≤60 s | 1080×1920; ieruna stiepj kadrus, `VOICE_MAX_SECONDS` |
+| Kadrā tik teksta, cik paspēj izlasīt | sadaļas kadrs 5.5 s (punkts 2.8 s) |
+| Ieruna latviski, rakstīta RUNĀŠANAI | `voice_script`; izrunas vārdnīca (`tv3.lv` → «tv trīs punkts lv») |
+| Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
+
 ## Format → clicks
 
 - Link post = best CTR to site → default for news/politics/sport.
@@ -48,3 +72,15 @@ this tool's job.
   utm_campaign=autopilot, utm_content={post_id}` → GA4 sessions per post.
 - Phase 3 replaces all manual weights with measured sessions-per-post by
   channel × format × section × hour.
+- A/B dimensijas, ko mēra atsevišķi: āķa stils (`utm_term`), **ieruna pret
+  klusu lenti** un **video stāsts pret attēlu** (Statistikas lapā). Visur
+  parādīts kā virziena rādītājs ar ierakstu skaitu — ne kā pierādījums.
+
+## Kas apzināti NAV izdarīts
+
+- **Ierunas subtitri.** Kad ierunu ģenerē no sadaļām, runātie vārdi JAU ir
+  uz kadra — tā ir dabiska paraksta forma. Bet, ja AI uzraksta atsevišķu
+  `voice_script`, teksts un balss atšķiras, un skaņu izslēgušais skatītājs
+  runāto nedabū. Īsti subtitri (burn-in vai SRT) vēl nav.
+- **Threads alt teksts** — API to nepieņem.
+- **Instagram kanāls** izslēgts (`active: false`), līdz konts ir sasaistīts.

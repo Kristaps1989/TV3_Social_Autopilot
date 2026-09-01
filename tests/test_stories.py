@@ -79,7 +79,7 @@ def test_fb_photo_gets_link_in_first_comment(session, monkeypatch):
     calls = {}
 
     class FakeAdapter:
-        def publish(self, *, text, link, images, fmt):
+        def publish(self, *, text, link, images, fmt, **kw):
             calls["text"] = text
             calls["fmt"] = fmt
             return "fake-123"
