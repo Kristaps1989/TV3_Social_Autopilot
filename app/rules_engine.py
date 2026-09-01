@@ -24,7 +24,13 @@ class Verdict:
     outcome: str                       # eligible | blocked | forced_now
     reason: str = ""
     earliest: datetime | None = None   # UTC-naive, like everything in the DB
-    latest: datetime | None = None
+    latest: datetime | None = None     # statusa termiņš ("must"); atmetams
+    # Satura derīguma termiņš: brīdis, kad raksts kļūst par vecu, lai to
+    # vispār publicētu (max_age_hours). ATŠĶIRAS no `latest`: statusa termiņš
+    # ir mūsu solījums redakcijai un pilnas rindas gadījumā to drīkst atmest,
+    # bet svaigums ir paša satura īpašība — vakardienas ziņa rīt nekļūst
+    # svaigāka. None = evergreen vai sadaļai limita nav.
+    fresh_until: datetime | None = None
     allowed_windows: list[tuple[time, time]] = field(default_factory=list)
 
 
@@ -96,11 +102,17 @@ def evaluate(article: Article, channel_name: str, channel_cfg: dict,
 
     # 4. Freshness
     max_age = (rules.get("max_age_hours") or {}).get(article.section)
+    fresh_until = None
     if max_age is not None and article.editor_timeframe != "evergreen":
         if article_age_hours(article, now) > float(max_age):
             return Verdict("blocked",
                            f"too old: {article_age_hours(article, now):.0f}h > {max_age}h "
                            f"limit for {article.section}")
+        # Cik ilgi raksts paliek publicējams. Līdz šim svaigumu pārbaudīja
+        # TIKAI lēmuma brīdī, un slots pēc tam varēja aizceļot 48 h uz priekšu:
+        # šodienas ziņa tad iznāca kā parīta stāsts.
+        ref = article.published_at or article.first_seen_at
+        fresh_until = ref + timedelta(hours=float(max_age))
 
     # 5. Sensitivity time windows
     windows: list[tuple[time, time]] = []
@@ -119,7 +131,8 @@ def evaluate(article: Article, channel_name: str, channel_cfg: dict,
 
     return Verdict("eligible",
                    "must publish within deadline" if status == "must" else "AI decides",
-                   earliest=now, latest=latest, allowed_windows=windows)
+                   earliest=now, latest=latest, fresh_until=fresh_until,
+                   allowed_windows=windows)
 
 
 def evaluate_all(article: Article, now: datetime) -> dict[str, Verdict]:

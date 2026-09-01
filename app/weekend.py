@@ -232,7 +232,14 @@ def _schedule(session, article: Article, fmt: str, copy: str, media: list,
               recipe: dict | None = None) -> Post:
     from app import cards, runtime
 
-    extra = {"render_version": cards.RENDER_VERSION} if media else {}
+    # Franšīzes ieraksti ir ATSKATOŠI pēc būtības: «nedēļas TOP», «nedēļas
+    # skaitlis», kvīzs. Tie atsaucas uz nedēļas rakstiem, un tāds raksts
+    # publicēšanas brīdī ir dienas vecs pēc plāna, ne aiz nolaidības. Svaiguma
+    # sargs (pipeline.stale_now) tos tāpēc izlaiž — citādi tas atceltu visu
+    # nedēļas nogales programmu.
+    extra: dict = {"timeless": True}
+    if media:
+        extra["render_version"] = cards.RENDER_VERSION
     if recipe:
         # recepte = no kā grafika bija uzbūvēta, lai redaktors to var
         # pārģenerēt (app.regenerate) bez ieraksta atcelšanas

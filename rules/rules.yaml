@@ -206,3 +206,9 @@ link_card_force_crop: 0.40
 # apgalvojums, ka MI ir uzrakstījis RAKSTU. all = marķējums uz visiem
 # formātiem (plašākā interpretācija; tā bija sākotnēji).
 ai_disclosure_scope: voiced_reels
+
+# Vai tieši pirms publicēšanas atcelt ierakstu, kura raksts pa gaidīšanas
+# laiku ir kļuvis vecāks par max_age_hours. Ieraksts rindā var nostāvēt
+# stundas, un vakardienas ziņa šodienas stāstā ir sliktāka par neko.
+# false = publicē arī novecojušo (tikai plānošana ievēro svaigumu).
+stale_publish_guard: true

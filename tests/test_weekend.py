@@ -254,7 +254,10 @@ def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
     p = Post(article_id=a.id, channel="fb_tv3lv", format="card_carousel",
              copy="Teksts", link_url="https://tv3.lv/sports",
              media=["c0.png", "c1.png", "end.png"],
-             extra={"card_links": ["https://tv3.lv/sports",
+             # tāpat kā ražošanā (weekend._schedule): digests ir atskatošs,
+             # tāpēc svaiguma sargs to neatceļ
+             extra={"timeless": True,
+                    "card_links": ["https://tv3.lv/sports",
                                    "https://tv3.lv/raksts-viens", ""]},
              state="scheduled", scheduled_at=utcnow() - timedelta(minutes=1))
     session.add(p)
@@ -803,6 +806,9 @@ def test_every_carousel_card_gets_its_own_utm_term(session, monkeypatch):
     p = Post(article_id=a.id, channel="fb_tv3lv", format="card_carousel",
              copy="Teksts", link_url=a.canonical_url, hook_type="quiz",
              media=["c0.png", "c1.png", "c2.png"],
+             # tāpat kā ražošanā (weekend._schedule): franšīze ir atskatoša,
+             # tāpēc svaiguma sargs to neatceļ
+             extra={"timeless": True},
              state="scheduled", scheduled_at=utcnow() - timedelta(minutes=1))
     session.add(p)
     session.commit()

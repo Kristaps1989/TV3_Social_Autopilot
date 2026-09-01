@@ -145,8 +145,10 @@ def run_decisions(session, limit: int = 20) -> int:
                                   score=score, allow_similar=bool(existing))
             late = False
             if slot is None and verdict.latest is not None:
-                # queue was full inside the status window — a later slot still
-                # beats dropping content the AI decided to publish
+                # Pilna rinda statusa logā: vēlāks slots ir labāks par
+                # atmestu saturu. Atmetam TIKAI statusa termiņu — svaiguma
+                # griesti (`fresh_until`) paliek, citādi šis ceļš ziņu
+                # aizsūtītu divas dienas uz priekšu.
                 import dataclasses
 
                 slot, why = plan_slot(session, channel, cfg,
@@ -732,6 +734,40 @@ def compose_text(post, platform: str, shown_link: str,
     return text, in_comment
 
 
+def stale_now(post, rules: dict | None = None) -> str:
+    """Iemesls, kāpēc ierakstu vairs nevajag publicēt ('' ja viss kārtībā).
+
+    Svaigumu pārbauda lēmuma solī, bet ieraksts rindā var nostāvēt stundas.
+    Bez šī labojums aizsniegtu tikai jaunos rakstus, un tie, kas jau ieplānoti
+    par tālu, tik un tā iznāktu kā vakardienas ziņa šodienas stāstā.
+    """
+    rules = config.load_rules() if rules is None else rules
+    if not rules.get("stale_publish_guard", True):
+        return ""
+    # Sargs atceļ TIKAI to, ko automātika ieplānojusi pati.
+    #   timeless — franšīzes ieraksti («nedēļas TOP», «nedēļas skaitlis»,
+    #     kvīzs): tie ir atskatoši pēc būtības, raksts tur ir atsauce, ne
+    #     temats, un dienas vecums tiem ir plāns, ne nolaidība.
+    #   manual — redaktors formātu pieprasījis pats. Cilvēka apzinātu lēmumu
+    #     mēs neatceļam; ja viņš grib vecāku rakstu, tā ir viņa izvēle.
+    extra = post.extra or {}
+    if extra.get("timeless") or extra.get("manual"):
+        return ""
+    article = post.article
+    if article is None or article.editor_timeframe == "evergreen":
+        return ""
+    max_age = (rules.get("max_age_hours") or {}).get(article.section)
+    if max_age is None:
+        return ""
+    from app.rules_engine import article_age_hours
+
+    age = article_age_hours(article, utcnow())
+    if age <= float(max_age):
+        return ""
+    return (f"atcelts: saturs novecojis — {age:.0f} h vecs, "
+            f"{article.section} limits ir {max_age} h")
+
+
 def refresh_missing_media(session, post, platform: str) -> None:
     """Re-render photo/story media just before publishing when needed:
     the rendered file was wiped (deploy without the volume), the stored
@@ -796,6 +832,11 @@ def publish_due(session) -> int:
 
         cfg = channels_cfg.get(post.channel) or {}
         platform = cfg.get("platform", "")
+        if stale_now(post):
+            post.state = "cancelled"
+            post.error = stale_now(post)
+            session.commit()
+            continue
         # rindā gaidošs saites ieraksts, kura attēlu kartīte sagrieztu, vēl
         # paspēj kļūt par foto ierakstu — grafiku uzzīmē refresh_missing_media
         retarget_queued_link_post(session, post, cfg)

@@ -17,6 +17,38 @@ this tool's job.
 | Hashtags: X ≤2 topical, FB ≤1, Threads ≤1 | Trimmed in code |
 | Latvian with correct diacritics | Prompt (style guides are editor-editable) |
 
+## Svaigums ir griesti, ne tikai vārti
+
+`max_age_hours` sākotnēji pārbaudīja tikai **lēmuma brīdi**: vai raksts vēl
+ir pietiekami svaigs, lai par to tagad lemtu. Slots pēc tam varēja aizceļot
+līdz 48 h uz priekšu (`SEARCH_HORIZON_HOURS`), un, ja rinda statusa logā bija
+pilna, cauruļvads atmeta termiņu pilnībā — tā šodienas ziņa nokļuva parīta
+stāstā.
+
+Tāpēc `Verdict` tagad nes divus dažādus termiņus:
+
+| Lauks | Kas tas ir | Vai atmetams |
+|---|---|---|
+| `latest` | statusa termiņš («must» — `must_max_delay_hours`) | jā, kad rinda pilna |
+| `fresh_until` | satura derīgums (`max_age_hours` no publicēšanas) | **nekad** |
+
+Pirmais ir mūsu solījums redakcijai, otrais — paša satura īpašība: vakardienas
+ziņa rīt nekļūst svaigāka. `evergreen` raksti griestus nedabū.
+
+Tas pats attiecas uz rindu: `stale_publish_guard` tieši pirms publicēšanas
+atceļ ierakstu, kura raksts pa gaidīšanas laiku ir novecojis — citādi
+labojums aizsniegtu tikai jaunos rakstus, un jau ieplānotie tik un tā iznāktu
+kā vakardienas ziņa šodienas stāstā.
+
+Sargs atceļ **tikai to, ko automātika ieplānojusi pati**. Divi izņēmumi, abi
+atzīmēti uz paša ieraksta, ne uzminēti pēc receptes veida:
+
+- `extra.timeless` — nedēļas franšīze («nedēļas TOP», «nedēļas skaitlis»,
+  kvīzs). Tie ir atskatoši pēc būtības: raksts tur ir atsauce, ne temats, un
+  dienas vecums ir plāns, ne nolaidība.
+- `extra.manual` — redaktors formātu pieprasījis pats. Cilvēka apzinātu
+  lēmumu automātika neatceļ.
+
 ## Timing & cadence (rule engine + slot allocator)
 
 - Peak windows preferred: 7–9, 12–14, 19–22 local (default curve, replaced by

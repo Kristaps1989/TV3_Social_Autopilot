@@ -168,6 +168,11 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
 
         if verdict.latest and candidate > verdict.latest:
             return no("statusa termiņš")
+        # Svaigums ir paša satura īpašība, ne mūsu solījums: pilna rinda to
+        # neatceļ. Bez šī slots aizceļoja līdz 48 h uz priekšu, un šodienas
+        # ziņa iznāca kā parīta stāsts.
+        if verdict.fresh_until and candidate > verdict.fresh_until:
+            return no("saturs līdz tam būs par vecu")
         local_dt = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
         if _quiet(local_dt, quiet_hours):
             return no("klusās stundas")
