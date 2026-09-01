@@ -69,13 +69,42 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <button class="danger">Noņemt atslēgu</button>
     </form>
     {% endif %}
+    {% if el_catalogue.voices %}
+    <details style="margin-top:.6rem">
+      <summary class="muted">Šī konta balsis ({{ el_catalogue.voices|length }}) —
+        ID ieraksta Noteikumos <code>reel_voice_name</code>.
+        Šobrīd izvēlēta: <code>{{ el_voice }}</code></summary>
+      <table style="margin-top:.4rem">
+        <tr><th>Balss</th><th>Veids</th><th>ID</th></tr>
+        {% for v in el_catalogue.voices %}
+        <tr><td>{{ v.name }}</td><td class="muted">{{ v.category }}</td>
+            <td><code>{{ v.id }}</code></td></tr>
+        {% endfor %}
+      </table>
+      <p class="muted" style="margin-top:.4rem">Ja saglabājot nāca
+      <b>402 paid_plan_required</b>, izvēlētā balss šim kontam caur API nav
+      pieejama — bezmaksas plānā <b>Voice Library</b> balsis caur API ir
+      liegtas. Ņem ID no šī saraksta.</p>
+    </details>
+    {% endif %}
+    {% if el_catalogue.models %}
+    <details style="margin-top:.4rem">
+      <summary class="muted">Modeļi, kas prot latviski —
+        <code>elevenlabs_model</code> Noteikumos</summary>
+      <table style="margin-top:.4rem">
+        <tr><th>Modelis</th><th>ID</th><th>Latviski</th></tr>
+        {% for m in el_catalogue.models %}
+        <tr><td>{{ m.name }}</td><td><code>{{ m.id }}</code></td>
+            <td>{{ '✓' if m.latvian else '—' }}</td></tr>
+        {% endfor %}
+      </table>
+    </details>
+    {% endif %}
     <p class="muted">Saglabājot tiek ierunāts parauga teikums ar šo
-    pakalpojumu, tāpēc nederīga atslēga redzama uzreiz. Latviski runā tikai
-    <code>eleven_v3</code> modelis (noklusējums; maināms Noteikumos ar
-    <code>elevenlabs_model</code>). Balsi izvēlas Noteikumos:
-    <code>reel_voice_name: female</code>/<code>male</code> vai konkrētas
-    balss <b>ID</b> no ElevenLabs balsu bibliotēkas — latviešu balsij ņem ID
-    no Voice Library.</p>
+    pakalpojumu, tāpēc nederīga atslēga vai nepieejama balss redzama uzreiz.
+    Balsi un modeli izvēlas Noteikumos (<code>reel_voice_name</code>,
+    <code>elevenlabs_model</code>) — abus sarakstus konts atdod pats, tāpēc
+    minēt nevajag.</p>
   </div>
 
   <div class="card">

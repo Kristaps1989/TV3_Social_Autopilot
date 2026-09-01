@@ -734,6 +734,12 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "tts_voice": tts.voice_name(),
             "tts_provider": tts.provider(),
             "el_key_masked": (f"…{el_key[-4:]}" if el_key else ""),
+            # ko konts TIEŠĀM drīkst lietot — balss ID iekodēt ir minēšana,
+            # un tieši tur bezmaksas plāns atsitās ar 402
+            "el_catalogue": (tts.elevenlabs_catalogue(session)
+                             if el_key else {}),
+            "el_voice": tts.voice_name({**config.load_rules(),
+                                        "tts_provider": "elevenlabs"}),
             "meta_app_ready": bool(fb_app_id),
             "meta_app_id": fb_app_id,
             "meta_config_id": credentials.get("meta_login_config_id", session),

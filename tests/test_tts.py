@@ -588,3 +588,51 @@ def test_saving_an_elevenlabs_key_verifies_against_elevenlabs(client, session,
     assert resp.status_code == 303 and "error" not in resp.headers["location"]
     assert "api.elevenlabs.io" in hit["url"] and hit["key"] == "el-new"
     assert credentials.get("elevenlabs_api_key", session) == "el-new"
+
+
+def test_the_catalogue_reports_what_the_account_may_actually_use(session,
+                                                                 monkeypatch):
+    """Balss ID iekodēt ir minēšana: bezmaksas plānā bibliotēkas balsis caur
+    API ir liegtas (402), un kura balss kurā grupā, katram kontam atšķiras."""
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+
+    def fake_get(url, headers=None, timeout=None, **kw):
+        assert headers["xi-api-key"] == "el-key"
+        if "/v2/voices" in url:
+            return httpx.Response(200, json={"voices": [
+                {"voice_id": "own-1", "name": "Mana balss", "category": "cloned"},
+                {"voice_id": "lib-1", "name": "Rachel", "category": "premade"},
+                {"name": "bez id"}]})
+        return httpx.Response(200, json=[
+            {"model_id": "eleven_v3", "name": "v3",
+             "languages": [{"language_id": "lv", "name": "Latvian"}]},
+            {"model_id": "eleven_multilingual_v2", "name": "v2",
+             "languages": [{"language_id": "en", "name": "English"}]}])
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    cat = tts.elevenlabs_catalogue(session)
+    assert [v["id"] for v in cat["voices"]] == ["own-1", "lib-1"]
+    assert {m["id"]: m["latvian"] for m in cat["models"]} == {
+        "eleven_v3": True, "eleven_multilingual_v2": False}
+
+
+def test_the_catalogue_is_a_helper_not_a_dependency(session, monkeypatch):
+    """Saraksta neizdošanās nedrīkst salauzt Kontu lapu."""
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: _never_called())
+    assert tts.elevenlabs_catalogue(session) == {"voices": [], "models": []}
+    # bez atslēgas nav ko prasīt
+    credentials.put(session, "elevenlabs_api_key", "")
+    assert tts.elevenlabs_catalogue(session) == {}
+
+
+def test_a_blocked_voice_says_what_to_do_about_it(session, monkeypatch):
+    """«HTTP 402» viens pats izskatās pēc koda kļūdas; tas ir plāna jautājums,
+    un labojums ir cita balss, ne cita atslēga."""
+    credentials.put(session, "elevenlabs_api_key", "el-key")
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(
+        402, text='{"detail":{"code":"paid_plan_required"}}'))
+    errors: list = []
+    tts._elevenlabs_audio("Teksts.", "lib-voice", session=session,
+                          errors=errors, rules={"tts_provider": "elevenlabs"})
+    assert "402" in errors[0] and "reel_voice_name" in errors[0]

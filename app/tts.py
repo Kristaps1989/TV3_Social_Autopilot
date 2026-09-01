@@ -228,6 +228,47 @@ def _azure_audio(text: str, voice: str, session=None,
         return b""
 
 
+def elevenlabs_catalogue(session=None, rules: dict | None = None) -> dict:
+    """Ko konts TIEŠĀM drīkst lietot: balsis un modeļi ({} pie kļūmes).
+
+    Balss ID iekodēt ir minēšana: ElevenLabs bezmaksas plānā bibliotēkas
+    balsis caur API ir liegtas (402 paid_plan_required), un tas, kura balss
+    ir «premade» un kura «library», katram kontam atšķiras. Tāpat ar
+    valodām — kurš modelis runā latviski, pasaka pats modeļu saraksts, ne
+    dokumentācija. Tāpēc jautājam kontam un rādām atbildi redaktoram.
+    """
+    import httpx
+
+    key = _key(session, rules or {"tts_provider": "elevenlabs"})
+    if not key:
+        return {}
+    headers = {"xi-api-key": key, "User-Agent": "TV3-Social-Autopilot/1.0"}
+    out: dict = {"voices": [], "models": []}
+    try:
+        r = httpx.get("https://api.elevenlabs.io/v2/voices?page_size=100",
+                      headers=headers, timeout=TIMEOUT)
+        if r.status_code == 200:
+            out["voices"] = [
+                {"id": v.get("voice_id", ""), "name": v.get("name", ""),
+                 "category": v.get("category", "")}
+                for v in (r.json().get("voices") or []) if v.get("voice_id")]
+        r = httpx.get("https://api.elevenlabs.io/v1/models",
+                      headers=headers, timeout=TIMEOUT)
+        if r.status_code == 200:
+            for m in r.json() or []:
+                langs = [str(l.get("language_id") or l.get("name") or "").lower()
+                         for l in (m.get("languages") or [])]
+                out["models"].append({
+                    "id": m.get("model_id", ""),
+                    "name": m.get("name", ""),
+                    # vai modelis prot latviski — atbild pats saraksts
+                    "latvian": any(l.startswith("lv") or "latvian" in l
+                                   for l in langs)})
+    except Exception as e:  # noqa: BLE001 — saraksts ir palīgs, ne ceļš
+        log.warning("ElevenLabs catalogue failed: %s", e)
+    return out
+
+
 def _elevenlabs_audio(text: str, voice: str, session=None,
                       errors: list | None = None,
                       rules: dict | None = None) -> bytes:
@@ -254,8 +295,14 @@ def _elevenlabs_audio(text: str, voice: str, session=None,
             log.warning("ElevenLabs TTS failed: HTTP %s %s", resp.status_code,
                         resp.text[:200])
             if errors is not None:
-                errors.append(f"HTTP {resp.status_code}: "
-                              f"{(resp.text or '').strip()[:160] or 'bez ziņojuma'}")
+                detail = (resp.text or "").strip()[:160] or "bez ziņojuma"
+                if resp.status_code == 402:
+                    # visbiežākā klupšana: bezmaksas plānā bibliotēkas balsis
+                    # caur API ir liegtas, un tas nav atslēgas vai koda jautājums
+                    detail += (" — šī balss kontam caur API nav pieejama. "
+                               "Zemāk ir konta balsu saraksts; ieraksti "
+                               "Noteikumos (reel_voice_name) kādas no tām ID.")
+                errors.append(f"HTTP {resp.status_code}: {detail}")
             return b""
         if not resp.content and errors is not None:
             errors.append("ElevenLabs atbildēja bez audio")
