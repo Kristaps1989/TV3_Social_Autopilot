@@ -752,3 +752,42 @@ def test_a_trimmed_reel_does_not_promise_chapters_it_no_longer_has(monkeypatch,
     for doc in docs:
         if 'class="prog"' in doc:
             assert doc.count("<i class=") == len(docs)
+
+
+def test_only_a_voiced_reel_is_marked_as_ai(monkeypatch, tmp_path):
+    """Sintezētā balss ir vienīgā daļa, kas tiešām ir mākslīgi ģenerēts
+    medijs. Klusā lentē ir foto un teksts no žurnālista raksta, un zīmīte tur
+    lasās kā apgalvojums, ka MI ir uzrakstījis rakstu."""
+    from pathlib import Path
+
+    from app import disclosure, reels
+
+    rendered = {}
+
+    def fake_render(docs, out_dir):
+        rendered["docs"] = docs
+        return [tmp_path / f"f{i}.png" for i in range(len(docs))]
+
+    def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
+                      voice=None, voices=None):
+        Path(out).write_bytes(b"mp4")
+        return sum(durations)
+
+    monkeypatch.setattr(reels, "_render_frames", fake_render)
+    monkeypatch.setattr(reels, "_assemble", fake_assemble)
+    monkeypatch.setattr(reels, "media_duration", lambda p: 3.0)
+    sections = [{"title": "A", "body": "Pirmais teksts."},
+                {"title": "B", "body": "Otrais teksts."}]
+
+    reels.build_reel("T", "news", "", [], out_dir=tmp_path, sections=sections,
+                     cover_voice="Virsraksts.", end_voice="Lasi tv3.lv.",
+                     synth=lambda text, **kw: "/audio/x.m4a")
+    assert any(disclosure.DEFAULT_SHORT in d for d in rendered["docs"])
+    assert any(disclosure.DEFAULT_TEXT in d for d in rendered["docs"])
+
+    # bez balss (nav atslēgas / sintēze neizdevās) marķējuma nav
+    reels.build_reel("T", "news", "", [], out_dir=tmp_path, sections=sections,
+                     cover_voice="Virsraksts.", end_voice="Lasi tv3.lv.",
+                     synth=lambda text, **kw: "")
+    assert not any(disclosure.DEFAULT_SHORT in d for d in rendered["docs"])
+    assert not any(disclosure.DEFAULT_TEXT in d for d in rendered["docs"])

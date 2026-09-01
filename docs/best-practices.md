@@ -52,7 +52,7 @@ this tool's job.
 | Katrai kartītei savs foto | raksta galerija pēc kārtas; photopost grafikas izslēgtas |
 | Pirmā kartīte āķē, pēdējā ir CTA | vāks + CTA kartīte `build_section_cards_html` |
 | Katra kartīte klikšķināma uz rakstu | `card_links` + savs `utm_term` katrai (`quiz-karte2`) |
-| Švīkošanas norāde | sarkanās ">>>" bultas |
+| Švīkošanas norāde | sarkana nodaļu josla baltajā apakšjoslā + «N/M ›» pie logo |
 | Lente 9:16, ≤60 s | 1080×1920; par garu lente zaudē PĒDĒJO NODAĻU veselu, nevis balsi pusteikumā (`_trim_to_budget`) |
 | Kadru nosaka TĀ PAŠA kadra ieruna | `plan_durations`: katram kadram sava sintēze, kadrs = tās garums |
 | Kadrā tik teksta, cik paspēj izlasīt | vismaz `MIN_FRAME_SECONDS`; klusam kadram 5.5 s (punkts 2.8 s) |
@@ -102,10 +102,18 @@ un tekstu marķēt; 4. punkts prasa to atklāt arī tāpēc, ka ziņas ir saturs
 par sabiedrībai nozīmīgiem jautājumiem. Marķējumam jābūt skaidram un
 pamanāmam, tāpēc tas ir trijās vietās vienlaikus:
 
+**Apjoms (`ai_disclosure_scope`, noklusējums `voiced_reels`): tikai lentes,
+kurās tiešām skan sintezēta balss.** Tā ir vienīgā daļa, kas ir mākslīgi
+ģenerēts *medijs*. Rakstu raksta žurnālists; parakstu un kartīšu tekstus MI
+palīdz formulēt no viņa raksta, un tos redakcija apstiprina. Atruna zem katra
+ieraksta lasījās kā apgalvojums, ka MI ir uzrakstījis RAKSTU — tas nav
+taisnība un maldina lasītāju tikpat lielā mērā, cik marķējuma trūkums.
+`all` atgriež marķējumu uz visiem formātiem (plašākā interpretācija).
+
 | Kur | Kas |
 |---|---|
-| Uz grafikas | «MI · Veidots ar MI» zīmīte lentes kadros un karuseļa vākā |
-| Grafikas beigās | pilns teikums CTA kadrā / beigu kartītē |
+| Uz grafikas | «MI · Veidots ar MI» zīmīte ierunātas lentes kadros |
+| Grafikas beigās | pilns teikums lentes CTA kadrā |
 | Parakstā | atsevišķa pēdējā rinda; X — īsā forma (280 zīmes) |
 | Skaļi | pēc noklusējuma NĒ (`ai_disclosure_spoken: ""`) — izrunāta tā nāca kā liekais teikums aiz aicinājuma; parakstu ekrānlasītājs nolasa tāpat |
 

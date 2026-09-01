@@ -509,7 +509,8 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 media = cards.render_section_cards(
                     article.title, article.section, tag, sections, bgs,
                     question, cover_image=image, cover_title=cover_title,
-                    blur_image=blur, date_txt=article_date(article))
+                    blur_image=blur, date_txt=article_date(article),
+                    ai_note=disclosure.applies("card_carousel"))
                 return "card_carousel", media, {
                     "kind": "article_cards", "article": article.id,
                     "tag": tag, "sections": sections, "question": question,
@@ -714,12 +715,17 @@ def compose_text(post, platform: str, shown_link: str,
         and post.format in ("photo", "photo_album", "card_carousel", "reel")
         and rules.get("link_in_first_comment", True))
     in_caption = rules.get("link_in_caption", True) or not in_comment
-    # ES MI akta 50. panta atruna: parakstu, birkas un sadaļu tekstus raksta
-    # mākslīgais intelekts, tāpēc katrs ieraksts to pasaka. Ja AI teksts to
-    # jau ir pateicis pats, otrreiz nepieliekam.
-    note = disclosure.caption_line(platform, rules)
-    if note and disclosure.in_caption(post.copy or "", rules):
-        note = ""
+    # ES MI akta 50. panta atruna. Noklusēti tikai tur, kur tiešām ir
+    # mākslīgi ģenerēts medijs — lentē ar sintezēto balsi. Zem katra ieraksta
+    # tā lasījās kā apgalvojums, ka MI ir uzrakstījis RAKSTU, un tas nav
+    # taisnība: rakstu raksta žurnālists.
+    from app import reels as _reels
+
+    note = ""
+    if disclosure.applies(post.format, _reels.has_voice(post), rules):
+        note = disclosure.caption_line(platform, rules)
+        if note and disclosure.in_caption(post.copy or "", rules):
+            note = ""
     text = assemble_post_text(post.copy, post.hashtags or [],
                               shown_link if in_caption else "", platform,
                               disclosure=note)

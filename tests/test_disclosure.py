@@ -63,8 +63,13 @@ def test_it_is_not_repeated_when_the_copy_already_says_it():
     assert not disclosure.in_caption("Parasts paraksts par vētru", {})
 
 
-def test_published_captions_carry_the_disclosure(session):
-    """Cauri visam ceļam, ne tikai palīgfunkcijā."""
+def test_only_a_voiced_reel_carries_the_disclosure_in_its_caption(session):
+    """Cauri visam ceļam, ne tikai palīgfunkcijā.
+
+    Rakstu raksta žurnālists. Atruna zem KATRA ieraksta lasās kā apgalvojums,
+    ka MI ir uzrakstījis rakstu, tāpēc noklusēti tā parādās tikai tur, kur
+    tiešām ir mākslīgi ģenerēts medijs — lentē ar sintezēto balsi.
+    """
     from app.models import Article, Post
     from app.pipeline import compose_text
 
@@ -78,24 +83,51 @@ def test_published_captions_carry_the_disclosure(session):
     session.add(post)
     session.flush()
 
+    # foto ieraksts: attēls un teksts no žurnālista raksta -> bez atrunas
     text, _ = compose_text(post, "facebook_page", "https://tv3.lv/p/1")
-    assert disclosure.DEFAULT_TEXT in text
+    assert disclosure.DEFAULT_TEXT not in text
 
-    off, _ = compose_text(post, "facebook_page", "https://tv3.lv/p/1",
-                          rules={"ai_disclosure": False})
-    assert disclosure.DEFAULT_TEXT not in off
+    # lente ar sintezēto balsi -> atruna ir
+    post.format = "reel"
+    post.extra = {"recipe": {"voiced": True}}
+    session.flush()
+    voiced, _ = compose_text(post, "facebook_page", "https://tv3.lv/p/1")
+    assert disclosure.DEFAULT_TEXT in voiced
+
+    # klusa lente: nekas nav ģenerēts skaņā -> bez atrunas
+    post.extra = {"recipe": {"voiced": False}}
+    session.flush()
+    silent, _ = compose_text(post, "facebook_page", "https://tv3.lv/p/1")
+    assert disclosure.DEFAULT_TEXT not in silent
+
+    # plašākā interpretācija paliek pieejama redakcijai
+    from app import config
+
+    wide = dict(config.load_rules(), ai_disclosure_scope="all")
+    everywhere, _ = compose_text(post, "facebook_page", "https://tv3.lv/p/1",
+                                 rules=wide)
+    assert disclosure.DEFAULT_TEXT in everywhere
 
 
-def test_the_carousel_marks_itself_on_the_cover_and_in_full_at_the_end():
+def test_the_carousel_is_not_marked_unless_the_editor_widens_the_scope():
+    """Karuselī nav ne balss, ne ģenerēta attēla — teksts ir no žurnālista
+    raksta. Marķējums tur lasījās kā apgalvojums, ka MI ir uzrakstījis rakstu."""
     from app import cards
 
-    html = cards.build_section_cards_html(
-        "Virsraksts", "news", "#ZIŅAS",
-        [{"title": "A", "body": "Pirmais teksts par notikumu."},
-         {"title": "B", "body": "Otrais teksts par notikumu."}],
-        [], "Ko tālāk?")
-    assert disclosure.DEFAULT_SHORT in html      # zīmīte uz vāka
-    assert disclosure.DEFAULT_TEXT in html       # pilns teikums beigu kartītē
+    def build(**kw):
+        return cards.build_section_cards_html(
+            "Virsraksts", "news", "#ZIŅAS",
+            [{"title": "A", "body": "Pirmais teksts par notikumu."},
+             {"title": "B", "body": "Otrais teksts par notikumu."}],
+            [], "Ko tālāk?", **kw)
+
+    plain = build()
+    assert disclosure.DEFAULT_SHORT not in plain
+    assert disclosure.DEFAULT_TEXT not in plain
+
+    marked = build(ai_note=True)
+    assert disclosure.DEFAULT_SHORT in marked    # zīmīte uz vāka
+    assert disclosure.DEFAULT_TEXT in marked     # pilns teikums beigu kartītē
 
 
 def test_missing_rules_are_reported_instead_of_silently_defaulted(tmp_path,

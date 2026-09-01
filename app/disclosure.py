@@ -36,8 +36,36 @@ def _rules(rules: dict | None) -> dict:
     return rules or {}
 
 
+DEFAULT_SCOPE = "voiced_reels"
+
+
 def enabled(rules: dict | None = None) -> bool:
     return bool(_rules(rules).get("ai_disclosure", True))
+
+
+def scope(rules: dict | None = None) -> str:
+    return str(_rules(rules).get("ai_disclosure_scope") or DEFAULT_SCOPE).strip()
+
+
+def applies(fmt: str = "", voiced: bool = False,
+            rules: dict | None = None) -> bool:
+    """Vai ŠIM ierakstam liekams MI marķējums.
+
+    Noklusējums ir `voiced_reels`: tikai lentes ar sintezēto balsi. Iemesls
+    ir precizitāte, ne slinkums — rakstu ir uzrakstījis žurnālists, un
+    atruna zem katra ieraksta lasās kā apgalvojums, ka MI ir uzrakstījis
+    RAKSTU. Balss ir vienīgais, kas tiešām ir mākslīgi ģenerēts medijs
+    50. panta 2. punkta izpratnē; parakstu un kartīšu tekstus MI palīdz
+    formulēt no žurnālista raksta, un tos redakcija apstiprina.
+
+    `all` atgriež marķējumu uz visiem formātiem — tā tas bija sākotnēji, un
+    tā ir plašākā interpretācija. Izvēle ir redakcijas, ne tehniska.
+    """
+    if not enabled(rules):
+        return False
+    if scope(rules) == "all":
+        return True
+    return fmt == "reel" and bool(voiced)
 
 
 def text(rules: dict | None = None) -> str:

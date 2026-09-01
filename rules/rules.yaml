@@ -194,3 +194,10 @@ link_card_max_crop: 0.20
 # grīda vairs neaiztur, jo šāds saites ieraksts kvotu tik un tā nepilda — tas
 # tikai izskatās slikti un iemāca svariem, ka saites posti nestrādā.
 link_card_force_crop: 0.40
+
+# Kur MI marķējumu likt. voiced_reels (noklusējums) = tikai lentēs, kurās
+# tiešām skan sintezēta balss — tā ir vienīgā daļa, kas ir mākslīgi ģenerēts
+# medijs. Rakstu raksta žurnālists, un atruna zem katra ieraksta lasās kā
+# apgalvojums, ka MI ir uzrakstījis RAKSTU. all = marķējums uz visiem
+# formātiem (plašākā interpretācija; tā bija sākotnēji).
+ai_disclosure_scope: voiced_reels

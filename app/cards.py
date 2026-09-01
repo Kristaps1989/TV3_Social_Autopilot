@@ -171,7 +171,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
                      cover_blur: str = "",
                      point_dates: list[str] | None = None,
                      include_cover: bool = True, include_end: bool = True,
-                     label: str = "") -> str:
+                     label: str = "", ai_note: bool = False) -> str:
     """cover_title=False: the cover image is a pre-branded graphic that
     already carries the headline — show it full-bleed without our plate.
     point_bg: photo used as a dimmed background on the content cards so the
@@ -215,7 +215,13 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
                   '<div class="sad">SADARBĪBĀ AR</div>')
 
     def bar(page: int) -> str:
-        return f"""<div class="bar">{_logo(88)}
+        cells = "".join(f'<i class="{"on" if i <= page else ""}"></i>'
+                        for i in range(1, total + 1))
+        step = (f'<div class="step">{page}/{total}'
+                f'{"<b>&rsaquo;</b>" if page < total else ""}</div>')
+        return f"""<div class="bar">
+          <div class="prog">{cells}</div>
+          {_logo(88)}{step}
           <div class="lbl"><div class="sec"><span>/</span>{esc(style['label'])}</div>
           <div class="tag">{esc(tag)}</div></div></div>"""
 
@@ -245,7 +251,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         {date_chip(date_txt)}
         <div class="page">1/{total} →</div>
         {cover_txt}
-        {disclosure.badge_html()}
+        {disclosure.badge_html() if ai_note else ""}
       </div>{bar(1)}
     </div>""")
 
@@ -320,7 +326,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         <div class="cta" style="color:{color}">Lasi pilno rakstu →</div>
         <div class="url">tv3.lv</div>
         {f'<div class="ainote"><b>MI</b>{esc(disclosure.text())}</div>'
-         if disclosure.text() else ""}
+         if ai_note and disclosure.text() else ""}
       </div>
     </div>""")
 
@@ -416,14 +422,19 @@ def build_section_cards_html(title: str, section: str, tag: str,
                              sections: list[dict], images: list[str],
                              end_question: str, cover_image: str = "",
                              cover_title: bool = True, blur_image: str = "",
-                             date_txt: str = "") -> str:
+                             date_txt: str = "", ai_note: bool = False) -> str:
     """Karuselis, kur katra kartīte ir stāsta SADAĻA: trekns virsraksts un
     2-4 teikumi ar faktiem — nevis viens punkts lielā fontā.
 
     Paraugs ir tas, ko dara labākie ziņu konti: pilns foto fonā (katrai
-    kartītei savs, no raksta galerijas), pa vidu puscaurspīdīgs balts
-    panelis ar virsrakstu un tekstu, un sarkani ">>>" stūrī, kas aicina
-    švīkot tālāk. Vāks un CTA beigu kartīte paliek mūsu ierastajā stilā.
+    kartītei savs, no raksta galerijas) un pa vidu puscaurspīdīgs balts
+    panelis ar virsrakstu un tekstu. Vāks un CTA beigu kartīte paliek mūsu
+    ierastajā stilā.
+
+    Švīkošanas norāde ir baltajā apakšjoslā, nevis uz foto: sarkana nodaļu
+    josla joslas augšmalā un «N/M →» zīmīte pie logo. Uz attēla stāvējušās
+    ">>>" bultas gulās virsū virsrakstam un bija cita medija zīme; josla ir
+    tā pati, kas lentes kadros, tāpēc formāti izskatās kā viena franšīze.
 
     images: foto sadaļu kartītēm, tiek ciklēti pēc kārtas. Ja neviena tīra
     foto nav (tikai photopost grafika), blur_image kļūst par izpludinātu
@@ -443,7 +454,13 @@ def build_section_cards_html(title: str, section: str, tag: str,
     pool = [i for i in images if i]
 
     def bar(page: int) -> str:
-        return f"""<div class="bar">{_logo(88)}
+        cells = "".join(f'<i class="{"on" if i <= page else ""}"></i>'
+                        for i in range(1, total + 1))
+        step = (f'<div class="step">{page}/{total}'
+                f'{"<b>&rsaquo;</b>" if page < total else ""}</div>')
+        return f"""<div class="bar">
+          <div class="prog">{cells}</div>
+          {_logo(88)}{step}
           <div class="lbl"><div class="sec"><span>/</span>{esc(style['label'])}</div>
           <div class="tag">{esc(tag)}</div></div></div>"""
 
@@ -470,10 +487,8 @@ def build_section_cards_html(title: str, section: str, tag: str,
       <div class="art" style="{cover_bg}">
         {blur_layer}{shade}
         {date_chip(date_txt)}
-        <div class="page">1/{total}</div>
         {cover_txt}
-        <div class="chev">{_CHEVRONS}</div>
-        {disclosure.badge_html()}
+        {disclosure.badge_html() if ai_note else ""}
       </div>{bar(1)}
     </div>""")
 
@@ -500,12 +515,10 @@ def build_section_cards_html(title: str, section: str, tag: str,
       <div class="art" style="{art_style}">
         {blur_layer}<div class="veil"></div>
         {date_chip(date_txt)}
-        <div class="page">{pos}/{total}</div>
         <div class="panelwrap"><div class="panel">
           <h3 style="font-size:{fit_size(head, 52)}px">{esc(head)}</h3>
           <p style="font-size:{body_fit(body)}px">{esc(body)}</p>
         </div></div>
-        <div class="chev">{_CHEVRONS}</div>
       </div>{bar(pos)}
     </div>""")
 
@@ -518,7 +531,7 @@ def build_section_cards_html(title: str, section: str, tag: str,
         <div class="cta" style="color:{color}">Lasi pilno rakstu →</div>
         <div class="url">tv3.lv</div>
         {f'<div class="ainote"><b>MI</b>{esc(disclosure.text())}</div>'
-         if disclosure.text() else ""}
+         if ai_note and disclosure.text() else ""}
       </div>
     </div>""")
 
@@ -534,10 +547,8 @@ def build_section_cards_html(title: str, section: str, tag: str,
 .veil {{ position:absolute; inset:0; background:rgba(10,8,14,.28); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(10,5,15,.92) 18%, rgba(10,5,15,.1) 55%); }}
-.page {{ position:absolute; top:44px; left:48px; color:#fff; font-size:30px;
-         opacity:.9; font-weight:bold; text-shadow:0 2px 12px rgba(0,0,0,.5); }}
 .cover-txt {{ position:absolute; bottom:0; left:0; right:0;
-              padding:56px 190px 56px 56px; color:#fff; }}
+              padding:56px 64px 56px 56px; color:#fff; }}
 .kicker {{ display:inline-block; color:#fff; font-weight:bold; font-size:28px;
            letter-spacing:.12em; padding:10px 24px; border-radius:8px;
            margin-bottom:26px; }}
@@ -557,10 +568,20 @@ h1 {{ line-height:1.14; font-weight:bold; }}
 .panel h3 {{ color:#111; line-height:1.18; font-weight:bold;
              margin-bottom:30px; }}
 .panel p {{ color:#20242c; line-height:1.42; font-weight:600; }}
-.chev {{ position:absolute; bottom:40px; right:44px;
-         filter:drop-shadow(0 3px 10px rgba(0,0,0,.4)); }}
-.bar {{ height:140px; background:#fff; display:flex; align-items:center;
-        justify-content:space-between; padding:0 48px; flex:none; }}
+/* Švīkošanas norāde dzīvo baltajā joslā, ne uz foto: sarkanā nodaļu josla
+   pa visu platumu un «N/M ›» pie logo. Uz attēla stāvējušās ">>>" bultas
+   gulās virsū virsrakstam un bija skaidri cita medija zīme; šī josla ir tā
+   pati, kas lentes kadros, tāpēc formāti izskatās kā viena franšīze. */
+.bar {{ position:relative; height:140px; background:#fff; display:flex;
+        align-items:center; justify-content:space-between; padding:0 48px;
+        flex:none; }}
+.prog {{ position:absolute; top:0; left:0; right:0; height:10px;
+         display:flex; gap:4px; }}
+.prog i {{ flex:1; background:#e6e8ec; }}
+.prog i.on {{ background:#e3000f; }}
+.step {{ display:flex; align-items:center; gap:14px; color:#6b7280;
+         font-weight:800; font-size:32px; letter-spacing:.02em; }}
+.step b {{ color:#e3000f; font-size:52px; line-height:.8; }}
 .lbl {{ text-align:right; line-height:1.15; }}
 .sec {{ color:#111; font-weight:600; font-size:30px; }}
 .sec span {{ color:#f01414; font-weight:800; }}
@@ -914,7 +935,7 @@ def render_section_cards(title: str, section: str, tag: str,
                          sections: list[dict], images: list[str],
                          end_question: str, cover_image: str = "",
                          cover_title: bool = True, blur_image: str = "",
-                         date_txt: str = "",
+                         date_txt: str = "", ai_note: bool = False,
                          out_dir: Path | None = None) -> list[str]:
     """Sadaļu karuseļa kartītes kā PNG faili (vāks + sadaļas + CTA)."""
     out_dir = Path(out_dir or CARDS_DIR).resolve()
@@ -922,7 +943,7 @@ def render_section_cards(title: str, section: str, tag: str,
     html_doc = build_section_cards_html(
         title, section, tag, sections, images, end_question,
         cover_image=cover_image, cover_title=cover_title,
-        blur_image=blur_image, date_txt=date_txt)
+        blur_image=blur_image, date_txt=date_txt, ai_note=ai_note)
     return _screenshot_cards(html_doc, out_dir)
 
 

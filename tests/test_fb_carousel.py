@@ -172,7 +172,10 @@ def test_section_cards_html_structure():
         cover_image="https://cdn/cover.jpg", date_txt="31.08.2026")
     assert doc.count('<div class="card">') == 4        # vāks + 2 + CTA
     assert "Palikt mājās" in doc and "1201" in doc
-    assert doc.count("chev") >= 3                      # švīkošanas bultas
+    # Švīkošanas norāde ir baltajā joslā, ne uz foto: ">>>" bultas gulās
+    # virsū virsrakstam un bija skaidri cita medija zīme
+    assert "chev" not in doc
+    assert doc.count('class="prog"') == 3   # vāks + 2 sadaļas; CTA kartītē švīkot vairs nav kurp
     assert "1/4" in doc and "3/4" in doc
     # katrai sadaļai savs foto pēc kārtas
     assert "https://cdn/a.jpg" in doc and "https://cdn/b.jpg" in doc

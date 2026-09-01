@@ -253,7 +253,8 @@ def _progress_html(step: int, total: int) -> str:
 
 def _section_frame_html(section: str, number: int, title: str, body: str,
                         bg_image: str = "", blur_image: str = "",
-                        total: int = 0, rules: dict | None = None) -> str:
+                        total: int = 0, rules: dict | None = None,
+                        mark_ai: bool = False) -> str:
     """Sadaļas kadrs lentei: foto fonā, balts panelis, sarkana nodaļas rinda
     un teikumi zem tās.
 
@@ -308,7 +309,7 @@ def _section_frame_html(section: str, number: int, title: str, body: str,
              padding:22px 52px; border-radius:99px;
              box-shadow:0 8px 30px rgba(0,0,0,.35); }}
 .linkpill svg {{ vertical-align:-7px; margin-right:16px; }}
-{disclosure.badge_css(left=SAFE_INSET + 56, bottom=170, size=28)}
+{disclosure.badge_css(left=SAFE_INSET + 56, bottom=170, size=28) if mark_ai else ""}
 </style></head><body>
 <div class="story">
   {blur_layer}
@@ -320,12 +321,13 @@ def _section_frame_html(section: str, number: int, title: str, body: str,
     <p>{_html.escape(body)}</p>
   </div></div>
   <div class="linkpill">{cards._LINK_ICON}tv3.lv</div>
-  {disclosure.badge_html(rules)}
+  {disclosure.badge_html(rules) if mark_ai else ""}
 </div>
 </body></html>"""
 
 
-def _end_frame_html(rules: dict | None = None) -> str:
+def _end_frame_html(rules: dict | None = None,
+                    mark_ai: bool = False) -> str:
     """Noslēguma kadrs: CTA uz portālu un ES MI akta atruna pilnā tekstā.
 
     Marķējumam jābūt skaidram un pamanāmam (Regula 2024/1689, 50. pants).
@@ -334,7 +336,7 @@ def _end_frame_html(rules: dict | None = None) -> str:
     """
     from app import disclosure
 
-    note = disclosure.text(rules)
+    note = disclosure.text(rules) if mark_ai else ""
     note_html = (f'<div class="note"><b>MI</b><span>{note}</span></div>'
                  if note else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
@@ -701,7 +703,8 @@ def _trim_beats(beats: list[dict], budget: float = VOICE_MAX_SECONDS) -> int:
 
 def _beat_html(beat: dict, step: int, total: int, section: str,
                title: str, image_url: str, blur_image: str,
-               cover_images: list[str] | None, rules: dict | None) -> str:
+               cover_images: list[str] | None, rules: dict | None,
+               mark_ai: bool = False) -> str:
     """Viena kadra HTML. step/total ir pozīcija VISĀ lentē, ne tikai starp
     nodaļām: skatītājs skaita kadrus, kurus redz, nevis tos, kurus mēs
     saucam par saturu — «1 no 3» otrajā kadrā no pieciem ir maldinoši."""
@@ -711,17 +714,17 @@ def _beat_html(beat: dict, step: int, total: int, section: str,
             return cards.build_mosaic_story_html(title, section, cover_images)
         return cards.build_story_html(title, section, image_url,
                                       inset=SAFE_INSET, blur_image=blur_image,
-                                      ai_badge=True)
+                                      ai_badge=mark_ai)
     if kind == "section":
         sec = beat["sec"]
         return _section_frame_html(section, step, sec.get("title", ""),
                                    sec.get("body", ""), bg_image=beat["bg"],
                                    blur_image=blur_image, total=total,
-                                   rules=rules)
+                                   rules=rules, mark_ai=mark_ai)
     if kind == "point":
         return _point_frame_html(section, step, beat["point"],
                                  bg_image=beat["bg"])
-    return _end_frame_html(rules)
+    return _end_frame_html(rules, mark_ai)
 
 
 def build_reel(title: str, section: str, image_url: str, points: list[str],
@@ -785,9 +788,18 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                      dropped, VOICE_MAX_SECONDS)
         voices = [b.get("voice", "") for b in beats]
 
+    # MI marķējums tikai tad, kad lentē TIEŠĀM ir sintezēta balss: tā ir
+    # vienīgā daļa, kas ir mākslīgi ģenerēts medijs. Klusa lente ir foto un
+    # teksts no žurnālista raksta, un zīmīte tur lasās kā apgalvojums, ka MI
+    # ir uzrakstījis rakstu.
+    from app import disclosure
+
+    voiced = bool(voice or any(voices))
+    mark_ai = disclosure.applies("reel", voiced, rules)
+
     total_frames = len(beats)
     docs = [_beat_html(b, i + 1, total_frames, section, title, image_url,
-                       blur_image, cover_images, rules)
+                       blur_image, cover_images, rules, mark_ai)
             for i, b in enumerate(beats)]
     durations = [b["duration"] for b in beats]
 
@@ -798,10 +810,9 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
         total = _assemble(frames, workdir, out, durations=durations,
                           voice=voice, voices=voices or None)
     if report is not None:
-        report.update({"voiced": bool(voice or any(voices)),
+        report.update({"voiced": voiced,
                        "frames": total_frames, "seconds": round(total, 2),
                        "narration": [b["text"] for b in beats if b["text"]]})
     log.info("reel built: %s (%d frames, %.0fs total%s)",
-             out.name, total_frames, total,
-             ", ar ierunu" if (voice or any(voices)) else "")
+             out.name, total_frames, total, ", ar ierunu" if voiced else "")
     return str(out)
