@@ -283,7 +283,9 @@ def unbranded_image(article, idx: int = 0) -> str:
     for img in article.images or []:
         if img and not prebranded(img):
             return img
-    return ""
+    # Plūsmā bieži ir TIKAI photopost grafika, bet lapas metadatos
+    # (dr:say:img / twitter:image) mēdz būt īstais foto — sk. pagemeta
+    return pagemeta.clean_image(article)
 
 
 def prebranded(image_url: str) -> bool:
@@ -459,6 +461,11 @@ def section_backgrounds(article) -> tuple[list[str], str]:
     nekā cita nav.
     """
     clean = [img for img in (article.images or []) if img and not prebranded(img)]
+    if not clean:
+        # plūsmā tīra foto nav — pamēģinām lapas metadatus
+        from_meta = pagemeta.clean_image(article)
+        if from_meta:
+            clean = [from_meta]
     blur = next((img for img in (article.images or [])
                  if img and prebranded(img)), "")
     return clean, ("" if clean else blur)

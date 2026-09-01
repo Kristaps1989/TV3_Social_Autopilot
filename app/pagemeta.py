@@ -135,20 +135,98 @@ def _split(value: str) -> list[str]:
     return [p.strip() for p in _SPLIT_RE.split(value or "") if p.strip()]
 
 
+def _meta_values(html: str, key: str) -> list[str]:
+    """Visas <meta> vērtības ar šo name/property (tukšs saraksts, ja nav).
+
+    Vairākas vērtības nav retums: article:tag un article:section tv3.lv
+    lapā katrs atkārtojas vairākas reizes, un tieši tur ir redakcijas
+    atslēgvārdi un sadaļu koks.
+    """
+    pattern = (r'<meta[^>]+(?:name|property)=["\']' + re.escape(key)
+               + r'["\'][^>]+content=["\']([^"\']*)["\']')
+    return [m.group(1).strip() for m in re.finditer(pattern, html, re.I)
+            if m.group(1).strip()]
+
+
+def _meta_one(html: str, *keys: str) -> str:
+    for key in keys:
+        values = _meta_values(html, key)
+        if values:
+            return values[0]
+    return ""
+
+
 def _meta_fallbacks(html: str) -> dict:
-    """Autors un Post ID no parastā HTML, kad dataLayer nav atrodams."""
-    found: dict[str, str] = {}
-    for pattern, field in (
-        (r'<meta[^>]+property=["\']article:author["\'][^>]+content=["\']([^"\']+)', "author"),
-        (r'<meta[^>]+name=["\']author["\'][^>]+content=["\']([^"\']+)', "author"),
-        (r'<link[^>]+rel=["\']shortlink["\'][^>]+href=["\'][^"\']*[?/]p[=/](\d+)', "post_id"),
-        (r'<meta[^>]+property=["\']article:published_time["\'][^>]+content=["\']([^"\']+)',
-         "publish_date"),
-    ):
-        m = re.search(pattern, html, re.I)
-        if m and field not in found:
-            found[field] = m.group(1).strip()
+    """Metadati no parastajiem <meta> tagiem.
+
+    tv3.lv lapā tie ir bagātāki par dataLayer un noturīgāki: standarta
+    og:/article: tagi plus cXense lauki, ko portāls izmanto pats savai
+    analītikai. Kad dataLayer mainīsies, šie, visticamāk, paliks.
+    """
+    found: dict[str, object] = {}
+
+    author = _meta_one(html, "article:author", "author")
+    if author:
+        found["author"] = author
+
+    # Post ID: cXense lauks ir tiešāks par shortlink minēšanu
+    post_id = _meta_one(html, "cXenseParse:zfv-articleId")
+    if not post_id:
+        m = re.search(r'<link[^>]+rel=["\']shortlink["\'][^>]+href='
+                      r'["\'][^"\']*[?/]p[=/](\d+)', html, re.I)
+        post_id = m.group(1) if m else ""
+    if post_id:
+        found["post_id"] = post_id
+
+    published = _meta_one(html, "article:published_time")
+    if published:
+        found["publish_date"] = published
+
+    # Redakcijas atslēgvārdi: article:tag atkārtojas, cXense tos dod ar komatu
+    tags = _meta_values(html, "article:tag")
+    if not tags:
+        tags = _split_list(_meta_one(html, "cXenseParse:zfv-articleTags"))
+    if tags:
+        found["tags"] = tags
+
+    cats = _meta_values(html, "article:section")
+    if not cats:
+        cats = [c for c in (_meta_one(html, "cXenseParse:zfv-articleCategory0"),
+                            _meta_one(html, "cXenseParse:zfv-articleCategory1"))
+                if c]
+    if cats:
+        found["categories"] = cats
+
+    display = _meta_one(html, "cXenseParse:zfv-articleDisplayCategory")
+    if display:
+        found["display_category"] = display
+
+    lead = _meta_one(html, "og:description", "twitter:description")
+    if lead:
+        found["lead"] = lead
+
+    # Attēls BEZ iecepta virsraksta: og:image tv3.lv ir photopost grafika,
+    # bet dr:say:img / twitter:image mēdz būt īstais foto
+    for key in ("dr:say:img", "twitter:image", "og:image"):
+        for value in _meta_values(html, key):
+            if value.startswith("http") and "photopost" not in value:
+                found["clean_image"] = value
+                break
+        if found.get("clean_image"):
+            break
+
+    # Vai raksts ir izcelts sākumlapā un kurā pozīcijā — redakcijas pašas
+    # dotais svarīguma signāls, ko feed nenes
+    if _meta_one(html, "cXenseParse:zfv-featuredFrontPage").lower() == "true":
+        found["front_page"] = True
+        pos = _meta_one(html, "cXenseParse:zfv-featuredFrontPagePosition")
+        if pos.isdigit():
+            found["front_page_position"] = int(pos)
     return found
+
+
+def _split_list(value: str) -> list[str]:
+    return [p.strip() for p in re.split(r"[;,|]", value or "") if p.strip()]
 
 
 def parse(html: str) -> dict:
@@ -178,8 +256,8 @@ def parse(html: str) -> dict:
     meta = {
         "post_id": post_id,
         "author": _pick(data, _KEYS["author"]) or fallbacks.get("author", ""),
-        "tags": _split(_pick(data, _KEYS["tags"])),
-        "categories": categories,
+        "tags": _split(_pick(data, _KEYS["tags"])) or fallbacks.get("tags", []),
+        "categories": categories or fallbacks.get("categories", []),
         "post_types": [t.lower() for t in _split(_pick(data, _KEYS["post_type"]))],
         "label": _pick(data, _KEYS["label"]),
         "content_chars": int(chars) if chars.isdigit() else 0,
@@ -187,6 +265,14 @@ def parse(html: str) -> dict:
                          or fallbacks.get("publish_date", "")),
         "page_type": _pick(data, _KEYS["page_type"]),
         "source": _pick(data, _KEYS["source"]),
+        # sadaļa, kurā raksts portālā tiešām rādās (feed marķējums mēdz kļūdīties)
+        "display_category": fallbacks.get("display_category", ""),
+        # raksta foto BEZ iecepta virsraksta — vākiem, kas zīmē savu
+        "clean_image": fallbacks.get("clean_image", ""),
+        # redakcijas svarīguma signāls: izcelts sākumlapā un kurā pozīcijā
+        "front_page": bool(fallbacks.get("front_page")),
+        "front_page_position": fallbacks.get("front_page_position"),
+        "lead": fallbacks.get("lead", ""),
         # raksta pirmās rindkopas — darba materiāls AI punktiem un ierunai
         "body": body_text(html or ""),
     }
@@ -203,10 +289,20 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _SCRIPT_RE = re.compile(r"<(script|style|noscript|figure|figcaption|aside|form)"
                         r"\b.*?</\1>", re.I | re.S)
 _P_RE = re.compile(r"<p\b[^>]*>(.*?)</p>", re.I | re.S)
+# tv3.lv raksta teksts dzīvo <section class="tv3-single-content">. Bez tā
+# atkāpšanās uz "visi lapas <p>" ievelk arī sānjoslu ("Tevi varētu
+# interesēt") — un tad AI kartītēs raksta par pavisam citu rakstu.
 _CONTENT_RE = re.compile(
-    r"<(article|div)\b[^>]*(?:class|id)=[\"'][^\"']*"
-    r"(article-(?:body|content)|entry-content|post-content|content-body)"
+    r"<(article|section|div)\b[^>]*(?:class|id)=[\"'][^\"']*"
+    r"(single-content|article-(?:body|content)|entry-content|post-content"
+    r"|content-body)"
     r"[^\"']*[\"'][^>]*>(?P<body>.*?)</\1>", re.I | re.S)
+
+# Ievads ir ĀRPUS satura konteinera (<p class="lead">), bet tas ir raksta
+# kopsavilkums — bez tā sadaļas sākas no vidus.
+_LEAD_RE = re.compile(
+    r"<p\b[^>]*class=[\"'][^\"']*\blead\b[^\"']*[\"'][^>]*>(.*?)</p>",
+    re.I | re.S)
 
 # Rindkopas, kas nav raksts: saistītie, foto paraksti, aicinājumi, sīkdatnes.
 _JUNK_STARTS = (
@@ -248,7 +344,16 @@ def paragraphs(html: str) -> list[str]:
     match = _CONTENT_RE.search(cleaned)
     scope = match.group("body") if match else cleaned
     found = [_clean_paragraph(m) for m in _P_RE.findall(scope)]
-    return [p for p in found if not _is_junk(p)]
+    out = [p for p in found if not _is_junk(p)]
+
+    lead_m = _LEAD_RE.search(cleaned)
+    if lead_m:
+        lead = _clean_paragraph(lead_m.group(1))
+        # ievads ir ārpus konteinera; pieliekam priekšā, ja tas tur jau nav
+        if lead and not _is_junk(lead) and not any(
+                lead[:60] in p for p in out):
+            out.insert(0, lead)
+    return out
 
 
 def _json_ld_body(html: str) -> str:
@@ -407,6 +512,23 @@ def article_body(article) -> str:
     return str(meta(article).get("body") or "")
 
 
+def clean_image(article) -> str:
+    """Raksta foto bez iecepta virsraksta no lapas metadatiem ('' ja nav).
+
+    tv3.lv og:image parasti ir photopost grafika ar virsrakstu; dr:say:img
+    un twitter:image mēdz rādīt uz īsto foto. Vākiem, kas zīmē savu
+    virsrakstu, der tikai pēdējais.
+    """
+    return str(meta(article).get("clean_image") or "")
+
+
+def front_page(article) -> tuple[bool, int | None]:
+    """(vai izcelts sākumlapā, pozīcija) — redakcijas svarīguma signāls."""
+    data = meta(article)
+    pos = data.get("front_page_position")
+    return bool(data.get("front_page")), (pos if isinstance(pos, int) else None)
+
+
 def has_body(article) -> bool:
     return bool(article_body(article))
 
@@ -503,6 +625,14 @@ def prompt_lines(article) -> str:
         kind = "gars lasāmgabals" if chars >= 6000 else (
             "vidēja garuma raksts" if chars >= 2500 else "īsziņa")
         lines.append(f"Apjoms: {chars} zīmes ({kind})")
+    if data.get("display_category"):
+        lines.append(f"Portālā rādās sadaļā: {data['display_category']}")
+    if data.get("front_page"):
+        pos = data.get("front_page_position")
+        where = ("kā GALVENAIS stāsts" if pos == 0
+                 else f"pozīcijā {pos}" if isinstance(pos, int) else "")
+        lines.append(f"Redakcija rakstu izcēlusi sākumlapā {where}".strip()
+                     + " — tas ir redakcijas pašas svarīguma vērtējums")
     if is_exclusive(article):
         lines.append(f"Zīmols: {data.get('label')} — ekskluzīvs saturs, "
                      "to ir vērts izcelt")

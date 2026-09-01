@@ -316,3 +316,77 @@ def test_prompt_carries_the_article_body(session, monkeypatch):
     assert "Raksta teksts (sākums):" in prompt
     assert "daudzdzīvokļu namam tika nodarīti smagi bojājumi" in prompt
     assert "voice_script" in prompt   # reelam ir ko ierunāt
+
+
+# --- īstā tv3.lv lapas struktūra -------------------------------------------
+
+REAL = (FIXTURES / "article_page_real.html").read_text(encoding="utf-8")
+
+
+def test_body_comes_from_the_article_container_only():
+    """<section class="tv3-single-content"> ir raksta teksts. Bez tā
+    atkāpšanās uz visiem lapas <p> ievelka sānjoslu, un AI kartītēs būtu
+    rakstījusi par pavisam citu rakstu."""
+    paras = pagemeta.paragraphs(REAL)
+    assert any("Plkst. 3.11 Igaunijas" in p for p in paras)
+    assert any("Uku Arolds" in p for p in paras)
+    # sānjosla «Tevi varētu interesēt» un izvēlne paliek ārā
+    assert not any("pavisam citu tēmu" in p for p in paras)
+    assert not any(p.strip() in ("ZIŅAS", "SPORTS") for p in paras)
+    assert not any("Visas tiesības" in p for p in paras)
+    assert not any("ALEKSANDR GUSEV" in p for p in paras)
+
+
+def test_lead_is_kept_even_though_it_sits_outside_the_container():
+    paras = pagemeta.paragraphs(REAL)
+    assert paras[0].startswith("Droni, kas otrdienas rītā")
+
+
+def test_editorial_tags_and_sections_from_meta_tags():
+    m = pagemeta.parse(REAL)
+    assert m["tags"] == ["Droni", "Gaisa apdraudējums", "Igaunija"]
+    assert m["categories"] == ["Ziņas", "Ārvalstīs", "Latvijā"]
+    assert m["display_category"] == "Ārvalstīs"
+    assert m["post_id"] == "3883754"
+    assert m["author"] == "LETA"
+
+
+def test_meta_tags_work_without_any_datalayer():
+    """dataLayer var mainīties; og:/article:/cXense tagi ir noturīgāki."""
+    html = REAL.split("<script>")[0] + "</head><body></body></html>"
+    m = pagemeta.parse(html)
+    assert m["post_id"] == "3883754"
+    assert m["tags"] == ["Droni", "Gaisa apdraudējums", "Igaunija"]
+    assert m["categories"] == ["Ziņas", "Ārvalstīs", "Latvijā"]
+    assert m["front_page"] is True
+
+
+def test_clean_image_skips_the_photopost_graphic():
+    """og:image ir photopost ar iecepto virsrakstu; dr:say:img ir īstais foto."""
+    m = pagemeta.parse(REAL)
+    assert "photopost" not in m["clean_image"]
+    assert m["clean_image"].endswith("a6cc-69cac5f108e1e-scaled.jpg")
+
+
+def test_front_page_position_is_read(session, monkeypatch):
+    article = make_article(session, guid="fp-1")
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: REAL)
+    pagemeta.enrich(article)
+    assert pagemeta.front_page(article) == (True, 0)
+    lines = pagemeta.prompt_lines(article)
+    assert "GALVENAIS stāsts" in lines
+    assert "Portālā rādās sadaļā: Ārvalstīs" in lines
+
+
+def test_cover_falls_back_to_the_pages_clean_image(session, monkeypatch):
+    """Plūsmā tikai photopost — vāks tomēr dabū īsto foto no lapas."""
+    from app import pipeline
+
+    article = make_article(session, guid="ci-1")
+    article.images = ["https://tv3cdn.lv/photopost/3883754/3788760.jpg"]
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: REAL)
+    pagemeta.enrich(article)
+
+    assert "photopost" not in pipeline.unbranded_image(article)
+    clean, blur = pipeline.section_backgrounds(article)
+    assert clean and "photopost" not in clean[0]

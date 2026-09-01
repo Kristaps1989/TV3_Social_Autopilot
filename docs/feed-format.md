@@ -252,3 +252,37 @@ praktisko daļu (kur zvanīt, ko darīt), ja rakstā tāda ir.
   zīmējas pa vecam.
 - **Rokas vadība**: /why «Uztaisīt formātu ar roku» tagad prasa AI sadaļas
   (Virsraksts | Teksts pa rindai), ne punktus.
+
+## Ko vēl dod raksta lapa (pārbaudīts pret īstu tv3.lv rakstu)
+
+Raksta DOM apskate atklāja, ka lapā ir daudz vairāk, nekā ņēmām — un vienu
+īstu kļūdu.
+
+**Kļūda:** raksta teksts tv3.lv dzīvo `<section class="tv3-single-content">`.
+Mūsu konteinera regex to nepazina (meklēja tikai `article-content` u.tml. un
+tikai `<div>`/`<article>`), tāpēc krita atpakaļ uz "visi lapas `<p>`" — un
+tas ievilka sānjoslu **"Tevi varētu interesēt"**. AI kartītēs tad varēja
+nonākt fakti no PAVISAM CITA raksta. Tagad konteiners tiek atrasts, un
+ievads (`<p class="lead">`, kas ir ārpus konteinera) tiek pielikts priekšā.
+
+**Jaunie metadati** (`<meta>` tagi ir noturīgāki par dataLayer — ja tas
+mainīsies, šie, visticamāk, paliks):
+
+| Tags | Kas tas ir | Kur aiziet |
+| --- | --- | --- |
+| `article:tag` (vairāki) | redakcijas atslēgvārdi | hashtagi, AI konteksts |
+| `article:section` (vairāki) | sadaļu koks | AI konteksts |
+| `cXenseParse:zfv-articleId` | Post ID | īsā saite `tv3.lv/p/<id>` |
+| `cXenseParse:zfv-articleDisplayCategory` | kur raksts portālā tiešām rādās | AI promptā |
+| `dr:say:img` / `twitter:image` | raksta foto **bez** iecepta virsraksta | vāki un sadaļu kartītes |
+| `cXenseParse:zfv-featuredFrontPage(+Position)` | vai izcelts sākumlapā un kurā vietā | AI promptā kā redakcijas svarīguma signāls |
+| `og:description` | ievads | rezerve, kad plūsmā ievada nav |
+
+`clean_image` ir īpaši vērtīgs: plūsmā bieži ir TIKAI photopost grafika ar
+iecepto virsrakstu, un vāks, kas zīmē savu virsrakstu, tad palika bez foto.
+Tagad `unbranded_image()` un `section_backgrounds()` pirms padošanās
+pameklē lapas metadatos.
+
+`featuredFrontPage` ir redakcijas pašas vērtējums — pozīcija 0 nozīmē
+galveno stāstu. Tas aiziet AI promptā kā konteksts, nevis kā automātisks
+reitinga pacēlums: lēmumu joprojām pieņem modelis kopā ar pārējo.
