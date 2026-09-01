@@ -607,7 +607,7 @@ h2 {{ font-size:56px; line-height:1.28; margin-bottom:64px; max-width:860px; }}
 
 
 def build_share_html(title: str, section: str, image_url: str,
-                     kicker: str = "", width: int = 1080,
+                     kicker: str = "", blur_image: str = "", width: int = 1080,
                      height: int = 1080, date_txt: str = "") -> str:
     """Single branded share image: article photo full-bleed with the tv3.lv
     title plate — white box, bold headline, red accent bar — matching the
@@ -616,12 +616,21 @@ def build_share_html(title: str, section: str, image_url: str,
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     esc = html.escape
-    bg = (f'background:url({html.escape(image_url, quote=True)}) center/cover, {color};'
-          if image_url else f"background:{color};")
+    blur_layer = ""
+    if image_url:
+        bg = (f'background:url({html.escape(image_url, quote=True)}) '
+              f'center/cover, {color};')
+    else:
+        bg = f"background:{color};"
+        if blur_image:
+            blur_layer = (f'<div class="blurbg" style="background-image:'
+                          f'url({html.escape(blur_image, quote=True)})"></div>')
     kicker_html = (f'<div class="kick">{esc(kicker)}</div>' if kicker else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .share {{ width:{width}px; height:{height}px; position:relative; overflow:hidden; {bg} }}
+.blurbg {{ position:absolute; inset:-60px; background-size:cover;
+  background-position:center; filter:blur(30px) brightness(.78) saturate(1.15); }}
 .plate {{ position:absolute; left:0; bottom:96px; max-width:900px;
           background:#fff; padding:44px 56px 44px 48px;
           border-right:18px solid #e3000f;
@@ -635,6 +644,7 @@ def build_share_html(title: str, section: str, image_url: str,
 {DCHIP_CSS}
 </style></head><body>
 <div class="share">
+  {blur_layer}
   {date_chip(date_txt)}
   <div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>
   <div class="brand">{_logo(44)}</div>
@@ -645,15 +655,18 @@ def build_share_html(title: str, section: str, image_url: str,
 def render_share_image(title: str, section: str, image_url: str,
                        kicker: str = "", out_dir: Path | None = None,
                        width: int = 1080, height: int = 1080,
-                       date_txt: str = "") -> str:
+                       date_txt: str = "", blur_image: str = "") -> str:
     from playwright.sync_api import sync_playwright
 
     out_dir = Path(out_dir or CARDS_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     token = secrets.token_hex(6)
     tmp = out_dir / f"_s{token}.html"
-    tmp.write_text(build_share_html(title, section, image_url, kicker,
-                                    width, height, date_txt=date_txt),
+    # ar atslēgvārdiem: blur_image ielikšana starp kicker un width pozicionālā
+    # izsaukumā klusi pārvērstu platumu par attēla adresi
+    tmp.write_text(build_share_html(title, section, image_url, kicker=kicker,
+                                    blur_image=blur_image, width=width,
+                                    height=height, date_txt=date_txt),
                    encoding="utf-8")
     chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
     try:
@@ -949,17 +962,31 @@ def render_section_cards(title: str, section: str, tag: str,
 
 def build_number_html(number: str, context: str, section: str,
                       image_url: str = "", date_txt: str = "",
-                      width: int = 1080, height: int = 1350) -> str:
+                      width: int = 1080, height: int = 1350,
+                      blur_image: str = "") -> str:
     """«Nedēļas skaitlis»: viens liels skaitlis un viena konteksta rinda uz
     aptumšota raksta foto. Pusdienlaika formāts — apstādina ritināšanu bez
-    lasīšanas, pilnais stāsts paliek rakstā."""
+    lasīšanas, pilnais stāsts paliek rakstā.
+
+    blur_image: ko likt fonā, kad tīra foto NAV. Photopost grafika ar iecepto
+    virsrakstu zem mūsu teksta neder, bet izpludināta tā ir laba faktūra —
+    daudziem tv3.lv rakstiem cita attēla vienkārši nav, un plakana krāsas
+    karte plūsmā zaudē. Pārējie formāti šo rezervi izmanto jau sen; šis bija
+    palicis bez tās, tāpēc iznāca kartes bez neviena attēla.
+    """
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     esc = html.escape
-    bg = (f'background:url({html.escape(image_url, quote=True)}) center/cover, {color};'
-          if image_url else
-          f"background:linear-gradient(160deg,{_shade(color, .06)},"
-          f"{_shade(color, -.16)});")
+    blur_layer = ""
+    if image_url:
+        bg = (f'background:url({html.escape(image_url, quote=True)}) '
+              f'center/cover, {color};')
+    else:
+        bg = (f"background:linear-gradient(160deg,{_shade(color, .06)},"
+              f"{_shade(color, -.16)});")
+        if blur_image:
+            blur_layer = (f'<div class="blurbg" style="background-image:'
+                          f'url({html.escape(blur_image, quote=True)})"></div>')
     # garš skaitlis («1 240 000») nedrīkst izplūst ārpus kartes
     n = len(number)
     size = 300 if n <= 3 else (230 if n <= 5 else (170 if n <= 8 else 120))
@@ -967,6 +994,8 @@ def build_number_html(number: str, context: str, section: str,
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .numcard {{ width:{width}px; height:{height}px; position:relative;
   overflow:hidden; {bg} }}
+.blurbg {{ position:absolute; inset:-60px; background-size:cover;
+  background-position:center; filter:blur(30px) brightness(.78) saturate(1.15); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(8,4,12,.92) 30%, rgba(8,4,12,.55) 100%); }}
 .kick {{ position:absolute; left:64px; top:150px; background:#e3000f; color:#fff;
@@ -983,7 +1012,7 @@ def build_number_html(number: str, context: str, section: str,
 {DCHIP_CSS}
 </style></head><body>
 <div class="numcard">
-  <div class="shade"></div>
+  {blur_layer}<div class="shade"></div>
   {date_chip(date_txt)}
   <div class="kick">NEDĒĻAS SKAITLIS</div>
   <div class="num">{esc(number)}</div>
@@ -996,7 +1025,8 @@ def build_number_html(number: str, context: str, section: str,
 
 def render_number_card(number: str, context: str, section: str,
                        image_url: str = "", date_txt: str = "",
-                       out_dir: Path | None = None) -> str:
+                       out_dir: Path | None = None,
+                       blur_image: str = "") -> str:
     from playwright.sync_api import sync_playwright
 
     out_dir = Path(out_dir or CARDS_DIR).resolve()
@@ -1004,7 +1034,8 @@ def render_number_card(number: str, context: str, section: str,
     token = secrets.token_hex(6)
     tmp = out_dir / f"_n{token}.html"
     tmp.write_text(build_number_html(number, context, section, image_url,
-                                     date_txt=date_txt), encoding="utf-8")
+                                     date_txt=date_txt, blur_image=blur_image),
+                   encoding="utf-8")
     chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
     try:
         with sync_playwright() as pw:

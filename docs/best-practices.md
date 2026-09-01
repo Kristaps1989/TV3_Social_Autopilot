@@ -61,7 +61,7 @@ this tool's job.
 | Skatītājs redz, cik tālu stāsts | josla kadra augšā skaita VISUS kadrus, ne tikai nodaļas |
 | Vāks runā tikai virsrakstu | atsevišķs āķis atkārtoja to pašu, ko pirmā nodaļa |
 | Skaitļi izrunāti latviski | `lvnum`: «59. minūtē» → «piecdesmit devītajā minūtē» |
-| Kadrs nekad nav plakans krāsas laukums | foto → izpludināta photopost grafika → gradients (`_bg_layers`) |
+| Kadrs nekad nav plakans krāsas laukums | foto → izpludināta photopost grafika → gradients. Tas attiecas uz VISIEM pilnekrāna formātiem: vāki, sadaļu kartītes, lentes kadri, «Nedēļas skaitlis», jautājuma karte |
 | Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
 
 ### Kāpēc kadru HTML top pēc apgriešanas

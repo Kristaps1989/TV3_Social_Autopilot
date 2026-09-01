@@ -705,7 +705,8 @@ def build_question(session, day) -> Post | None:
         media = [cards.render_share_image(
             question, art.section or "news", _clean_image(art),
             kicker="JAUTĀJUMS", width=1080, height=1350,
-            date_txt=day.strftime("%d.%m.%Y"))]
+            date_txt=day.strftime("%d.%m.%Y"),
+            blur_image=_any_image(art))]
     except Exception as e:  # noqa: BLE001
         log.warning("question render failed: %s", e)
         return None
@@ -783,7 +784,10 @@ def build_number(session, day) -> Post | None:
         try:
             media = [cards.render_number_card(
                 number, context, art.section or "news", _clean_image(art),
-                date_txt=day.strftime("%d.%m.%Y"))]
+                date_txt=day.strftime("%d.%m.%Y"),
+                # tīra foto nav -> photopost grafika kā izpludināta faktūra;
+                # plakana krāsas karte plūsmā zaudē
+                blur_image=_any_image(art))]
         except Exception as e:  # noqa: BLE001
             log.warning("number card render failed: %s", e)
             return None

@@ -421,3 +421,42 @@ def test_redrawing_a_reel_uses_the_same_per_frame_narration(session, monkeypatch
     # un photopost grafika kļūst par izpludinātu fonu, nevis pazūd
     assert seen["blur_image"] == "https://cdn/photopost-x.jpg"
     assert (post.extra or {})["recipe"]["voiced"] is True
+
+
+# --- neviens formāts nedrīkst iznākt kā plakans krāsas laukums --------------
+
+def test_every_full_bleed_card_falls_back_to_a_blurred_graphic():
+    """Daudziem tv3.lv rakstiem cita attēla par photopost grafiku nav. Zem
+    mūsu teksta tā neder (teksts uz teksta), bet izpludināta der — plakana
+    krāsas karte plūsmā zaudē. «Nedēļas skaitlis» un jautājuma karte bija
+    palikušas bez šīs rezerves, tāpēc iznāca kartes bez neviena attēla."""
+    from app import cards
+
+    graphic = "https://cdn/photopost-x.jpg"
+
+    number = cards.build_number_html("3 uzvaras", "Barselona izcīnīja trešo.",
+                                     "sport", "", blur_image=graphic)
+    assert "blurbg" in number and graphic in number
+
+    share = cards.build_share_html("Ko tu domā?", "news", "",
+                                   kicker="JAUTĀJUMS", blur_image=graphic)
+    assert "blurbg" in share and graphic in share
+
+    # īsts foto joprojām uzvar pār izpludināto rezervi
+    real = cards.build_number_html("3 uzvaras", "Konteksts.", "sport",
+                                   "https://cdn/foto.jpg", blur_image=graphic)
+    assert "https://cdn/foto.jpg" in real and "photopost" not in real
+
+
+def test_the_share_renderer_does_not_shift_its_positional_arguments():
+    """blur_image ielikšana starp kicker un width pozicionālā izsaukumā klusi
+    pārvērstu platumu par attēla adresi."""
+    import inspect
+
+    from app import cards
+
+    src = inspect.getsource(cards.render_share_image)
+    assert "width=width" in src and "height=height" in src
+    doc = cards.build_share_html("T", "news", "https://cdn/f.jpg",
+                                 kicker="K", width=1080, height=1350)
+    assert "width:1080px" in doc and "height:1350px" in doc

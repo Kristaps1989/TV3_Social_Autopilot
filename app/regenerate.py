@@ -171,12 +171,14 @@ def regenerate(session, post) -> tuple[bool, str]:
             media = [cards.render_number_card(
                 recipe.get("number", ""), recipe.get("context", ""),
                 (art.section if art else section) or section,
-                _clean_image(art) if art else "", date_txt=date_txt)]
+                _clean_image(art) if art else "", date_txt=date_txt,
+                blur_image=_any_image(art) if art else "")]
         elif kind == "share":
             art = session.get(Article, recipe.get("article"))
             media = [cards.render_share_image(
                 recipe.get("title", ""), (art.section if art else section) or section,
                 _clean_image(art) if art else "",
+                blur_image=_any_image(art) if art else "",
                 kicker=recipe.get("kicker", ""), width=1080, height=1350,
                 date_txt=date_txt)]
         elif kind == "reel":
