@@ -72,38 +72,62 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
     {% if el_catalogue.voices %}
     <details style="margin-top:.6rem">
       <summary class="muted">Balsis šajā kontā
-        ({{ el_catalogue.voices|length }}) · izvēlēta:
-        <code>{{ el_voice }}</code></summary>
-      <p class="muted" style="margin:.4rem 0 .2rem">ElevenLabs balsis <b>nav
-      piesaistītas valodai</b> — latviski runā modelis, balss dod tembru un
-      akcentu. Paraugs parasti ir angliski, tāpēc latviešu tekstā akcents būs
-      manāmāks. «Izvēlēties» ieraksta balsi Noteikumos un uzreiz to pamēģina.</p>
-      <div style="max-height:320px;overflow:auto;border:1px solid var(--line);
+        ({{ el_catalogue.voices|length }})</summary>
+      <div class="muted" style="font-size:.72rem;margin:.3rem 0 0">Izvēlēta:
+        <code style="word-break:break-all">{{ el_voice }}</code></div>
+      <p class="muted" style="margin:.35rem 0 .3rem;font-size:.78rem">Balsis
+      <b>nav piesaistītas valodai</b> — latviski runā modelis, balss dod
+      akcentu, un paraugs parasti ir angliski. «Izvēlēties» ieraksta balsi
+      Noteikumos un uzreiz pamēģina.</p>
+      <div style="max-height:340px;overflow-y:auto;border:1px solid var(--line);
                   border-radius:6px">
         {% for v in el_catalogue.voices %}
-        <div style="display:flex;align-items:center;gap:.6rem;padding:.35rem .5rem;
-                    border-bottom:1px solid var(--line);
+        <div style="padding:.45rem .5rem;border-bottom:1px solid var(--line);
                     {% if v.id == el_voice %}background:#eef7ee{% endif %}">
-          <div style="flex:1 1 auto;min-width:0">
-            <div style="font-weight:600;white-space:nowrap;overflow:hidden;
-                        text-overflow:ellipsis">{{ v.name }}</div>
-            <div class="muted" style="font-size:.72rem">
-              {{ v.gender or '—' }} · {{ v.accent or '—' }} · {{ v.category }}
-              · <code>{{ v.id }}</code></div>
+          <div style="font-weight:600;line-height:1.25">{{ v.name }}</div>
+          <div class="muted" style="font-size:.72rem;margin:.1rem 0 .3rem">
+            {{ v.gender or '—' }} · {{ v.accent or '—' }} · {{ v.category }}<br>
+            <code style="word-break:break-all">{{ v.id }}</code></div>
+          <div style="display:flex;align-items:center;gap:.4rem">
+            {% if v.preview %}
+            <button type="button" class="vplay" data-src="{{ v.preview }}"
+                    title="Noklausīties paraugu"
+                    style="width:34px;padding:.2rem 0">▶</button>
+            {% endif %}
+            <form method="post" action="/connect/elevenlabs/voice"
+                  style="margin:0">
+              <input type="hidden" name="voice_id" value="{{ v.id }}">
+              <button {% if v.id == el_voice %}disabled{% endif %}>
+                {{ 'Izvēlēta' if v.id == el_voice else 'Izvēlēties' }}</button>
+            </form>
           </div>
-          {% if v.preview %}
-          <audio controls preload="none" src="{{ v.preview }}"
-                 style="flex:0 0 auto;width:180px;height:32px"></audio>
-          {% endif %}
-          <form method="post" action="/connect/elevenlabs/voice"
-                style="flex:0 0 auto;margin:0">
-            <input type="hidden" name="voice_id" value="{{ v.id }}">
-            <button {% if v.id == el_voice %}disabled{% endif %}>
-              {{ 'Izvēlēta' if v.id == el_voice else 'Izvēlēties' }}</button>
-          </form>
         </div>
         {% endfor %}
       </div>
+      <script>
+      // Tikai atskaņošanas poga: pilns <audio controls> šaurajā kartītē
+      // aizņēma visu platumu, un balss nosaukums tur vairs neietilpa.
+      (function () {
+        var audio = null, active = null;
+        function stop() {
+          if (audio) { audio.pause(); }
+          if (active) { active.textContent = '\u25B6'; }
+          audio = null; active = null;
+        }
+        document.addEventListener('click', function (e) {
+          var btn = e.target.closest ? e.target.closest('.vplay') : null;
+          if (!btn) { return; }
+          var again = (active === btn);
+          stop();                       // viena balss vienlaikus
+          if (again) { return; }        // otrs klikšķis aptur
+          audio = new Audio(btn.dataset.src);
+          active = btn;
+          btn.textContent = '\u23F8';
+          audio.addEventListener('ended', stop);
+          audio.play()['catch'](stop);
+        });
+      })();
+      </script>
       <p class="muted" style="margin-top:.4rem">Ja nāk
       <b>402 paid_plan_required</b>, tā balss šim kontam caur API nav pieejama
       — bezmaksas plānā <b>Voice Library</b> balsis ir liegtas. Izmēģini citu.</p>
