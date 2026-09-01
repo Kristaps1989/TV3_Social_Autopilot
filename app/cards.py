@@ -513,7 +513,7 @@ def build_section_cards_html(title: str, section: str, tag: str,
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
 .blurbg {{ position:absolute; inset:-60px; background-size:cover;
   background-position:center; filter:blur(30px) brightness(.78) saturate(1.15); }}
-.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.18); }}
+.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.28); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(10,5,15,.92) 18%, rgba(10,5,15,.1) 55%); }}
 .page {{ position:absolute; top:44px; left:48px; color:#fff; font-size:30px;
@@ -526,9 +526,16 @@ def build_section_cards_html(title: str, section: str, tag: str,
 h1 {{ line-height:1.14; font-weight:bold; }}
 .panelwrap {{ position:absolute; inset:0; display:flex; align-items:center;
               justify-content:center; padding:0 76px; }}
-.panel {{ background:rgba(255,255,255,.9); border-radius:20px;
+/* Panelis ir jālasa arī uz spilgta, raiba foto. Necaurspīdība viena pati
+   to nedod: caur 90% spilgtas krāsas joprojām spiežas cauri un panelis
+   izskatās notraipīts. backdrop-filter to, kas aiz muguras, pārvērš par
+   faktūru — svītras kļūst par vienmērīgu fonu, teksts paliek melns uz balta. */
+.panel {{ background:rgba(255,255,255,.96);
+          backdrop-filter:blur(16px) saturate(.75);
+          -webkit-backdrop-filter:blur(16px) saturate(.75);
+          border-radius:20px;
           padding:56px 60px; max-width:880px; text-align:center;
-          box-shadow:0 16px 60px rgba(0,0,0,.28); }}
+          box-shadow:0 16px 60px rgba(0,0,0,.32); }}
 .panel h3 {{ color:#111; line-height:1.18; font-weight:bold;
              margin-bottom:30px; }}
 .panel p {{ color:#20242c; line-height:1.42; font-weight:600; }}

@@ -183,14 +183,16 @@ def _section_frame_html(section: str, number: int, title: str, body: str,
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
   {bg} }}
-.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.2); }}
+.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.28); }}
 .brand {{ position:absolute; top:200px; right:{SAFE_INSET + 48}px;
           background:#fff; border-radius:14px; padding:14px 22px; }}
 .panelwrap {{ position:absolute; top:420px; bottom:520px;
               left:{SAFE_INSET + 40}px; right:{SAFE_INSET + 40}px;
               display:flex; align-items:center; justify-content:center; }}
-.panel {{ background:rgba(255,255,255,.92); border-radius:22px;
-          padding:64px 58px; text-align:center;
+.panel {{ background:rgba(255,255,255,.96);
+          backdrop-filter:blur(16px) saturate(.75);
+          -webkit-backdrop-filter:blur(16px) saturate(.75);
+          border-radius:22px; padding:64px 58px; text-align:center;
           box-shadow:0 16px 60px rgba(0,0,0,.32); }}
 .panel h3 {{ color:#111; font-size:{cards.fit_size(title, 62)}px;
              line-height:1.18; font-weight:bold; margin-bottom:34px; }}
