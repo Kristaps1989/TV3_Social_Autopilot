@@ -1,3 +1,4 @@
+import pytest
 import struct
 
 from app import imageinfo
@@ -122,3 +123,30 @@ def test_ensure_editable_dirs_seeds_volume(tmp_path, monkeypatch):
     (tmp_path / "rules" / "rules.yaml").write_text("edited: true", encoding="utf-8")
     config.ensure_editable_dirs()
     assert (tmp_path / "rules" / "rules.yaml").read_text(encoding="utf-8") == "edited: true"
+
+
+# --- Facebook saites kartītes apgriezums ------------------------------------
+
+def test_link_card_crop_measures_what_facebook_removes(monkeypatch):
+    """Saites ierakstā attēlu izvēlas Facebook, ne mēs: tā paņem raksta
+    og:image un ieliek savā 1.91:1 rāmī. Šaurākam attēlam pazūd augstums, un
+    ziņu kadrā galvas ir augšējā trešdaļā — tāpēc tieši tās nogriež pirmās."""
+    from app import imageinfo
+    from app.models import Article
+
+    a = Article(guid="lc-1", url="u", canonical_url="u", title="T",
+                section="news", raw_json={})
+    sizes = {"16x9": (1920, 1080), "3x2": (1500, 1000), "4x3": (1200, 900),
+             "kvadrats": (1000, 1000), "portrets": (800, 1000),
+             "plats": (1910, 1000)}
+    monkeypatch.setattr(imageinfo, "image_size",
+                        lambda art, url: sizes.get(url))
+
+    assert imageinfo.link_card_crop(a, "plats") == 0.0        # jau 1.91:1
+    assert imageinfo.link_card_crop(a, "16x9") == pytest.approx(0.068, abs=0.005)
+    assert imageinfo.link_card_crop(a, "3x2") == pytest.approx(0.215, abs=0.005)
+    assert imageinfo.link_card_crop(a, "4x3") == pytest.approx(0.302, abs=0.005)
+    assert imageinfo.link_card_crop(a, "kvadrats") == pytest.approx(0.476, abs=0.005)
+    assert imageinfo.link_card_crop(a, "portrets") > 0.5
+    # izmērs nezināms -> 0.0; neziņa nav iemesls mainīt formātu
+    assert imageinfo.link_card_crop(a, "nav") == 0.0

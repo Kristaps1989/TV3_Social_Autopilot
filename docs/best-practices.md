@@ -120,6 +120,32 @@ tad, ja instances rediģējamajā kopijā atslēgas vēl nav — bet Noteikumu l
 tagad par tādu novirzi brīdina (`config.missing_rules`), lai redaktors zina,
 ko viņš neredz.
 
+## Saites kartītes apgriezums
+
+Saites ierakstā attēlu **izvēlas Facebook, ne mēs**: Graph API `/feed` pieņem
+tikai `message` un `link`, un attēlu tā paņem no raksta `og:image`. Kartītes
+rāmis ir 1.91:1, un šaurāku attēlu tā griež pa vertikāli:
+
+| Attēls | Cik augstuma pazūd |
+|---|---|
+| 1.91:1 | 0% |
+| 16:9 | 7% |
+| 3:2 | 21% |
+| 4:3 | 30% |
+| kvadrāts | 48% |
+| portrets 4:5 | 58% |
+
+Ziņu fotogrāfijā galvas ir augšējā trešdaļā, tāpēc tieši tās pazūd pirmās.
+Mūsu pašu grafikās šīs problēmas nav: visi mūsu rāmji (4:5, 1:1, 9:16) ir
+šaurāki par tipisko 3:2 foto, tāpēc `cover` tur griež SĀNUS un augstums
+paliek vesels.
+
+Tāpēc vienīgā svira ir formāts: `link_card_max_crop` (noklusējums 0.20)
+pārslēdz rakstu uz photo, kad kartīte nogrieztu vairāk. Cena ir saites
+kartīte, ieguvums — vesels attēls; `format_mix` grīda joprojām neļauj šai
+pārslēgšanai apēst visus saites postus. Priekšskatījumā redaktors redz gan
+īsto apgriezumu (kartīte tur zīmēta 1.91:1), gan procentu.
+
 ## Format → clicks
 
 - Link post = best CTR to site → default for news/politics/sport.

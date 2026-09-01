@@ -603,20 +603,29 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 log.warning("reel build failed for article %s: %s", article.id, e)
         ai_fmt = None
     fmt = choose_format(session, channel, cfg, article, ai_fmt)
-    # A portrait og-image gets butchered by Facebook's 1.91:1 link-card
-    # crop (baked-in title plate cut off). Switch to photo: we render our
-    # own correctly sized branded image there. But not when link posts are
-    # below their configured floor — that conversion is what silently turned
-    # the whole feed into photo posts, since most tv3.lv og images are the
-    # portrait photopost graphic.
+    # Saites ierakstā attēlu izvēlas NEVIS mēs: Facebook to paņem no raksta
+    # og:image un apgriež savas kartītes 1.91:1 rāmī. Jo attēls šaurāks, jo
+    # vairāk augstuma pazūd (3:2 -> 21%, 4:3 -> 30%, kvadrāts -> 48%), un
+    # ziņu kadrā galvas ir augšējā trešdaļā — tāpēc tieši tās nogriež.
+    #
+    # Pārslēdzot uz photo, attēlu zīmējam mēs: mūsu rāmji ir šaurāki par foto,
+    # tāpēc `cover` griež SĀNUS un augstums paliek vesels. Cena ir saites
+    # kartīte, tāpēc slieksnis ir maināms un grīda `format_mix` paliek spēkā —
+    # tieši šī pārslēgšana kādreiz klusi pārvērta visu plūsmu par foto
+    # ierakstiem.
+    rules = config.load_rules()
     if (fmt == "link" and (article.images or [])
             and "photo" in (cfg.get("formats") or [])
-            and config.load_rules().get("portrait_link_to_photo", True)
+            and rules.get("portrait_link_to_photo", True)
             and not mix_deficit(recent_format_shares(session, channel),
                                 cfg.get("format_mix") or {}, ["link"])):
         from app import imageinfo
 
-        if imageinfo.orientation(article) == "portrait":
+        limit = rules.get("link_card_max_crop", 0.20)
+        loss = imageinfo.link_card_crop(article, photo_base_image(article))
+        if imageinfo.orientation(article) == "portrait" or loss > limit:
+            log.info("article %s -> photo: FB saites kartīte nogrieztu %.0f%% "
+                     "augstuma", article.id, loss * 100)
             fmt = "photo"
     return fmt, [], {}
 

@@ -114,6 +114,27 @@ def landscape_image(article, limit: int = 6) -> str:
     return ""
 
 
+# Facebook saites kartītes attēla malu attiecība. Šaurāku (augstāku) attēlu
+# tā apgriež pa vertikāli — un ziņu fotogrāfijā galvas ir augšējā trešdaļā,
+# tāpēc tieši tās nogriež pirmās.
+LINK_CARD_ASPECT = 1.91
+
+
+def link_card_crop(article, url: str) -> float:
+    """Cik lielu daļu no attēla AUGSTUMA Facebook saites kartīte nogriezīs.
+
+    0.0 = neko (attēls jau ir 1.91:1 vai platāks), 0.30 = trešdaļu. Ja izmēru
+    nolasīt neizdodas, atgriežam 0.0: neziņa nav iemesls mainīt formātu.
+    """
+    size = image_size(article, url)
+    if not size or not size[1]:
+        return 0.0
+    aspect = size[0] / size[1]
+    if aspect >= LINK_CARD_ASPECT:
+        return 0.0
+    return 1.0 - aspect / LINK_CARD_ASPECT
+
+
 def orientation(article) -> str | None:
     """'portrait' | 'landscape' | None for the article's lead image.
     Result is cached on the article's raw_json to avoid re-fetching."""

@@ -131,3 +131,61 @@ def test_portrait_conversion_does_not_eat_the_link_quota(session, monkeypatch):
     session.commit()
     fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "photo"
+
+
+def test_a_link_card_that_would_cut_heads_becomes_a_photo_post(session, monkeypatch):
+    """Saites ierakstā attēlu izvēlas Facebook, un tā 1.91:1 kartīte 4:3 foto
+    nogriež 30% augstuma — ziņu kadrā tieši to daļu, kur ir galvas. Photo
+    ierakstā attēlu zīmējam mēs, un mūsu rāmji griež sānus, ne augšu."""
+    from app import imageinfo, pipeline
+    from app.models import Article
+
+    a = Article(guid="crop-1", url="https://tv3.lv/c", canonical_url="https://tv3.lv/c",
+                title="Kulbergs kritizē plānu", section="news",
+                images=["https://cdn/foto.jpg"], raw_json={})
+    session.add(a)
+    session.flush()
+    cfg = {"formats": ["link", "photo"], "platform": "facebook_page"}
+    monkeypatch.setattr(imageinfo, "orientation", lambda art: "landscape")
+
+    # 4:3 -> 30% nost: pārslēdzam
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1200, 900))
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_crop", cfg, a, {})
+    assert fmt == "photo"
+
+    # 16:9 -> 7% nost: saites kartīte ir labākais formāts, atstājam
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1920, 1080))
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_crop", cfg, a, {})
+    assert fmt == "link"
+
+    # izmērs nezināms: neziņa nav iemesls atteikties no saites kartītes
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: None)
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_crop", cfg, a, {})
+    assert fmt == "link"
+
+
+def test_the_crop_threshold_is_editable(session, monkeypatch):
+    from app import config, imageinfo, pipeline
+    from app.models import Article
+
+    a = Article(guid="crop-2", url="https://tv3.lv/d", canonical_url="https://tv3.lv/d",
+                title="Ziņa", section="news", images=["https://cdn/f.jpg"],
+                raw_json={})
+    session.add(a)
+    session.flush()
+    cfg = {"formats": ["link", "photo"], "platform": "facebook_page"}
+    monkeypatch.setattr(imageinfo, "orientation", lambda art: "landscape")
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1500, 1000))
+
+    base = dict(config.load_rules())
+    # 3:2 zaudē 21.5%: pie 0.20 pārslēdzam, pie 0.30 vairs ne
+    monkeypatch.setattr(config, "load_rules",
+                        lambda: {**base, "link_card_max_crop": 0.20})
+    assert pipeline.resolve_format(session, "fb_crop2", cfg, a, {})[0] == "photo"
+    monkeypatch.setattr(config, "load_rules",
+                        lambda: {**base, "link_card_max_crop": 0.30})
+    assert pipeline.resolve_format(session, "fb_crop2", cfg, a, {})[0] == "link"
+    # 1.0 = nekad
+    monkeypatch.setattr(config, "load_rules",
+                        lambda: {**base, "link_card_max_crop": 1.0})
+    assert pipeline.resolve_format(session, "fb_crop2", cfg, a, {})[0] == "link"

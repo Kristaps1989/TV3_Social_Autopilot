@@ -86,6 +86,16 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
       <div class="ttl">{{ article.title if article }}</div>
     </div>
   </div>
+  {% if link_card_crop > 0.10 %}
+  <p class="muted" style="margin:.4rem 0 0;font-size:.78rem">
+    ⚠ Facebook šo attēlu ieliek savā 1.91:1 kartītē un nogriež
+    <b>{{ (link_card_crop * 100) | round | int }}%</b> augstuma — parasti
+    tieši augšu, kur ziņu kadrā ir galvas. Attēlu saites ierakstā izvēlas
+    Facebook no raksta og:image, ne mēs. Ja tas ir par daudz, pazemini
+    <code>link_card_max_crop</code> Noteikumos: tad šādi raksti aiziet kā
+    foto ieraksti, kur attēlu zīmējam mēs.
+  </p>
+  {% endif %}
   {% endif %}
 
   {% if post.format != 'story' %}

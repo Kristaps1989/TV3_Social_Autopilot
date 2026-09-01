@@ -388,11 +388,18 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
         full_text, in_comment = compose_text(post, platform, shown)
         article = post.article
         img_portrait = False
+        # Cik lielu daļu augstuma Facebook saites kartīte no attēla nogriež.
+        # Saites ierakstā attēlu izvēlas Facebook, ne mēs, tāpēc redaktoram
+        # tas citādi ir neredzams mehānisms — un tieši tas ziņu kadrā aizvāc
+        # galvas.
+        link_card_crop = 0.0
         if article and post.format == "link":
             from app import imageinfo
 
             try:
                 img_portrait = imageinfo.orientation(article) == "portrait"
+                link_card_crop = imageinfo.link_card_crop(
+                    article, (article.images or [""])[0])
                 session.commit()  # keep the probed size cached
             except Exception:  # noqa: BLE001
                 img_portrait = False
@@ -409,6 +416,7 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "link_in_comment": in_comment,
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
+            "link_card_crop": link_card_crop,
             "can_regenerate": regen.can_regenerate(post),
             "cms_meta": pagemeta.meta(article) if article else {},
             "cms_short": cms_short, "short_kind": short_kind,
