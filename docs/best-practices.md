@@ -140,11 +140,23 @@ Mūsu pašu grafikās šīs problēmas nav: visi mūsu rāmji (4:5, 1:1, 9:16) i
 šaurāki par tipisko 3:2 foto, tāpēc `cover` tur griež SĀNUS un augstums
 paliek vesels.
 
-Tāpēc vienīgā svira ir formāts: `link_card_max_crop` (noklusējums 0.20)
-pārslēdz rakstu uz photo, kad kartīte nogrieztu vairāk. Cena ir saites
-kartīte, ieguvums — vesels attēls; `format_mix` grīda joprojām neļauj šai
-pārslēgšanai apēst visus saites postus. Priekšskatījumā redaktors redz gan
-īsto apgriezumu (kartīte tur zīmēta 1.91:1), gan procentu.
+Tāpēc vienīgā svira ir formāts:
+
+- `link_card_max_crop` (0.20) — virs šī raksts kļūst par photo ierakstu, ja
+  vien kanālam nepietrūkst saites postu (`format_mix` grīda).
+- `link_card_force_crop` (0.40) un vertikāls attēls — te grīda vairs neaiztur.
+
+Otrais slieksnis ir tāpēc, ka grīdas jēga ir turēt plūsmā **strādājošus**
+saites ierakstus. Pie 58% nogriezta augstuma tāda nav: piespiest ierakstu
+palikt saitē tikai tāpēc, ka kvota nav pilna, nozīmē uztaisīt sliktu ierakstu,
+kas kvotu tik un tā nepilda — un vēl iemācīt izmērītajiem svariem, ka saites
+posti nestrādā. Trūkstošo kvotu aizpilda nākamais raksts ar derīgu attēlu.
+
+Pārslēgšana notiek arī **rindā gaidošiem** ierakstiem tieši pirms
+publicēšanas (`retarget_queued_link_post`) — tāpat kā grafiku pārzīmēšana,
+citādi labojums aizsniegtu tikai tos rakstus, par kuriem lēmums pieņemts pēc
+izvietošanas. Priekšskatījumā redaktors redz gan īsto apgriezumu (kartīte tur
+zīmēta 1.91:1), gan procentu, gan to, kurš noteikums nostrādās.
 
 ## Format → clicks
 

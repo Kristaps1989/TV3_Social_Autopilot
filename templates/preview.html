@@ -86,16 +86,6 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
       <div class="ttl">{{ article.title if article }}</div>
     </div>
   </div>
-  {% if link_card_crop > 0.10 %}
-  <p class="muted" style="margin:.4rem 0 0;font-size:.78rem">
-    ⚠ Facebook šo attēlu ieliek savā 1.91:1 kartītē un nogriež
-    <b>{{ (link_card_crop * 100) | round | int }}%</b> augstuma — parasti
-    tieši augšu, kur ziņu kadrā ir galvas. Attēlu saites ierakstā izvēlas
-    Facebook no raksta og:image, ne mēs. Ja tas ir par daudz, pazemini
-    <code>link_card_max_crop</code> Noteikumos: tad šādi raksti aiziet kā
-    foto ieraksti, kur attēlu zīmējam mēs.
-  </p>
-  {% endif %}
   {% endif %}
 
   {% if post.format != 'story' %}
@@ -137,12 +127,25 @@ attēlu renderētājs (Chromium) nenostrādā — pārbaudi rindu
 «Attēlu renderētājs» lapā <a href="/connect">Konti</a>.</div>
 {% endif %}
 {% endif %}
-{% if post.format == 'link' and img_portrait %}
+{% if post.format == 'link' and link_card_crop > 0.10 %}
 <div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">
-⚠️ Raksta og attēls ir <strong>vertikāls</strong> — Facebook saites kartīte to apgriež
-uz 1.91:1 (kā redzams augstāk), un iestrādātā titula plāksne tiek nogriezta.
-Jauniem šādiem rakstiem sistēma automātiski izvēlas photo formātu ar savu
-brendēto attēlu; šo ierakstu vari atcelt un ieplānot no jauna.</div>
+⚠️ Facebook saites kartīte no šī attēla nogriež
+<strong>{{ (link_card_crop * 100) | round | int }}%</strong> augstuma (kā redzams
+augstāk) — parasti tieši augšu, kur ziņu kadrā ir galvas.
+{% if link_card_crop >= 0.40 or img_portrait %}
+Šeit kartīte ir sabojāta neatkarīgi no formātu kvotas, tāpēc tieši pirms
+publicēšanas šis ieraksts <strong>automātiski kļūs par photo ierakstu</strong>,
+kur attēlu zīmējam mēs un augstums paliek vesels; saite aizies aprakstā un
+pirmajā komentārā. Atcelt to nav vajadzīgs.
+{% elif link_card_crop > 0.20 %}
+Ieraksts kļūs par photo ierakstu, ja vien kanālam nepietrūkst saites postu
+(<code>format_mix</code> grīda) — tad saites kartīte paliek. Slieksni maina
+<code>link_card_max_crop</code> Noteikumos.
+{% else %}
+Tas ir zem <code>link_card_max_crop</code> sliekšņa, tāpēc saites kartīte
+paliek — tā ir labākais klikšķu formāts. Pazemini slieksni, ja gribi arī šos
+kā foto ierakstus.
+{% endif %}</div>
 {% endif %}
 
 {% if card_targets %}

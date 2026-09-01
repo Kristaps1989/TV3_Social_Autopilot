@@ -187,3 +187,10 @@ ai_disclosure_spoken: ""
 # pirmajā komentārā un aprakstā). 1.0 = nekad nepārslēgt; 0.0 = vienmēr, kad
 # kartīte vispār kaut ko griež.
 link_card_max_crop: 0.20
+
+# Kad saites kartīte ir sabojāta NEATKARĪGI no formātu kvotas: vertikāls
+# attēls vai vairāk nekā šī daļa nogriezta augstuma. Zem šīs robežas
+# `format_mix` saites grīda ir svarīgāka un ierakstu atstāj kā saiti; virs tās
+# grīda vairs neaiztur, jo šāds saites ieraksts kvotu tik un tā nepilda — tas
+# tikai izskatās slikti un iemāca svariem, ka saites posti nestrādā.
+link_card_force_crop: 0.40

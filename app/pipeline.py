@@ -613,21 +613,71 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     # kartīte, tāpēc slieksnis ir maināms un grīda `format_mix` paliek spēkā —
     # tieši šī pārslēgšana kādreiz klusi pārvērta visu plūsmu par foto
     # ierakstiem.
-    rules = config.load_rules()
-    if (fmt == "link" and (article.images or [])
-            and "photo" in (cfg.get("formats") or [])
-            and rules.get("portrait_link_to_photo", True)
-            and not mix_deficit(recent_format_shares(session, channel),
-                                cfg.get("format_mix") or {}, ["link"])):
-        from app import imageinfo
-
-        limit = rules.get("link_card_max_crop", 0.20)
-        loss = imageinfo.link_card_crop(article, photo_base_image(article))
-        if imageinfo.orientation(article) == "portrait" or loss > limit:
-            log.info("article %s -> photo: FB saites kartīte nogrieztu %.0f%% "
-                     "augstuma", article.id, loss * 100)
-            fmt = "photo"
+    if fmt == "link" and link_card_hurts(session, channel, cfg, article)[0]:
+        fmt = "photo"
     return fmt, [], {}
+
+
+def link_card_hurts(session, channel: str, cfg: dict, article,
+                    rules: dict | None = None) -> tuple[bool, float]:
+    """(vai pārslēgt uz photo, cik daudz kartīte nogrieztu).
+
+    Saites ierakstā attēlu izvēlas NEVIS mēs: Facebook to paņem no raksta
+    og:image un ieliek savas kartītes 1.91:1 rāmī. Jo attēls šaurāks, jo
+    vairāk augstuma pazūd (3:2 -> 21%, 4:3 -> 30%, kvadrāts -> 48%), un ziņu
+    kadrā galvas ir augšējā trešdaļā — tāpēc tieši tās nogriež.
+
+    Pārslēdzot uz photo, attēlu zīmējam mēs: mūsu rāmji ir šaurāki par foto,
+    tāpēc `cover` griež SĀNUS un augstums paliek vesels. Cena ir saites
+    kartīte, tāpēc slieksnis ir maināms un `format_mix` grīda paliek spēkā —
+    tieši šī pārslēgšana kādreiz klusi pārvērta visu plūsmu par foto
+    ierakstiem.
+    """
+    rules = config.load_rules() if rules is None else rules
+    if not (article is not None and (article.images or [])
+            and "photo" in (cfg.get("formats") or [])
+            and rules.get("portrait_link_to_photo", True)):
+        return False, 0.0
+    from app import imageinfo
+
+    loss = imageinfo.link_card_crop(article, photo_base_image(article))
+    portrait = imageinfo.orientation(article) == "portrait"
+    if not (portrait or loss > rules.get("link_card_max_crop", 0.20)):
+        return False, loss
+    # Saites postiem ir sava grīda (`format_mix`), un parasti tā ir svarīgāka
+    # par vienu apgriezumu. BET grīdas jēga ir turēt plūsmā strādājošus saites
+    # ierakstus, un šis tāds nav: pie portreta attēla vai puses nogrieztā
+    # augstuma kartīte ir sabojāta neatkarīgi no kvotas. Piespiest to tur
+    # nozīmē uztaisīt sliktu ierakstu UN iemācīt svariem, ka saites posti
+    # nestrādā. Trūkstošo kvotu aizpildīs nākamais raksts ar derīgu attēlu.
+    if portrait or loss >= rules.get("link_card_force_crop", 0.40):
+        return True, loss
+    if mix_deficit(recent_format_shares(session, channel),
+                   cfg.get("format_mix") or {}, ["link"]):
+        return False, loss
+    return True, loss
+
+
+def retarget_queued_link_post(session, post, cfg: dict) -> bool:
+    """Pārslēdz jau ieplānotu saites ierakstu uz photo, ja kartīte to sabojātu.
+
+    Ieraksts rindā var nostāvēt stundas. Bez šī labojums aizsniegtu tikai tos
+    rakstus, par kuriem lēmums pieņemts PĒC izvietošanas, un redaktoram tie,
+    kas jau gaida, būtu jāatceļ ar roku — to pašu problēmu `refresh_missing_media`
+    jau risina grafikām.
+    """
+    if post.format != "link" or post.article is None:
+        return False
+    hurts, loss = link_card_hurts(session, post.channel, cfg, post.article)
+    if not hurts:
+        return False
+    post.format = "photo"
+    post.extra = {**(post.extra or {}),
+                  "retargeted": {"from": "link", "link_card_crop": round(loss, 3)}}
+    session.commit()
+    log.info("post %s link -> photo rindā: FB kartīte nogrieztu %.0f%% augstuma",
+             post.id, loss * 100)
+    return True
 
 
 def repost_offset(article, cfg: dict, existing: list) -> datetime | None:
@@ -738,7 +788,11 @@ def publish_due(session) -> int:
         if paused(session, post.channel):
             continue  # stays scheduled; resumes when unpaused
 
-        platform = (channels_cfg.get(post.channel) or {}).get("platform", "")
+        cfg = channels_cfg.get(post.channel) or {}
+        platform = cfg.get("platform", "")
+        # rindā gaidošs saites ieraksts, kura attēlu kartīte sagrieztu, vēl
+        # paspēj kļūt par foto ierakstu — grafiku uzzīmē refresh_missing_media
+        retarget_queued_link_post(session, post, cfg)
         refresh_missing_media(session, post, platform)
         post.state = "publishing"
         post.attempts += 1

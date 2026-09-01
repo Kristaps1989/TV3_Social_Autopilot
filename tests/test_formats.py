@@ -102,9 +102,16 @@ def test_photo_saturated_feed_gets_a_link_post(session):
     assert choose_format(session, "fb_mix", cfg_mix, a, ai_choice="photo") == "link"
 
 
-def test_portrait_conversion_does_not_eat_the_link_quota(session, monkeypatch):
-    """Portreta og attēls parasti pārslēdz link -> photo, bet ne tad, kad
-    link posti jau ir zem savas grīdas (tieši šī ķēde deva 99% photo)."""
+def test_a_broken_card_overrides_the_link_quota_but_a_survivable_one_does_not(
+        session, monkeypatch):
+    """Saites grīda tur plūsmā STRĀDĀJOŠUS saites ierakstus.
+
+    Vertikāls attēls tādu nedod: kartīte nogriež 58% augstuma un kopā ar to
+    iestrādāto titula plāksni. Piespiest ierakstu palikt saitē tikai tāpēc, ka
+    kvota nav pilna, nozīmē uztaisīt sliktu ierakstu, kas kvotu tik un tā
+    nepilda — un vēl iemācīt svariem, ka saites posti nestrādā. Mērenam
+    apgriezumam grīda paliek svarīgāka; tieši šī ķēde reiz deva 99% photo.
+    """
     from app import imageinfo, pipeline
     from app.models import Article, Post
 
@@ -120,10 +127,21 @@ def test_portrait_conversion_does_not_eat_the_link_quota(session, monkeypatch):
     session.commit()
     cfg = {"formats": ["link", "photo"], "platform": "facebook_page",
            "format_mix": {"link": 0.4}}
+    # Vertikāls attēls tagad grīdu PĀRSNIEDZ: pie 58% nogriezta augstuma
+    # kartīte ir sabojāta neatkarīgi no kvotas, un piespiest to tur nozīmētu
+    # uztaisīt sliktu ierakstu, kas kvotu tik un tā nepilda.
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (800, 1000))
+    fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
+    assert fmt == "photo"
+
+    # Mērens apgriezums (3:2, 21%) grīdu neapiet — tur saites kartīte vēl
+    # strādā, un kvota ir svarīgāka
+    monkeypatch.setattr(imageinfo, "orientation", lambda art: "landscape")
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1500, 1000))
     fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "link"
 
-    # kad link kvota ir izpildīta, portreta noteikums atkal strādā
+    # kad link kvota ir izpildīta, arī mērenais apgriezums pārslēdzas
     session.query(Post).delete()
     for fmt_name in ("link", "link", "link", "photo", "photo", "photo"):
         session.add(Post(article_id=a.id, channel="fb_mix2", format=fmt_name,
@@ -189,3 +207,53 @@ def test_the_crop_threshold_is_editable(session, monkeypatch):
     monkeypatch.setattr(config, "load_rules",
                         lambda: {**base, "link_card_max_crop": 1.0})
     assert pipeline.resolve_format(session, "fb_crop2", cfg, a, {})[0] == "link"
+
+
+def test_a_queued_link_post_is_retargeted_before_it_goes_out(session, monkeypatch):
+    """Ieraksts rindā var nostāvēt stundas. Bez šī labojums aizsniegtu tikai
+    tos rakstus, par kuriem lēmums pieņemts PĒC izvietošanas."""
+    from app import imageinfo, pipeline
+    from app.models import Article, Post
+
+    a = Article(guid="rt-1", url="https://tv3.lv/r", canonical_url="https://tv3.lv/r",
+                title="Nepāla publicējusi sarakstu", section="news",
+                images=["https://cdn/vertikals.jpg"], raw_json={})
+    session.add(a)
+    session.flush()
+    post = Post(article_id=a.id, channel="fb_rt", format="link", copy="c",
+                hashtags=[], link_url="https://tv3.lv/r", state="scheduled")
+    session.add(post)
+    session.flush()
+    cfg = {"formats": ["link", "photo"], "platform": "facebook_page"}
+    monkeypatch.setattr(imageinfo, "orientation", lambda art: "portrait")
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (800, 1000))
+
+    assert pipeline.retarget_queued_link_post(session, post, cfg) is True
+    assert post.format == "photo"
+    # redaktors vēlāk var redzēt, KĀPĒC formāts mainījās
+    assert post.extra["retargeted"]["from"] == "link"
+    assert post.extra["retargeted"]["link_card_crop"] > 0.5
+
+    # otrreiz nav ko darīt
+    assert pipeline.retarget_queued_link_post(session, post, cfg) is False
+
+
+def test_a_queued_link_post_survives_when_the_card_is_fine(session, monkeypatch):
+    from app import imageinfo, pipeline
+    from app.models import Article, Post
+
+    a = Article(guid="rt-2", url="https://tv3.lv/s", canonical_url="https://tv3.lv/s",
+                title="Ziņa", section="news", images=["https://cdn/plats.jpg"],
+                raw_json={})
+    session.add(a)
+    session.flush()
+    post = Post(article_id=a.id, channel="fb_rt2", format="link", copy="c",
+                hashtags=[], link_url="https://tv3.lv/s", state="scheduled")
+    session.add(post)
+    session.flush()
+    cfg = {"formats": ["link", "photo"], "platform": "facebook_page"}
+    monkeypatch.setattr(imageinfo, "orientation", lambda art: "landscape")
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1920, 1080))
+
+    assert pipeline.retarget_queued_link_post(session, post, cfg) is False
+    assert post.format == "link"
