@@ -5,6 +5,18 @@
 
 {% if saved %}<div class="notice ok">Saglabāts: {{ saved }}</div>{% endif %}
 {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
+{% if missing_rules or missing_channels %}
+<div class="notice err">
+  Šīs instances rediģējamā kopija ir vecāka par kodu — tā tika uzsēta vienu
+  reizi un pēc tam netiek aiztikta, lai nepārrakstītu tavus labojumus.
+  Kamēr tālāk uzskaitītā nav ierakstīta zemāk redzamajos laukos, spēkā ir
+  koda noklusējumi, un tu tos šeit nevari ne redzēt, ne mainīt.
+  {% if missing_rules %}<br>Trūkst noteikumu:
+    <b>{{ missing_rules|join(', ') }}</b>{% endif %}
+  {% if missing_channels %}<br>Trūkst kanālu:
+    <b>{{ missing_channels|join(', ') }}</b>{% endif %}
+</div>
+{% endif %}
 
 {% set labels = {
   'rules': 'Redakcionālie noteikumi (rules.yaml)',

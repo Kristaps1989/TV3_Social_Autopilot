@@ -6,9 +6,12 @@ AI's card_points, and a closing frame that is pure CTA — read the full
 story on tv3.lv. A slow Ken Burns zoom keeps the stills alive.
 
 Audio is a silent track by default — Meta's music library is not licensable
-through the API — but a reel can carry a voice-over instead: pass a narration
-file to `build_reel` and the frames stretch to the length of the speech, so
-the CTA frame still lands after the last spoken word.
+through the API — but a reel can carry a voice-over instead.
+
+Ierunu sinhronizējam PA KADRIEM, ne pa visu lenti: katram kadram tiek
+sintezēts savs teikums, un kadrs ir tieši tik garš, cik tā ieruna. Viens
+gabals runas pār visu lenti izklausījās salauzts — attēls jau bija pie CTA,
+kamēr balss vēl stāstīja iepriekšējo domu.
 """
 from __future__ import annotations
 
@@ -41,6 +44,15 @@ MAX_VIDEO_BYTES = 300 * 1024 * 1024
 VOICE_MAX_WORDS = 90        # ~30 s runas; garāka ieruna vairs nav teaseris
 VOICE_TAIL_SECONDS = 0.6    # CTA kadrs paliek redzams pēc pēdējā vārda
 VOICE_MAX_SECONDS = 60
+
+# --- ierunas un kadra saskaņošana ------------------------------------------
+# Skatītājam vajag mirkli, lai pamanītu jauno kadru, pirms tajā sāk runāt;
+# un elpu pēc pēdējā vārda, pirms kadrs nomainās. Bez tām abām nodaļas
+# saplūst vienā gabalā, un tieši tas skanēja kā steiga.
+VOICE_LEAD_SECONDS = 0.35   # klusums kadra sākumā
+VOICE_GAP_SECONDS = 0.5     # elpa aiz pēdējā vārda
+MIN_FRAME_SECONDS = 2.2     # arī viena teikuma nodaļa nedrīkst pazibēt
+END_VOICE_TAIL = 1.0        # CTA kadrs paliek stāvam pēc noslēguma teikuma
 
 # Feed lauki, kuros meklēt raksta videoklipu (tv3.lv/video 9:16 klipi)
 VIDEO_KEYS = ("video", "video_url", "videoUrl", "video_src", "video_file",
@@ -81,6 +93,40 @@ def voice_script(text: str, max_words: int = VOICE_MAX_WORDS) -> str:
         cut = max(text.rfind(". "), text.rfind("! "), text.rfind("? "))
         text = text[:cut + 1] if cut > 40 else text.rstrip(" ,;:") + "."
     return text.strip()
+
+
+def spoken_line(text: str, max_words: int = 34) -> str:
+    """Viena runājama rinda (virsraksts, āķis) — bez saitēm un pieturzīmēm,
+    ko balss mēģinātu izrunāt pa burtiem.
+
+    Atšķirībā no `voice_script` te nav minimālā garuma: virsraksts ir īss
+    pēc būtības, un tieši tas ir lentes atklāšanas teikums.
+    """
+    text = _URL_RE.sub("", text or "")
+    text = _SPOKEN_JUNK_RE.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    words = text.split()
+    if len(words) > max_words:
+        text = " ".join(words[:max_words]).rstrip(" ,;:") + "."
+    if text and text[-1] not in ".!?":
+        text += "."
+    return text
+
+
+def end_voice_text(rules: dict | None = None) -> str:
+    """Noslēguma teikums: aicinājums uz portālu un MI atruna skaļi.
+
+    Atrunu izrunājam, nevis tikai uzrakstām: lente tiek skatīta arī bez
+    skaņas un bez ekrāna, un marķējums, ko sasniedz tikai viena no abām
+    auditorijām, savu uzdevumu nepilda.
+    """
+    from app import disclosure
+
+    parts = ["Pilnu stāstu lasi tv3.lv."]
+    note = disclosure.spoken(rules)
+    if note:
+        parts.append(note)
+    return " ".join(parts)
 
 
 def media_duration(path: str | Path) -> float:
@@ -166,57 +212,130 @@ def _point_frame_html(section: str, number: int, point: str,
 </body></html>"""
 
 
-def _section_frame_html(section: str, number: int, title: str, body: str,
-                        bg_image: str = "") -> str:
-    """Sadaļas kadrs lentei: foto fonā, balts panelis ar virsrakstu un
-    teikumiem — tas pats izkārtojums, kas sadaļu karuselī, lai franšīze
-    izskatās vienādi visur. Viss teksts SAFE_INSET drošajā zonā, jo Ken
-    Burns tuvinājums malas apgriež."""
+def _bg_layers(color: str, bg_image: str, blur_image: str) -> tuple[str, str]:
+    """(CSS fonam, papildu slāņu HTML) sadaļas/vāka kadram.
+
+    Secība ir apzināta: īsts foto > izpludināta photopost grafika > plakans
+    gradients. Iepriekš lente pie pirmā roba nokrita uzreiz līdz gradientam,
+    un iznāca lente bez nevienas bildes, lai gan rakstā attēls BIJA — tikai
+    ar iecepto virsrakstu, kas der vienīgi kā faktūra.
+    """
     import html as _html
+
+    if bg_image:
+        return (f"background:url({_html.escape(bg_image, quote=True)}) "
+                f"center/cover, {color};", "")
+    if blur_image:
+        return (f"background:linear-gradient(160deg, {color} 0%, #1c0d12 85%);",
+                f'<div class="blurbg" style="background-image:'
+                f'url({_html.escape(blur_image, quote=True)})"></div>')
+    return (f"background:linear-gradient(160deg, {color} 0%, #1c0d12 85%);", "")
+
+
+_BLUR_CSS = """.blurbg { position:absolute; inset:-80px; background-size:cover;
+  background-position:center; filter:blur(34px) brightness(.72) saturate(1.15); }
+"""
+
+
+def _progress_html(step: int, total: int) -> str:
+    """Nodaļu josla kadra augšā: cik tālu stāsts ir aizgājis.
+
+    Lentē nav švīkošanas, tāpēc skatītājs nezina, vai priekšā vēl ir minūte
+    vai divas sekundes — un nezinot mēdz aiziet. Josla to pasaka klusi.
+    """
+    if total < 2:
+        return ""
+    cells = "".join(
+        f'<i class="{"on" if i <= step else ""}"></i>' for i in range(1, total + 1))
+    return f'<div class="prog">{cells}</div>'
+
+
+def _section_frame_html(section: str, number: int, title: str, body: str,
+                        bg_image: str = "", blur_image: str = "",
+                        total: int = 0, rules: dict | None = None) -> str:
+    """Sadaļas kadrs lentei: foto fonā, balts panelis, sarkana nodaļas rinda
+    un teikumi zem tās.
+
+    Virsraksts te ir NODAĻAS marķieris, nevis otrs virsraksts: balss to vairs
+    nelasa, tā runā tikai teikumus. Kad balss nolasīja abus, klausītājam vienu
+    un to pašu domu pateica divreiz.
+
+    Viss teksts SAFE_INSET drošajā zonā — Ken Burns tuvinājums malas apgriež.
+    """
+    import html as _html
+
+    from app import disclosure
 
     style = cards.SECTION_STYLE.get(section) or cards.SECTION_STYLE["news"]
     color = style["color"]
-    bg = (f"background:url({_html.escape(bg_image, quote=True)}) "
-          f"center/cover, {color};" if bg_image
-          else f"background:linear-gradient(160deg, {color} 0%, #1c0d12 85%);")
+    bg, blur_layer = _bg_layers(color, bg_image, blur_image)
+    head = (title or "").strip()
+    head_html = (f'<div class="chapter">{_html.escape(head)}</div>'
+                 if head else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
   {bg} }}
-.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.28); }}
+{_BLUR_CSS}
+.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.32); }}
 .brand {{ position:absolute; top:200px; right:{SAFE_INSET + 48}px;
           background:#fff; border-radius:14px; padding:14px 22px; }}
+.prog {{ position:absolute; top:236px; left:{SAFE_INSET + 56}px;
+         display:flex; gap:10px; width:420px;
+         /* uz gaiša foto balta josla uz balta pazūd — ēna to notur
+            salasāmu arī tad, kad kadrā ir debesis vai sniegs */
+         filter:drop-shadow(0 2px 7px rgba(0,0,0,.65)); }}
+.prog i {{ flex:1; height:9px; border-radius:99px;
+           background:rgba(255,255,255,.48); }}
+.prog i.on {{ background:#fff; }}
 .panelwrap {{ position:absolute; top:420px; bottom:520px;
               left:{SAFE_INSET + 40}px; right:{SAFE_INSET + 40}px;
               display:flex; align-items:center; justify-content:center; }}
 .panel {{ background:rgba(255,255,255,.96);
           backdrop-filter:blur(16px) saturate(.75);
           -webkit-backdrop-filter:blur(16px) saturate(.75);
-          border-radius:22px; padding:64px 58px; text-align:center;
+          border-radius:22px; padding:60px 58px; text-align:center;
           box-shadow:0 16px 60px rgba(0,0,0,.32); }}
-.panel h3 {{ color:#111; font-size:{cards.fit_size(title, 62)}px;
-             line-height:1.18; font-weight:bold; margin-bottom:34px; }}
-.panel p {{ color:#20242c; font-size:{cards.body_fit(body, 46)}px;
-            line-height:1.42; font-weight:600; }}
+.chapter {{ color:#e3000f; font-size:{cards.fit_size(head, 40)}px;
+            font-weight:bold; letter-spacing:.04em; line-height:1.2;
+            padding-bottom:26px; margin-bottom:30px;
+            border-bottom:5px solid rgba(227,0,15,.24); }}
+.panel p {{ color:#20242c; font-size:{cards.body_fit(body, 50)}px;
+            line-height:1.4; font-weight:600; }}
 .linkpill {{ position:absolute; bottom:252px; left:{SAFE_INSET + 56}px;
              background:#fff; color:#e3000f; font-size:48px; font-weight:bold;
              padding:22px 52px; border-radius:99px;
              box-shadow:0 8px 30px rgba(0,0,0,.35); }}
 .linkpill svg {{ vertical-align:-7px; margin-right:16px; }}
+{disclosure.badge_css(left=SAFE_INSET + 56, bottom=170, size=28)}
 </style></head><body>
 <div class="story">
+  {blur_layer}
   <div class="veil"></div>
   <div class="brand">{cards._logo(52)}</div>
+  {_progress_html(number, total)}
   <div class="panelwrap"><div class="panel">
-    <h3>{_html.escape(title)}</h3>
+    {head_html}
     <p>{_html.escape(body)}</p>
   </div></div>
   <div class="linkpill">{cards._LINK_ICON}tv3.lv</div>
+  {disclosure.badge_html(rules)}
 </div>
 </body></html>"""
 
 
-def _end_frame_html() -> str:
+def _end_frame_html(rules: dict | None = None) -> str:
+    """Noslēguma kadrs: CTA uz portālu un ES MI akta atruna pilnā tekstā.
+
+    Marķējumam jābūt skaidram un pamanāmam (Regula 2024/1689, 50. pants).
+    Uz satura kadriem tas ir neliela zīmīte, lai neaizsedz stāstu; te, kur
+    vietas ir, tas stāv pilnā teikumā.
+    """
+    from app import disclosure
+
+    note = disclosure.text(rules)
+    note_html = (f'<div class="note"><b>MI</b><span>{note}</span></div>'
+                 if note else "")
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
@@ -230,12 +349,20 @@ h1 {{ font-size:88px; font-weight:bold; color:#fff; text-align:center;
              box-shadow:0 10px 40px rgba(0,0,0,.3); }}
 .linkpill svg {{ vertical-align:-8px; margin-right:20px; width:62px; height:62px; }}
 .sub {{ font-size:44px; color:#fff; opacity:.92; font-weight:bold; }}
+.note {{ position:absolute; left:{SAFE_INSET + 60}px; right:{SAFE_INSET + 60}px;
+         bottom:250px; display:flex; align-items:center; gap:18px;
+         justify-content:center; color:#fff; font-size:31px; font-weight:600;
+         line-height:1.3; text-align:left;
+         border-top:3px solid rgba(255,255,255,.4); padding-top:26px; }}
+.note b {{ background:#fff; color:#e3000f; border-radius:9px;
+           padding:4px 12px; font-size:30px; flex:none; }}
 </style></head><body>
 <div class="story">
   <div class="chip">{cards._logo(72)}</div>
   <h1>Pilns stāsts portālā</h1>
   <div class="linkpill">{cards._LINK_ICON}tv3.lv</div>
   <div class="sub">Lasi visu rakstā →</div>
+  {note_html}
 </div>
 </body></html>"""
 
@@ -272,17 +399,88 @@ def _run_ffmpeg(args: list[str]) -> None:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr[-400:]}")
 
 
+_AAC = ["-ar", "44100", "-ac", "2", "-c:a", "aac", "-b:a", "128k"]
+
+
+def frame_seconds_for(speech_seconds: float, last: bool = False) -> float:
+    """Cik gara jābūt kadram, lai tā ieruna tajā ietilptu bez steigas."""
+    if speech_seconds <= 0:
+        return 0.0
+    tail = END_VOICE_TAIL if last else VOICE_GAP_SECONDS
+    return max(MIN_FRAME_SECONDS,
+               VOICE_LEAD_SECONDS + speech_seconds + tail)
+
+
+def _audio_segment(voice: str, seconds: float, dest: Path) -> None:
+    """Viena kadra skaņas celiņš, tieši `seconds` garš.
+
+    Klusums priekšā dod skatītājam mirkli ieraudzīt kadru; apad aizpilda
+    atlikumu, lai celiņš beigtos tieši ar kadru — tieši šī precizitāte
+    notur attēlu un balsi kopā visas lentes garumā.
+    """
+    if voice:
+        _run_ffmpeg([
+            "-i", str(voice),
+            "-af", (f"adelay=delays={int(VOICE_LEAD_SECONDS * 1000)}:all=1,"
+                    "apad"),
+            "-t", f"{seconds:.3f}", *_AAC, str(dest)])
+    else:
+        _run_ffmpeg([
+            "-f", "lavfi",
+            "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-t", f"{seconds:.3f}", *_AAC, str(dest)])
+
+
+def _concat(paths: list[Path], workdir: Path, out: Path, name: str,
+            args: list[str]) -> None:
+    lst = workdir / f"{name}.txt"
+    lst.write_text("".join(f"file '{p}'\n" for p in paths), encoding="utf-8")
+    _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(lst), *args, str(out)])
+
+
+def plan_durations(durations: list[float], voices: list[str] | None,
+                   speech: list[float] | None = None) -> list[float]:
+    """Kadru garumi, kad katram kadram ir sava ieruna.
+
+    Agrāk visu kadru garumus mēroja proporcionāli vienam runas gabalam. Tas
+    ir pareizi tikai tad, ja katra nodaļa aizņem tieši tik lielu daļu runas,
+    cik liela daļa kadru tai pieder — un praksē nekad neaizņēma. Tāpēc attēls
+    aizskrēja priekšā, un pēdējais kadrs ar CTA stāvēja, kamēr balss vēl
+    stāstīja iepriekšējo nodaļu. Tagad kadru nosaka tā paša kadra ieruna.
+    """
+    if not voices:
+        return durations
+    out: list[float] = []
+    last_voiced = max((i for i, v in enumerate(voices) if v), default=-1)
+    for i, base in enumerate(durations):
+        v = voices[i] if i < len(voices) else ""
+        secs = (speech[i] if speech and i < len(speech)
+                else (media_duration(v) if v else 0.0))
+        need = frame_seconds_for(secs, last=(i == last_voiced))
+        out.append(need if need > 0 else base)
+    return out
+
+
 def _assemble(frames: list[Path], workdir: Path, out: Path,
               frame_seconds: float = FRAME_SECONDS,
               durations: list[float] | None = None,
-              voice: str | Path | None = None) -> float:
+              voice: str | Path | None = None,
+              voices: list[str] | None = None) -> float:
     """durations: sekundes katram kadram atsevišķi (piem., īss intro/outro ap
     garākiem satura kadriem); bez tā visi kadri ir frame_seconds gari.
 
-    voice: ierunas audio fails. Kadri tiek izstiepti līdz runas garumam
-    (citādi balss tiktu nogriezta pusvārdā), un skaņa aiziet līdzi klusuma
-    celiņa vietā."""
-    if voice:
+    voices: ieruna KATRAM kadram atsevišķi — kadrs tad ir tieši tik garš, cik
+    tā paša kadra runa, un attēls ar balsi nekur neaizšķiras.
+
+    voice: viens runas fails pār visu lenti (vecais ceļš — nedēļas digests un
+    manuāli pieprasītās lentes, kur nodaļu dalījuma nav). Kadri tiek izstiepti
+    proporcionāli, lai balss netiktu nogriezta pusvārdā.
+    """
+    voiced = [v for v in (voices or []) if v]
+    if voiced:
+        durations = plan_durations(durations or [frame_seconds] * len(frames),
+                                   voices)
+    elif voice:
         seconds = media_duration(voice)
         if seconds > 0:
             base = durations or [frame_seconds] * len(frames)
@@ -291,12 +489,12 @@ def _assemble(frames: list[Path], workdir: Path, out: Path,
             log.warning("voice track %s has no readable duration — silent reel",
                         voice)
             voice = None
-    segments = []
+    segments, asegments = [], []
     total_frames = 0
     for i, png in enumerate(frames):
         seconds = (durations[i] if durations and i < len(durations)
                    else frame_seconds)
-        per_frame = int(seconds * FPS)
+        per_frame = max(1, int(round(seconds * FPS)))
         total_frames += per_frame
         seg = workdir / f"seg{i}.mp4"
         # upscale first so the zoom pans over subpixels instead of jittering
@@ -309,20 +507,40 @@ def _assemble(frames: list[Path], workdir: Path, out: Path,
             "-frames:v", str(per_frame),
             "-c:v", "libx264", "-preset", "veryfast", str(seg)])
         segments.append(seg)
-    lst = workdir / "list.txt"
-    lst.write_text("".join(f"file '{s}'\n" for s in segments), encoding="utf-8")
+        if voiced:
+            aseg = workdir / f"aseg{i}.m4a"
+            _audio_segment(voices[i] if i < len(voices) else "",
+                           per_frame / FPS, aseg)
+            asegments.append(aseg)
     video_seconds = total_frames / FPS
-    if voice:
+    if voiced:
+        # skaņu liekam kopā no tiem pašiem gabaliem, kas kadrus: katrs celiņš
+        # ir tieši sava kadra garumā, tāpēc kopsummas sakrīt pa kadru robežām
+        # un noiet nav no kā rasties
+        video = workdir / "video.mp4"
+        audio = workdir / "audio.m4a"
+        _concat(segments, workdir, video, "vlist", ["-c", "copy"])
+        _concat(asegments, workdir, audio, "alist", _AAC)
+        _run_ffmpeg(["-i", str(video), "-i", str(audio),
+                     "-map", "0:v", "-map", "1:a", "-c", "copy",
+                     "-t", f"{video_seconds:.3f}", str(out)])
+    elif voice:
         # apad pieliek klusumu aiz pēdējā vārda, lai CTA kadrs nepaliek bez
         # skaņas celiņa. Beigas nosaka -t, nevis -shortest: apad ģenerē
         # bezgalīgu klusumu, un -shortest caur filtru neizplatās — ffmpeg
         # tad kodē mūžīgi.
+        lst = workdir / "list.txt"
+        lst.write_text("".join(f"file '{s}'\n" for s in segments),
+                       encoding="utf-8")
         _run_ffmpeg([
             "-f", "concat", "-safe", "0", "-i", str(lst), "-i", str(voice),
             "-map", "0:v", "-map", "1:a", "-af", "apad",
             "-t", f"{video_seconds:.3f}",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", str(out)])
     else:
+        lst = workdir / "list.txt"
+        lst.write_text("".join(f"file '{s}'\n" for s in segments),
+                       encoding="utf-8")
         _run_ffmpeg([
             "-f", "concat", "-safe", "0", "-i", str(lst),
             "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
@@ -406,6 +624,59 @@ def build_video_reel(video_url: str, out_dir: Path | None = None,
     return str(out)
 
 
+def chapter_voice(sec: dict) -> str:
+    """Ko balss saka pār vienu nodaļas kadru.
+
+    Tikai tekstu, nevis virsrakstu+tekstu. Virsraksts jau stāv uz ekrāna
+    sarkanā rindā, un, to vēl nolasot, klausītājs vienu domu dzird divreiz —
+    tieši tā skanēja liekvārdība, ko pamanīja redakcija.
+    """
+    body = str(sec.get("voice") or sec.get("body") or "").strip()
+    head = str(sec.get("title") or "").strip().rstrip(".!?")
+    # ja AI teksts tomēr sākas ar pašu virsrakstu, atkārtojumu izņemam te
+    if head and body.lower().startswith(head.lower()):
+        rest = body[len(head):].lstrip(" .,:;—-")
+        if len(rest) > 40:
+            body = rest
+    return body
+
+
+def narration(cover_voice: str, sections: list[dict], end_voice: str,
+              include_cover: bool = True, include_end: bool = True,
+              n_content: int = 0) -> list[str]:
+    """Ierunas teksts KATRAM kadram, tajā pašā secībā, kādā kadri top."""
+    out: list[str] = []
+    if include_cover:
+        out.append(cover_voice)
+    out.extend(chapter_voice(s) for s in sections[:n_content])
+    if len(out) < n_content + (1 if include_cover else 0):
+        out.extend([""] * (n_content + (1 if include_cover else 0) - len(out)))
+    if include_end:
+        out.append(end_voice)
+    return out
+
+
+def _trim_to_budget(docs: list[str], durations: list[float],
+                    voices: list[str], speech: list[float],
+                    include_end: bool,
+                    budget: float = VOICE_MAX_SECONDS) -> int:
+    """Izmet PĒDĒJĀS nodaļas, kamēr lente ietilpst budžetā. Atgriež, cik izmests.
+
+    Platformai ir griesti, un tos var sasniegt divējādi: nogriežot balsi
+    pusvārdā vai atmetot pēdējo nodaļu veselu. Otrais ir godīgāks — stāsts
+    beidzas pie nodaļas robežas, nevis pie pusteikuma.
+    """
+    dropped = 0
+    end = 1 if include_end else 0
+    while len(docs) - end - 1 > 1 and sum(durations) > budget:
+        i = len(docs) - end - 1      # pēdējais satura kadrs
+        for seq in (docs, durations, voices, speech):
+            if i < len(seq):
+                del seq[i]
+        dropped += 1
+    return dropped
+
+
 def build_reel(title: str, section: str, image_url: str, points: list[str],
                out_dir: Path | None = None,
                max_points: int = MAX_POINTS,
@@ -416,13 +687,25 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                cover_images: list[str] | None = None,
                point_images: list[str] | None = None,
                voice: str | Path | None = None,
-               sections: list[dict] | None = None) -> str:
+               sections: list[dict] | None = None,
+               blur_image: str = "",
+               cover_voice: str = "",
+               end_voice: str = "",
+               synth=None,
+               rules: dict | None = None,
+               report: dict | None = None) -> str:
     """Render frames and assemble the MP4; returns the local file path.
 
-    Teaseri: vāks + īsi punkti + CTA kadrs, 2.8 s kadrā. Digest (nedēļas
-    TOP 5): punkti pa 6 s, lai garos virsrakstus ar datumu var izlasīt, un
-    īss intro/outro (edge_seconds) — vāks dod kontekstu, beigu kadrs CTA,
-    bet saturs paliek video centrā."""
+    Teaseri: vāks + nodaļas + CTA kadrs. Digest (nedēļas TOP 5): punkti pa
+    6 s, lai garos virsrakstus ar datumu var izlasīt, un īss intro/outro
+    (edge_seconds) — vāks dod kontekstu, beigu kadrs CTA, bet saturs paliek
+    video centrā.
+
+    cover_voice / end_voice: ko balss saka pār vāku un noslēguma kadru. Kad
+    kāds no tiem vai kāda nodaļa ir ierunājama, katram kadram tiek sintezēta
+    SAVA ieruna, un kadrs ir tieši tik garš, cik tā runa. `voice` (viens fails
+    pār visu lenti) paliek vecajiem ceļiem, kur nodaļu dalījuma nav.
+    """
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     edge = frame_seconds if edge_seconds is None else edge_seconds
@@ -433,31 +716,64 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                                                       cover_images))
         else:
             docs.append(cards.build_story_html(title, section, image_url,
-                                               inset=SAFE_INSET))
+                                               inset=SAFE_INSET,
+                                               blur_image=blur_image,
+                                               ai_badge=True))
         durations.append(edge)
     point_images = point_images or []
+    used = list((sections or [])[:max_points])
     if sections:
         # sadaļu kadri: virsraksts + teikumi — tekstam vajag vairāk laika
         # nekā vienam punktam, un balss stiepj kadrus vēl garākus
-        for i, sec in enumerate(sections[:max_points], start=1):
+        for i, sec in enumerate(used, start=1):
             bg = point_images[(i - 1) % len(point_images)] if point_images else ""
             docs.append(_section_frame_html(section, i, sec.get("title", ""),
-                                            sec.get("body", ""), bg_image=bg))
+                                            sec.get("body", ""), bg_image=bg,
+                                            blur_image=blur_image,
+                                            total=len(used), rules=rules))
             durations.append(max(frame_seconds, SECTION_FRAME_SECONDS))
     else:
         for i, p in enumerate(points[:max_points], start=1):
             bg = point_images[i - 1] if i - 1 < len(point_images) else ""
             docs.append(_point_frame_html(section, i, p, bg_image=bg))
             durations.append(frame_seconds)
+    n_content = len(used) if sections else len(points[:max_points])
     if include_end:
-        docs.append(_end_frame_html())
+        docs.append(_end_frame_html(rules))
         durations.append(edge)
+
+    voices: list[str] = []
+    narration_texts: list[str] = []
+    if voice is None:
+        narration_texts = texts = narration(cover_voice, used, end_voice,
+                          include_cover=include_cover,
+                          include_end=include_end, n_content=n_content)
+        if any(t.strip() for t in texts):
+            if synth is None:
+                from app import tts
+
+                synth = tts.synthesize
+            voices = [synth(t) if t.strip() else "" for t in texts]
+            voices += [""] * (len(docs) - len(voices))
+            speech = [media_duration(v) if v else 0.0 for v in voices]
+            durations = plan_durations(durations, voices, speech)
+            dropped = _trim_to_budget(docs, durations, voices, speech,
+                                      include_end)
+            if dropped:
+                log.info("reel trimmed by %d chapter(s) to fit %ds",
+                         dropped, VOICE_MAX_SECONDS)
+
     out = out_dir / f"reel_{secrets.token_hex(6)}.mp4"
     with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
         workdir = Path(tmp)
         frames = _render_frames(docs, workdir)
         total = _assemble(frames, workdir, out, durations=durations,
-                          voice=voice)
+                          voice=voice, voices=voices or None)
+    if report is not None:
+        report.update({"voiced": bool(voice or any(voices)),
+                       "frames": len(docs), "seconds": round(total, 2),
+                       "narration": [t for t in (narration_texts or []) if t]})
     log.info("reel built: %s (%d frames, %.0fs total%s)",
-             out.name, len(docs), total, ", ar ierunu" if voice else "")
+             out.name, len(docs), total,
+             ", ar ierunu" if (voice or any(voices)) else "")
     return str(out)

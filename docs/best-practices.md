@@ -53,10 +53,51 @@ this tool's job.
 | Pirmā kartīte āķē, pēdējā ir CTA | vāks + CTA kartīte `build_section_cards_html` |
 | Katra kartīte klikšķināma uz rakstu | `card_links` + savs `utm_term` katrai (`quiz-karte2`) |
 | Švīkošanas norāde | sarkanās ">>>" bultas |
-| Lente 9:16, ≤60 s | 1080×1920; ieruna stiepj kadrus, `VOICE_MAX_SECONDS` |
-| Kadrā tik teksta, cik paspēj izlasīt | sadaļas kadrs 5.5 s (punkts 2.8 s) |
-| Ieruna latviski, rakstīta RUNĀŠANAI | `voice_script`; izrunas vārdnīca (`tv3.lv` → «tv trīs punkts lv») |
+| Lente 9:16, ≤60 s | 1080×1920; par garu lente zaudē PĒDĒJO NODAĻU veselu, nevis balsi pusteikumā (`_trim_to_budget`) |
+| Kadru nosaka TĀ PAŠA kadra ieruna | `plan_durations`: katram kadram sava sintēze, kadrs = tās garums |
+| Kadrā tik teksta, cik paspēj izlasīt | vismaz `MIN_FRAME_SECONDS`; klusam kadram 5.5 s (punkts 2.8 s) |
+| Balss nelasa to, kas jau ir uz ekrāna | `chapter_voice`: nodaļas virsraksts ir vizuāls marķieris, balss saka tikai tekstu |
+| Ieruna latviski, rakstīta RUNĀŠANAI | sadaļu `body`; izrunas vārdnīca (`tv3.lv` → «tv trīs punkts lv») |
+| Skatītājs redz, cik tālu stāsts | nodaļu josla kadra augšā (`_progress_html`) |
+| Kadrs nekad nav plakans krāsas laukums | foto → izpludināta photopost grafika → gradients (`_bg_layers`) |
 | Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
+
+### Kāpēc ieruna ir pa kadriem
+
+Sākotnēji balss bija viens gabals pār visu lenti, un kadru garumus mēroja
+proporcionāli tā kopgarumam. Tas ir pareizi tikai tad, ja katra nodaļa runā
+tieši tik ilgi, cik liela daļa kadru tai pieder — praksē nekad. Rezultāts:
+attēls aizskrēja priekšā, CTA kadrs stāvēja, kamēr balss vēl stāstīja
+iepriekšējo nodaļu. Tagad katram kadram tiek sintezēts savs gabals, kadra
+garums ir `lead + runa + elpa`, un video ar skaņu saliek no tiem pašiem
+segmentiem — noiet nav no kā rasties. Sedz
+`test_per_frame_narration_end_to_end_keeps_video_and_voice_together`.
+
+## MI marķējums (ES Regula 2024/1689, 50. pants)
+
+Parakstus, birkas, kartīšu tekstus un lentes ierunu raksta mākslīgais
+intelekts. 50. panta 2. punkts prasa mākslīgi ģenerētu audio, attēlu, video
+un tekstu marķēt; 4. punkts prasa to atklāt arī tāpēc, ka ziņas ir saturs
+par sabiedrībai nozīmīgiem jautājumiem. Marķējumam jābūt skaidram un
+pamanāmam, tāpēc tas ir trijās vietās vienlaikus:
+
+| Kur | Kas |
+|---|---|
+| Uz grafikas | «MI · Veidots ar MI» zīmīte lentes kadros un karuseļa vākā |
+| Grafikas beigās | pilns teikums CTA kadrā / beigu kartītē |
+| Parakstā | atsevišķa pēdējā rinda; X — īsā forma (280 zīmes) |
+| Skaļi | noslēguma teikums lentes ierunā — skaņa sasniedz arī tos, kas ekrānu neredz |
+
+Vieta parakstā tiek **rezervēta pirms** teksta apgriešanas
+(`sanitize_copy(reserve_chars=…)`), citādi tvīts ar atrunu pārsniegtu limitu
+tieši tad, kad teksts ir garš. Ja AI paraksts par MI jau ieminas pats, otro
+reizi nepieliekam (`disclosure.in_caption`).
+
+Formulējumu var mainīt Noteikumos (`ai_disclosure_text`, `_short`,
+`_spoken`). Noklusējums ir **ieslēgts**, un koda noklusējums darbojas arī
+tad, ja instances rediģējamajā kopijā atslēgas vēl nav — bet Noteikumu lapa
+tagad par tādu novirzi brīdina (`config.missing_rules`), lai redaktors zina,
+ko viņš neredz.
 
 ## Format → clicks
 
@@ -78,9 +119,13 @@ this tool's job.
 
 ## Kas apzināti NAV izdarīts
 
-- **Ierunas subtitri.** Kad ierunu ģenerē no sadaļām, runātie vārdi JAU ir
-  uz kadra — tā ir dabiska paraksta forma. Bet, ja AI uzraksta atsevišķu
-  `voice_script`, teksts un balss atšķiras, un skaņu izslēgušais skatītājs
-  runāto nedabū. Īsti subtitri (burn-in vai SRT) vēl nav.
+- **Ierunas subtitri.** Nodaļu kadros balss saka tieši to, kas rakstīts uz
+  ekrāna — tur paraksts faktiski ir. Vāka un noslēguma kadrā tā nav: tur
+  balss saka āķi un atrunu, kas rakstītā veidā neparādās. Īsti subtitri
+  (word-level no Azure `WordBoundary` → burn-in vai SRT) vēl nav.
+- **Mašīnlasāms MI marķējums.** Redzamā un dzirdamā atruna ir; C2PA /
+  IPTC metadatu marķējums failā vēl nav — 50. panta 2. punkts to sagaida no
+  ģenerētāja, un mūsu gadījumā tas ir Azure/Anthropic, ne mēs. Kad publicējam
+  pārkodētu MP4, sākotnējie metadati tāpat pazūd, tāpēc te vajag savu soli.
 - **Threads alt teksts** — API to nepieņem.
 - **Instagram kanāls** izslēgts (`active: false`), līdz konts ir sasaistīts.

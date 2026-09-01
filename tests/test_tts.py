@@ -165,8 +165,11 @@ def test_reel_build_speaks_the_script(session, monkeypatch, tmp_path):
     built = {}
 
     def fake_build(title, section, image, points, out_dir=None, voice=None,
-                   sections=None, point_images=None):
-        built["voice"] = voice
+                   sections=None, point_images=None, report=None, **kw):
+        built.update(voice=voice, **kw)
+        if report is not None:
+            report.update(voiced=True,
+                          narration=[kw.get("cover_voice", "")])
         return "/data/cards/reel_v.mp4"
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
@@ -177,7 +180,9 @@ def test_reel_build_speaks_the_script(session, monkeypatch, tmp_path):
                                    "ēkas nākotni vēl nav pieņemts.")})
 
     assert fmt == "reel"
-    assert built["voice"] == str(tmp_path / "voice.mp3")
+    # AI scenārijs tagad ir ATKLĀŠANAS rinda pār vāku, nevis viss stāsts
+    assert built["voice"] is None
+    assert built["cover_voice"].startswith("Namā daļēji iebruka jumts")
     assert recipe["voice_script"].startswith("Namā daļēji iebruka jumts")
 
 
@@ -197,8 +202,8 @@ def test_reel_stays_silent_when_the_script_is_a_stub(session, monkeypatch):
     built = {}
 
     def fake_build(title, section, image, points, out_dir=None, voice=None,
-                   sections=None, point_images=None):
-        built["voice"] = voice
+                   sections=None, point_images=None, report=None, **kw):
+        built.update(voice=voice, **kw)
         return "/data/cards/reel_v2.mp4"
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
@@ -206,7 +211,11 @@ def test_reel_stays_silent_when_the_script_is_a_stub(session, monkeypatch):
         session, "ig_tv3lv", {"formats": ["reel"], "platform": "instagram"},
         article, {"format": "reel", "card_points": ["Viens fakts", "Otrs fakts"],
                   "voice_script": "Par īsu."})
+    # īss scenārijs vairs nenozīmē klusu lenti: atklāšanas rinda drīkst būt
+    # īsa, un nodaļu tekstus tāpat nolasa balss — bet Azure te netiek
+    # aiztikts, jo sintēze notiek build_reel iekšienē (šeit aizvietots)
     assert built["voice"] is None
+    assert built["cover_voice"] == "Par īsu."
 
 
 def test_a_second_key_is_verified_against_azure_not_the_cache(client, session,

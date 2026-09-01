@@ -99,7 +99,7 @@ def regenerate(session, post) -> tuple[bool, str]:
     """(izdevās, ziņa redaktoram). Media aizstājam tikai tad, ja jaunais
     renders tiešām sanāca — neizdevies mēģinājums nedrīkst atstāt ierakstu
     bez attēla."""
-    from app import cards, reels, tts
+    from app import cards, reels
     from app.weekend import _any_image, _clean_image
 
     if not can_regenerate(post):
@@ -191,19 +191,29 @@ def regenerate(session, post) -> tuple[bool, str]:
             art = session.get(Article, recipe.get("article"))
             if art is None:
                 return False, "Raksts vairs nav pieejams."
-            # ieruna nāk no receptes teksta: pārzīmējot to pašu reelu, Azure
-            # atbilde jau ir kešā, tāpēc otrreiz par to nemaksājam
+            # Pārzīmējam pa TIEM PAŠIEM noteikumiem, kas sākotnējā būvē:
+            # ieruna pa kadriem, nevis viens gabals pār visu lenti. Citādi
+            # redaktora pārzīmētā lente atgrieztu tieši to nesakritību starp
+            # attēlu un balsi, kuras dēļ šis ceļš tika pārtaisīts. Azure
+            # atbildes uz to pašu tekstu nāk no keša, tāpēc otrreiz nemaksājam.
             from app.pipeline import section_backgrounds
 
-            audio = tts.reel_voice(recipe, session=session)
-            bgs, _blur = section_backgrounds(art)
-            media = [reels.build_reel(art.title, art.section or section,
-                                      recipe.get("image", ""),
-                                      recipe.get("points") or [],
-                                      sections=recipe.get("sections") or None,
-                                      point_images=bgs,
-                                      voice=audio or None)]
-            recipe = {**recipe, "voiced": bool(audio)}
+            bgs, blur = section_backgrounds(art)
+            report: dict = {}
+            media = [reels.build_reel(
+                art.title, art.section or section,
+                recipe.get("image", ""), recipe.get("points") or [],
+                sections=recipe.get("sections") or None,
+                point_images=bgs, blur_image=blur,
+                cover_voice=(recipe.get("cover_voice")
+                             or reels.spoken_line(art.title)),
+                end_voice=recipe.get("end_voice") or reels.end_voice_text(),
+                report=report)]
+            recipe = {**recipe, "voiced": bool(report.get("voiced")),
+                      "blur_image": blur,
+                      "seconds": report.get("seconds"),
+                      "voice_script": " ".join(report.get("narration") or [])
+                                      or recipe.get("voice_script", "")}
         else:   # photo / story bez receptes — zīmējam no paša raksta
             from app.pipeline import (branded_photo, photo_base_image,
                                       story_media)

@@ -122,8 +122,15 @@ def _truncate_to(text: str, limit: int) -> str:
 
 def sanitize_copy(copy: str, hashtags: list[str], platform: str,
                   sensitivity: list[str] | None = None,
-                  reserve_link_chars: bool = False) -> tuple[str, list[str], list[str]]:
-    """Enforce house style + platform limits. Returns (copy, hashtags, applied_fixes)."""
+                  reserve_link_chars: bool = False,
+                  reserve_chars: int = 0) -> tuple[str, list[str], list[str]]:
+    """Enforce house style + platform limits. Returns (copy, hashtags, applied_fixes).
+
+    reserve_chars: vieta, kas parakstā aizies kam citam un tāpēc netiek dota
+    tekstam. Šobrīd tā ir MI atruna: to pieliek jau pēc apgriešanas, un bez
+    rezerves tvīts ar atrunu pārsniegtu 280 zīmes tieši tad, kad teksts ir
+    garš — tātad visbiežāk.
+    """
     spec = PLATFORM_SPECS.get(platform) or PLATFORM_SPECS["facebook_page"]
     fixes: list[str] = []
     sensitivity = sensitivity or []
@@ -167,7 +174,8 @@ def sanitize_copy(copy: str, hashtags: list[str], platform: str,
     if reserve_link_chars and spec.link_in_copy:
         budget -= (spec.link_char_cost or 30) + 1  # link + separating space
     tags_len = sum(len(h) + 1 for h in hashtags)
-    limit = min(budget - tags_len, spec.ideal_max_chars)
+    budget -= max(0, reserve_chars)
+    limit = max(60, min(budget - tags_len, spec.ideal_max_chars))
     if effective_length(copy, spec) > limit:
         copy = _truncate_to(copy, limit)
         fixes.append(f"truncated to {limit} chars")
@@ -175,13 +183,19 @@ def sanitize_copy(copy: str, hashtags: list[str], platform: str,
     return copy.strip(), hashtags, fixes
 
 
-def assemble_post_text(copy: str, hashtags: list[str], link: str, platform: str) -> str:
+def assemble_post_text(copy: str, hashtags: list[str], link: str, platform: str,
+                       disclosure: str = "") -> str:
+    """disclosure: ES MI akta atruna. Tā stāv paraksta beigās atsevišķā rindā,
+    aiz saites — pamanāma, bet neaizšķērso pirmo teikumu, kas plūsmā izlemj,
+    vai ierakstu vispār lasīs."""
     spec = PLATFORM_SPECS.get(platform) or PLATFORM_SPECS["facebook_page"]
     parts = [copy]
     if hashtags:
         parts.append(" ".join(hashtags))
     if link and spec.link_in_copy:
         parts.append(link)
+    if disclosure:
+        parts.append(disclosure)
     return "\n\n".join(p for p in parts if p)
 
 

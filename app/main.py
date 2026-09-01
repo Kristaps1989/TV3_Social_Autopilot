@@ -347,13 +347,16 @@ def edit_copy(post_id: int, copy: str = Form(...)):
     try:
         post = session.get(Post, post_id)
         if post and post.state in ("proposed", "scheduled"):
+            from app import disclosure
             from app.best_practices import sanitize_copy
 
             channels = config.load_channels()
             platform = (channels.get(post.channel) or {}).get("platform", "")
             sens = post.article.sensitivity if post.article else []
-            post.copy, _, _ = sanitize_copy(copy, post.hashtags or [], platform, sens,
-                                            reserve_link_chars=True)
+            post.copy, _, _ = sanitize_copy(
+                copy, post.hashtags or [], platform, sens,
+                reserve_link_chars=True,
+                reserve_chars=len(disclosure.caption_line(platform)) + 2)
             session.commit()
     finally:
         session.close()
@@ -1477,8 +1480,13 @@ EDITABLE = {
 def settings(request: Request, saved: str = "", error: str = ""):
     files = {k: (p.read_text(encoding="utf-8") if p.exists() else "")
              for k, p in EDITABLE.items()}
-    return templates.TemplateResponse(request, "settings.html",
-                                      {"files": files, "saved": saved, "error": error})
+    return templates.TemplateResponse(
+        request, "settings.html",
+        {"files": files, "saved": saved, "error": error,
+         # jaunas atslēgas, kas kodā ir, bet šīs instances kopijā nav: bez
+         # brīdinājuma redaktors par tām neuzzina nekad
+         "missing_rules": config.missing_rules(),
+         "missing_channels": config.missing_channels()})
 
 
 @app.post("/settings/{kind}")

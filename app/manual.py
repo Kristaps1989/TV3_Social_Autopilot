@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 
-from app import config, pagemeta, runtime
+from app import config, disclosure, pagemeta, runtime
 from app.best_practices import sanitize_copy
 from app.models import Evaluation, Post, utcnow
 from app.pipeline import format_media, resolve_format
@@ -171,7 +171,8 @@ def build(session, article, channel: str, fmt: str) -> tuple[Post | None, str]:
     platform = cfg.get("platform", "")
     copy, hashtags, _fixes = sanitize_copy(
         ch_dec["copy"], pagemeta.hashtags(article), platform,
-        article.sensitivity, reserve_link_chars=True)
+        article.sensitivity, reserve_link_chars=True,
+        reserve_chars=len(disclosure.caption_line(platform)) + 2)
 
     # Kanāla atstarpes un klusās stundas paliek spēkā arī rokas režīmā: tās
     # pasargā kontu no pārblīvēšanas, un «tūlīt» šeit nozīmē «nākamajā

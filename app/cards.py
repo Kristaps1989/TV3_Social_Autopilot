@@ -189,6 +189,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
     «TOP 5» saraksts izlaiž vāka un CTA kartīti — piecas kartītes = pieci
     stāsti, katrs ar savu saiti. Ievadu nes paša ieraksta teksts.
     label: franšīzes lente uz pirmās kartītes, kad vāka kartītes nav."""
+    from app import disclosure
+
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     dark = _shade(color, -0.18)
@@ -243,6 +245,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         {date_chip(date_txt)}
         <div class="page">1/{total} →</div>
         {cover_txt}
+        {disclosure.badge_html()}
       </div>{bar(1)}
     </div>""")
 
@@ -316,6 +319,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         <h2>{esc(end_question)}</h2>
         <div class="cta" style="color:{color}">Lasi pilno rakstu →</div>
         <div class="url">tv3.lv</div>
+        {f'<div class="ainote"><b>MI</b>{esc(disclosure.text())}</div>'
+         if disclosure.text() else ""}
       </div>
     </div>""")
 
@@ -379,6 +384,14 @@ h2 {{ font-size:56px; line-height:1.28; margin-bottom:64px; max-width:860px; }}
 .cta {{ background:#fff; font-size:42px; font-weight:bold; padding:28px 66px;
         border-radius:99px; }}
 .url {{ margin-top:44px; font-size:34px; opacity:.85; font-weight:bold; }}
+.ainote {{ position:absolute; left:64px; right:64px; bottom:56px;
+  display:flex; align-items:center; justify-content:center; gap:16px;
+  font-size:27px; font-weight:600; line-height:1.3; opacity:.95;
+  border-top:2px solid rgba(255,255,255,.38); padding-top:24px; }}
+.ainote b {{ background:#fff; color:{color}; border-radius:8px;
+  padding:3px 11px; font-size:26px; flex:none; }}
+{disclosure.badge_css(left=48, bottom=44, size=26)}
+.aibadge {{ z-index:3; }}
 </style></head><body>{''.join(cards)}</body></html>"""
 
 
@@ -416,6 +429,8 @@ def build_section_cards_html(title: str, section: str, tag: str,
     foto nav (tikai photopost grafika), blur_image kļūst par izpludinātu
     faktūru — tāpat kā pārējos formātos.
     """
+    from app import disclosure
+
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     dark = _shade(color, -0.18)
@@ -458,6 +473,7 @@ def build_section_cards_html(title: str, section: str, tag: str,
         <div class="page">1/{total}</div>
         {cover_txt}
         <div class="chev">{_CHEVRONS}</div>
+        {disclosure.badge_html()}
       </div>{bar(1)}
     </div>""")
 
@@ -501,6 +517,8 @@ def build_section_cards_html(title: str, section: str, tag: str,
         <h2>{esc(end_question)}</h2>
         <div class="cta" style="color:{color}">Lasi pilno rakstu →</div>
         <div class="url">tv3.lv</div>
+        {f'<div class="ainote"><b>MI</b>{esc(disclosure.text())}</div>'
+         if disclosure.text() else ""}
       </div>
     </div>""")
 
@@ -556,6 +574,14 @@ h2 {{ font-size:56px; line-height:1.28; margin-bottom:64px; max-width:860px; }}
 .cta {{ background:#fff; font-size:42px; font-weight:bold; padding:28px 66px;
         border-radius:99px; }}
 .url {{ margin-top:44px; font-size:34px; opacity:.85; font-weight:bold; }}
+.ainote {{ position:absolute; left:64px; right:64px; bottom:56px;
+  display:flex; align-items:center; justify-content:center; gap:16px;
+  font-size:27px; font-weight:600; line-height:1.3; opacity:.95;
+  border-top:2px solid rgba(255,255,255,.38); padding-top:24px; }}
+.ainote b {{ background:#fff; color:{color}; border-radius:8px;
+  padding:3px 11px; font-size:26px; flex:none; }}
+{disclosure.badge_css(left=48, bottom=44, size=26)}
+.aibadge {{ z-index:3; }}
 </style></head><body>{''.join(cards)}</body></html>"""
 
 
@@ -638,7 +664,8 @@ _LINK_ICON = (
 
 def build_story_html(title: str, section: str, image_url: str,
                      kicker: str = "", with_title: bool = True,
-                     date_txt: str = "", inset: int = 0) -> str:
+                     date_txt: str = "", inset: int = 0,
+                     blur_image: str = "", ai_badge: bool = False) -> str:
     """Vertical story (1080x1920) in the tv3.lv style: full-bleed image,
     title plate, CTA. Top/bottom safe zones respected (platform UI).
 
@@ -646,7 +673,15 @@ def build_story_html(title: str, section: str, image_url: str,
     virsraksta plāksne aiziet līdz pašai malai. Lentē kadru tuvina Ken Burns
     efekts, un tuvinājums apgriež tieši malas — tur plāksne pazūd pa vidu
     vārdam, tāpēc reels padod savu SAFE_INSET.
+
+    blur_image: ko likt fonā, kad tīra foto NAV. Photopost grafika ar iecepto
+    virsrakstu zem mūsu plāksnes neder, bet izpludināta tā ir laba faktūra —
+    daudz labāka par plakanu krāsas laukumu, kāds vāks iznāca līdz šim.
+
+    ai_badge: ES MI akta marķējums (Regula 2024/1689, 50. pants). Statiskam
+    stāstam to uzliek zvanītājs; lentē tas ir vienmēr.
     """
+    from app import disclosure
     style = SECTION_STYLE.get(section) or SECTION_STYLE["news"]
     color = style["color"]
     esc = html.escape
@@ -654,8 +689,17 @@ def build_story_html(title: str, section: str, image_url: str,
     kicker_html = (f'<div class="kick">{esc(kicker or style["kicker"])}</div>')
     if with_title:
         # our own layout: full-bleed photo, gradient, white title plate
-        bg = f'background:url({img}) center/cover, {color};' if img             else f"background:{color};"
-        layers = '<div class="shade"></div>'
+        blur = html.escape(blur_image, quote=True) if blur_image else ""
+        if img:
+            bg = f'background:url({img}) center/cover, {color};'
+            layers = '<div class="shade"></div>'
+        elif blur:
+            bg = f"background:{color};"
+            layers = (f'<div class="bgblur" style="background-image:url({blur})">'
+                      f'</div><div class="shade"></div>')
+        else:
+            bg = f"background:{color};"
+            layers = '<div class="shade"></div>'
         plate = f'<div class="plate">{kicker_html}<h1>{esc(title)}</h1></div>'
     else:
         # pre-branded graphic (photopost): its own headline IS the layout, so
@@ -671,7 +715,9 @@ def build_story_html(title: str, section: str, image_url: str,
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden; {bg} }}
 .bgblur {{ position:absolute; inset:-60px;
   background:url({img}) center/cover, {color};
+  background-size:cover; background-position:center;
   filter:blur(48px) brightness(.55); }}
+{disclosure.badge_css(left=56 + inset, bottom=170, size=28) if ai_badge else ""}
 .art {{ position:absolute; top:190px; left:50%; transform:translateX(-50%);
   max-width:1016px; max-height:1230px; object-fit:contain;
   border-radius:22px; box-shadow:0 18px 60px rgba(0,0,0,.45); }}
@@ -706,6 +752,7 @@ def build_story_html(title: str, section: str, image_url: str,
   {plate}
   <div class="cta">Lasi visu rakstā</div>
   <div class="linkpill">{_LINK_ICON}tv3.lv</div>
+  {disclosure.badge_html() if ai_badge else ""}
 </div>
 </body></html>"""
 

@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from adapters import get_adapter
 from adapters.base import PublishError
-from app import config, pagemeta, shortlinks, tts
+from app import config, disclosure, pagemeta, shortlinks, tts
 from app.best_practices import (add_utm, alt_text, assemble_post_text,
                                 sanitize_copy)
 from app.decide import decide
@@ -116,6 +116,9 @@ def run_decisions(session, limit: int = 20) -> int:
                 # kad AI hashtagus nedod, ņemam redakcijas pašas birkas
                 ch_dec.get("hashtags") or pagemeta.hashtags(article),
                 platform, article.sensitivity, reserve_link_chars=True,
+                # MI atrunai vieta jāatvēl PIRMS apgriešanas, citādi tvīts
+                # ar to pārsniedz limitu tieši tad, kad teksts ir garš
+                reserve_chars=len(disclosure.caption_line(platform)) + 2,
             )
 
             preferred = repost_at
@@ -473,8 +476,13 @@ def section_backgrounds(article) -> tuple[list[str], str]:
 
 
 def sections_voice_text(sections: list[dict]) -> str:
-    """Ierunas teksts no sadaļām, kad AI atsevišķu scenāriju nav devusi:
-    balss nolasa to pašu, kas rakstīts kadros — virsrakstu un teikumus."""
+    """Visas nodaļas vienā runas tekstā.
+
+    Lentēs to vairs nelieto — tur katram kadram ir sava ieruna (sk.
+    `reels.narration`). Paliek priekšskatījumam un vecajām receptēm, kur
+    ieruna bija viens fails pār visu video. Virsraksts te ir iekšā apzināti:
+    bez kadra, kas to parāda, teksts bez nodaļu nosaukumiem zaudē dalījumu.
+    """
     return " ".join(f"{sec['title']}. {sec['body']}" for sec in sections)
 
 
@@ -562,27 +570,32 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         # neviena cita attēla nav.
         image = unbranded_image(article)
         if (len(sections) >= 2 or len(points) >= 2) and reels.available():
-            # ierunas teksts glabājas receptē: tas ir vienīgā vieta, kur AI
-            # uzrakstītais scenārijs paliek, un no tā top balss. Ja atsevišķa
-            # scenārija nav, balss nolasa pašas sadaļas — kadros rakstīto.
-            script = reels.voice_script(
-                ch_dec.get("voice_script")
-                or (sections_voice_text(sections) if sections else ""))
-            audio = tts.synthesize(script) if script else ""
-            bgs, _blur = section_backgrounds(article)
+            # Ieruna vairs nav viens gabals pār visu lenti: katram kadram ir
+            # sava rinda, un kadrs ir tieši tik garš, cik tā runa. Vāks saka
+            # āķi, nodaļas — savu tekstu (NE virsrakstu, tas jau ir ekrānā),
+            # beigu kadrs CTA un MI atrunu.
+            cover_voice = reels.spoken_line(
+                (ch_dec.get("voice_script") or "").strip() or article.title)
+            end_voice = reels.end_voice_text()
+            bgs, blur = section_backgrounds(article)
+            report: dict = {}
             try:
                 media = reels.build_reel(article.title, article.section,
                                          image, points, sections=sections,
-                                         point_images=bgs,
-                                         voice=audio or None)
+                                         point_images=bgs, blur_image=blur,
+                                         cover_voice=cover_voice,
+                                         end_voice=end_voice, report=report)
                 return "reel", [media], {
                     "kind": "article_reel", "article": article.id,
                     "points": points, "sections": sections, "image": image,
-                    "voice_script": script,
+                    "blur_image": blur,
+                    "voice_script": " ".join(report.get("narration") or []),
+                    "cover_voice": cover_voice, "end_voice": end_voice,
                     # vai lentē TIEŠĀM ir balss: scenārijs receptē var būt arī
                     # tad, kad sintēze neizdevās, un statistikā tie ir divi
                     # dažādi ieraksti
-                    "voiced": bool(audio),
+                    "voiced": bool(report.get("voiced")),
+                    "seconds": report.get("seconds"),
                     "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)
@@ -640,8 +653,15 @@ def compose_text(post, platform: str, shown_link: str,
         and post.format in ("photo", "photo_album", "card_carousel", "reel")
         and rules.get("link_in_first_comment", True))
     in_caption = rules.get("link_in_caption", True) or not in_comment
+    # ES MI akta 50. panta atruna: parakstu, birkas un sadaļu tekstus raksta
+    # mākslīgais intelekts, tāpēc katrs ieraksts to pasaka. Ja AI teksts to
+    # jau ir pateicis pats, otrreiz nepieliekam.
+    note = disclosure.caption_line(platform, rules)
+    if note and disclosure.in_caption(post.copy or "", rules):
+        note = ""
     text = assemble_post_text(post.copy, post.hashtags or [],
-                              shown_link if in_caption else "", platform)
+                              shown_link if in_caption else "", platform,
+                              disclosure=note)
     return text, in_comment
 
 

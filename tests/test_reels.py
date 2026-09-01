@@ -21,9 +21,9 @@ def test_resolve_format_builds_reel(session, monkeypatch):
     built = {}
 
     def fake_build(title, section, image, points, out_dir=None, voice=None,
-                   sections=None, point_images=None):
+                   sections=None, point_images=None, **kw):
         built.update(title=title, points=points, voice=voice,
-                     sections=sections)
+                     sections=sections, **kw)
         return "/data/cards/reel_x.mp4"
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
@@ -400,8 +400,13 @@ def test_resolve_format_builds_a_section_reel_with_narration(session,
     built = {}
 
     def fake_build(title, section, image, points, out_dir=None, voice=None,
-                   sections=None, point_images=None):
-        built.update(sections=sections, voice=voice, point_images=point_images)
+                   sections=None, point_images=None, report=None, **kw):
+        built.update(sections=sections, voice=voice,
+                     point_images=point_images, **kw)
+        if report is not None:
+            report.update(voiced=True, seconds=21.0,
+                          narration=["Vētra nāk."]
+                          + [s["body"] for s in (sections or [])])
         return "/data/cards/reel_s.mp4"
 
     monkeypatch.setattr(reels, "build_reel", fake_build)
@@ -424,11 +429,15 @@ def test_resolve_format_builds_a_section_reel_with_narration(session,
     assert built["sections"][0]["title"] == "Spēcīgas brāzmas"
     assert built["point_images"] == ["https://cdn/foto1.jpg",
                                      "https://cdn/foto2.jpg"]
-    assert built["voice"] == "/audio/voice.mp3"
-    # ieruna = sadaļu teksts, kad AI atsevišķu scenāriju nedeva
-    assert spoken["text"].startswith("Spēcīgas brāzmas.")
-    assert "trīsdesmit metrus" in spoken["text"]
-    assert recipe["voiced"] is True and recipe["voice_script"] == spoken["text"]
+    # ieruna vairs nav viens fails pār visu lenti — to sintezē build_reel
+    # pa kadriem, tāpēc cauruļvads padod atklāšanas un noslēguma rindas
+    assert built["voice"] is None
+    assert built["cover_voice"] == "Vētra nāk."
+    assert "tv3.lv" in built["end_voice"]
+    assert recipe["voiced"] is True
+    assert "trīsdesmit metrus" in recipe["voice_script"]
+    # kadra virsraksts ierunā vairs neatkārtojas
+    assert "Spēcīgas brāzmas." not in recipe["voice_script"]
 
 
 def test_section_frames_take_longer_than_point_frames(monkeypatch, tmp_path):
@@ -440,7 +449,7 @@ def test_section_frames_take_longer_than_point_frames(monkeypatch, tmp_path):
     seen = {}
 
     def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
-                      voice=None):
+                      voice=None, voices=None):
         seen["durations"] = durations
         Path(out).write_bytes(b"mp4")
         return sum(durations)
@@ -457,3 +466,191 @@ def test_section_frames_take_longer_than_point_frames(monkeypatch, tmp_path):
     assert len(seen["durations"]) == 4
     assert seen["durations"][1] == reels.SECTION_FRAME_SECONDS
     assert seen["durations"][2] == reels.SECTION_FRAME_SECONDS
+
+
+# --- ieruna un kadri iet kopsolī --------------------------------------------
+
+def test_frame_length_follows_its_own_narration_not_a_global_stretch():
+    """Kadru nosaka TĀ PAŠA kadra ieruna.
+
+    Vecais ceļš stiepa visus kadrus proporcionāli vienam runas gabalam. Ja
+    otrā nodaļa runāja divreiz ilgāk par pirmo, attēls tik un tā mainījās uz
+    pusēm — un lentes beigās CTA kadrs jau stāvēja, kamēr balss vēl stāstīja
+    iepriekšējo nodaļu. Tieši to pamanīja redakcija.
+    """
+    from app import reels
+
+    base = [2.8, 5.5, 5.5, 2.8]
+    voices = ["c.mp3", "a1.mp3", "a2.mp3", "e.mp3"]
+    speech = [2.0, 4.0, 12.0, 3.0]     # otrā nodaļa runā trīsreiz ilgāk
+    out = reels.plan_durations(base, voices, speech)
+
+    for planned, spoken in zip(out, speech):
+        assert planned >= spoken + reels.VOICE_LEAD_SECONDS
+    # garā nodaļa dabū savu laiku, nevis vidējo daļu no kopsummas
+    assert out[2] > out[1] * 2
+    # un neviens kadrs nepazib garām
+    assert min(out) >= reels.MIN_FRAME_SECONDS
+
+
+def test_a_frame_without_narration_keeps_its_planned_length():
+    from app import reels
+
+    out = reels.plan_durations([2.8, 5.5, 2.8], ["", "a.mp3", ""], [0.0, 4.0, 0.0])
+    assert out[0] == 2.8 and out[2] == 2.8
+    assert out[1] >= 4.0
+
+
+def test_narration_skips_the_chapter_headline():
+    """Virsraksts ir uz ekrāna; nolasot to vēlreiz, doma atkārtojas."""
+    from app import reels
+
+    sec = {"title": "NATO reakcija",
+           "body": "Meklēšanā iesaistīti NATO iznīcinātāji."}
+    assert reels.chapter_voice(sec) == "Meklēšanā iesaistīti NATO iznīcinātāji."
+
+    # arī tad, kad AI pats teksta sākumā virsrakstu atkārto
+    doubled = {"title": "NATO reakcija",
+               "body": "NATO reakcija: meklēšanā iesaistīti Baltijas gaisa "
+                       "telpas patrulēšanas misijas iznīcinātāji."}
+    spoken = reels.chapter_voice(doubled)
+    assert spoken.startswith("meklēšanā iesaistīti")
+
+
+def test_narration_lines_up_one_to_one_with_the_frames():
+    from app import reels
+
+    secs = [{"title": "A", "body": "Pirmais teksts."},
+            {"title": "B", "body": "Otrais teksts."}]
+    lines = reels.narration("Āķis.", secs, "Beigas.", n_content=2)
+    assert lines == ["Āķis.", "Pirmais teksts.", "Otrais teksts.", "Beigas."]
+
+    # bez vāka un bez CTA kadra rindu ir tieši tik, cik satura kadru
+    assert reels.narration("", secs, "", include_cover=False,
+                           include_end=False, n_content=2) == [
+        "Pirmais teksts.", "Otrais teksts."]
+
+
+def test_a_too_long_reel_loses_whole_chapters_not_half_sentences():
+    from app import reels
+
+    docs = ["cover", "s1", "s2", "s3", "end"]
+    durations = [3.0, 30.0, 30.0, 30.0, 3.0]
+    voices = ["v0", "v1", "v2", "v3", "v4"]
+    speech = [2.0, 28.0, 28.0, 28.0, 2.0]
+    dropped = reels._trim_to_budget(docs, durations, voices, speech,
+                                    include_end=True)
+    assert dropped >= 1
+    assert docs[0] == "cover" and docs[-1] == "end"   # vāks un CTA paliek
+    assert sum(durations) <= reels.VOICE_MAX_SECONDS
+
+
+def test_the_end_frame_is_spoken_and_marked_as_ai():
+    from app import reels
+
+    said = reels.end_voice_text({})
+    assert "tv3.lv" in said
+    assert "mākslīgais intelekts" in said.lower()
+    assert "MI" in reels._end_frame_html({})
+
+
+# --- lente nekad nepaliek bez attēla ----------------------------------------
+
+def test_reel_falls_back_to_a_blurred_graphic_instead_of_a_flat_colour():
+    """Rakstā ir TIKAI photopost grafika: zem plāksnes tā neder, bet
+    izpludināta der — un tieši tā trūka lentēs, kur foto nebija nemaz."""
+    from app import cards, reels
+
+    graphic = "https://cdn/photopost-1.jpg"
+    cover = cards.build_story_html("Virsraksts", "news", "",
+                                   inset=reels.SAFE_INSET, blur_image=graphic,
+                                   ai_badge=True)
+    assert "bgblur" in cover and graphic in cover
+
+    frame = reels._section_frame_html("news", 1, "Nodaļa", "Teksts.",
+                                      bg_image="", blur_image=graphic, total=3)
+    assert "blurbg" in frame and graphic in frame
+
+
+def test_a_real_photo_beats_the_blurred_fallback():
+    from app import reels
+
+    frame = reels._section_frame_html("news", 1, "Nodaļa", "Teksts.",
+                                      bg_image="https://cdn/foto.jpg",
+                                      blur_image="https://cdn/photopost.jpg",
+                                      total=3)
+    assert "https://cdn/foto.jpg" in frame
+    assert "photopost" not in frame
+
+
+def test_section_frames_show_how_far_the_story_has_got():
+    from app import reels
+
+    frame = reels._section_frame_html("news", 2, "Nodaļa", "Teksts.", total=3)
+    assert frame.count('<i class="on">') == 2
+    assert frame.count("<i class=") == 3
+    # viena nodaļa vien nav progress — joslu tad nezīmējam
+    assert 'class="prog"' not in reels._section_frame_html(
+        "news", 1, "N", "T.", total=1)
+
+
+def test_per_frame_narration_end_to_end_keeps_video_and_voice_together(
+        monkeypatch, tmp_path):
+    """Īstais pierādījums: uzbūvēta lente, kuras garums ir tieši tās kadru
+    summa, un katrs kadrs ir tik garš, cik tā ieruna.
+
+    Nodaļas te runā ļoti dažādi gari (2 s un 9 s). Ar veco proporcionālo
+    stiepšanu abi kadri iznāktu vienāda garuma, un balss pāri kadru robežai
+    aizietu — tieši tas, ko redakcija redzēja lentē.
+    """
+    import os
+
+    from app import reels
+
+    try:
+        import imageio_ffmpeg
+
+        monkeypatch.setenv("FFMPEG_BIN", imageio_ffmpeg.get_ffmpeg_exe())
+    except ImportError:
+        pass
+    if not os.environ.get("PLAYWRIGHT_CHROMIUM"):
+        for cand in ("/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+                     "/opt/pw-browsers/chromium"):
+            if os.path.exists(cand):
+                monkeypatch.setenv("PLAYWRIGHT_CHROMIUM", cand)
+                break
+    if not reels.available():
+        pytest.skip("ffmpeg or Chromium unavailable")
+
+    lengths = {"cover": 2.0, "s1": 2.0, "s2": 9.0, "end": 3.0}
+    made: dict[str, float] = {}
+
+    def fake_synth(text, **kw):
+        key = ("cover" if text.startswith("Vētra") else
+               "end" if "tv3.lv" in text else
+               "s1" if text.startswith("Vēja") else "s2")
+        path = tmp_path / f"{key}.m4a"
+        if not path.exists():
+            _synthetic_voice(path, reels.ffmpeg_bin(), seconds=lengths[key])
+        made[key] = lengths[key]
+        return str(path)
+
+    report: dict = {}
+    out = reels.build_reel(
+        "Vētra nāk", "news", "", [], out_dir=tmp_path,
+        sections=[{"title": "Brāzmas", "body": "Vēja ātrums pieaug."},
+                  {"title": "Ieteikumi", "body": "Neizejiet bez vajadzības."}],
+        cover_voice="Vētra nāk pār Latviju.",
+        end_voice=reels.end_voice_text({}),
+        synth=fake_synth, report=report)
+
+    path = tmp_path / out.split("/")[-1]
+    assert path.exists() and path.stat().st_size > 10000
+    assert report["voiced"] is True and report["frames"] == 4
+    assert made == lengths          # katram kadram sintezēts savs gabals
+
+    expected = sum(reels.frame_seconds_for(lengths[k], last=(k == "end"))
+                   for k in ("cover", "s1", "s2", "end"))
+    assert reels.media_duration(path) == pytest.approx(expected, abs=0.6)
+    # garā nodaļa aizņem savu vietu, nevis vidējo daļu
+    assert reels.frame_seconds_for(9.0) > 2 * reels.frame_seconds_for(2.0)

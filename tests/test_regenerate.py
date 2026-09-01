@@ -372,3 +372,52 @@ def test_articles_page_shows_teaser_coverage(client, session):
     assert "ir ievads (teaseris)" in r.text
     assert "Šis ir raksta ievads" in r.text
     assert "nav</span>" in r.text          # tukšais ievads ir redzami atzīmēts
+
+
+def test_redrawing_a_reel_uses_the_same_per_frame_narration(session, monkeypatch,
+                                                            tmp_path):
+    """Pārzīmētajai lentei jāiznāk pēc tiem pašiem noteikumiem, kas pirmajai.
+
+    Šis ceļš bija palicis uz vecās shēmas ar vienu runas failu pār visu
+    video — tas nozīmēja, ka redaktors, nospiežot «pārzīmēt», atgrieztu tieši
+    to attēla un balss nesakritību, kuras dēļ lentes tika pārtaisītas.
+    """
+    from app import regenerate, reels
+    from app.models import Article, Post
+
+    a = Article(guid="rr-1", url="https://tv3.lv/rr", canonical_url="https://tv3.lv/rr",
+                title="Vētra nāk", section="news", raw_json={},
+                images=["https://cdn/photopost-x.jpg"])
+    session.add(a)
+    session.flush()
+    recipe = {"kind": "article_reel", "article": a.id, "points": [],
+              "sections": [{"title": "Brāzmas", "body": "Vējš pieaug."},
+                           {"title": "Ieteikumi", "body": "Palieciet mājās."}],
+              "image": ""}
+    post = Post(article_id=a.id, channel="ig_tv3lv", format="reel",
+                copy="c", hashtags=[], state="scheduled",
+                extra={"recipe": recipe})
+    session.add(post)
+    session.flush()
+
+    seen = {}
+
+    def fake_build(title, section, image, points, report=None, **kw):
+        seen.update(kw)
+        if report is not None:
+            report.update(voiced=True, seconds=18.0, narration=["Vējš pieaug."])
+        return str(tmp_path / "reel_redraw.mp4")
+
+    (tmp_path / "reel_redraw.mp4").write_bytes(b"mp4")
+    monkeypatch.setattr(reels, "build_reel", fake_build)
+    monkeypatch.setattr(reels, "available", lambda: True)
+
+    ok, _msg = regenerate.regenerate(session, post)
+    assert ok
+    # nevis viens fails pār visu lenti, bet rindas katram kadram
+    assert "voice" not in seen or seen.get("voice") is None
+    assert seen["cover_voice"] == "Vētra nāk."
+    assert "tv3.lv" in seen["end_voice"]
+    # un photopost grafika kļūst par izpludinātu fonu, nevis pazūd
+    assert seen["blur_image"] == "https://cdn/photopost-x.jpg"
+    assert (post.extra or {})["recipe"]["voiced"] is True

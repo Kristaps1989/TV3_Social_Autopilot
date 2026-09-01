@@ -99,6 +99,25 @@ def missing_channels() -> list[str]:
         return []
 
 
+def missing_rules() -> list[str]:
+    """Noteikumu atslēgas, kas ir repo noklusējumos, bet ne rediģējamajā kopijā.
+
+    Tā pati klusā novirze, kas kanāliem: kopija tiek uzsēta vienu reizi, un
+    jauns noteikums uz strādājošas instances redaktoram vairs neparādās.
+    Koda noklusējums parasti darbojas arī bez atslēgas, bet redaktors par to
+    nezina un tāpēc nevar to ne mainīt, ne izslēgt.
+    """
+    editable = RULES_DIR / "rules.yaml"
+    default = DEFAULT_RULES_DIR / "rules.yaml"
+    if not editable.exists() or editable.resolve() == default.resolve():
+        return []
+    try:
+        have = set(_load_yaml(editable) or {})
+        return sorted(set(_load_yaml(default) or {}) - have)
+    except ConfigError:
+        return []
+
+
 def load_channels() -> dict[str, Any]:
     """Channels with active: false are hidden everywhere (dashboard,
     scheduling, publishing) until the flag is flipped — used to ship

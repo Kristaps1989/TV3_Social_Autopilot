@@ -98,13 +98,15 @@ DECISION_TOOL = {
                         },
                         "voice_script": {
                             "type": "string",
-                            "description": "Tikai reel: ierunas teksts (voice-over) "
-                                           "latviski, 45-90 vārdi (~15-30 s). Rakstīts "
-                                           "RUNĀŠANAI, nevis lasīšanai: īsi teikumi, "
-                                           "bez iekavām, saīsinājumiem un URL, skaitļi "
-                                           "vārdiem, kad tā runā. Balstīts raksta "
-                                           "tekstā, beidzas ar aicinājumu lasīt tv3.lv. "
-                                           "Atstāj tukšu, ja raksta teksta nav.",
+                            "description": "Tikai reel: ATKLĀŠANAS teikums, ko "
+                                           "balss saka pār pirmo kadru — viens "
+                                           "teikums, līdz 20 vārdiem, kas pasaka, "
+                                           "par ko stāsts. Pārējo lentes ierunu "
+                                           "veido card_sections teksti, tāpēc te "
+                                           "NEATSTĀSTI visu rakstu. Rakstīts "
+                                           "runāšanai: bez iekavām, saīsinājumiem "
+                                           "un URL, skaitļi vārdiem, kad tā runā. "
+                                           "Tukšs = balss nolasa virsrakstu.",
                         },
                         "hook_type": {
                             "type": "string",
@@ -211,13 +213,19 @@ reel ir slideshow (vāks → 2-3 sadaļu kadri → CTA); tad aizpildi
 card_sections (2-3 sadaļas — tie paši virsraksts + teikumi kā karuselī;
 bez raksta teksta der card_points). Ne biežāk kā ~2x dienā kanālā.
 
-Ja rakstam ir teksts (skat. "Raksta teksts"), reel formātam aizpildi arī
-voice_script — ierunas tekstu, ko nolasa balss. Tas nav virsraksta
-atkārtojums un nav punktu saraksts skaļā balsī: tas ir stāsts par to, kas
-notika, kārtībā, kādā to izstāstītu cilvēks — ar konkrētiem faktiem no
-raksta un ar aicinājumu lasīt tv3.lv beigās. Raksti runāšanai: īsi teikumi,
-bez iekavām, saīsinājumiem un URL. Ja raksta teksta nav, atstāj tukšu —
-labāk klusa lente nekā izdomāts saturs.
+Lentes ieruna nav atsevišķs teksts blakus kadriem — tā IR kadru teksts.
+Balss katrā kadrā nolasa tieši tās sadaļas body, un kadrs ir tieši tik garš,
+cik tā ieruna. Tāpēc:
+  - sadaļu body raksti RUNĀŠANAI: īsi teikumi, bez iekavām, saīsinājumiem un
+    URL, skaitļi vārdiem, kad tā runā;
+  - sadaļas jālasa kā VIENS plūstošs stāsts pēc kārtas, nevis kā trīs
+    atsevišķi paziņojumi — otrā turpina pirmo, nevis sāk no gala;
+  - title ir nodaļas MARĶIERIS (2-4 vārdi), ne body pirmā teikuma atstāstījums:
+    balss to nelasa, tas stāv uz ekrāna. Ja title un body saka to pašu,
+    skatītājs vienu domu saņem divreiz.
+voice_script ir tikai atklāšanas teikums pār pirmo kadru (līdz 20 vārdiem).
+Ja raksta teksta nav, atstāj gan to, gan card_sections tukšu — labāk klusa
+lente nekā izdomāts saturs.
 
 link pret photo: link posts ir galvenais klikšķu formāts (saites kartīte ar
 CTA, un tikai to Facebook var pastiprināt kā maksas traffic reklāmu) —

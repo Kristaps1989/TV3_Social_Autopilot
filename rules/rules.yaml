@@ -160,3 +160,17 @@ term_blocklist: {}
 
 # Term-ID allowlist per channel (if set, ONLY these terms go there)
 term_allowlist: {}
+
+# --- ES MI akta atruna -------------------------------------------------
+# Regulas (ES) 2024/1689 50. pants prasa marķēt mākslīgi ģenerētu saturu un
+# atklāt to arī tad, kad runa ir par sabiedrībai nozīmīgiem jautājumiem —
+# ziņas ir tieši tas. Parakstu, birkas, kartīšu tekstus un lentes ierunu
+# raksta MI, tāpēc marķējums ir uz katras grafikas, katrā parakstā un
+# izrunāts lentes beigās.
+# Izslēgt to ir redakcijas atbildība, ne tehnisks slēdzis — noklusējums true.
+ai_disclosure: true
+ai_disclosure_text: "Saturs sagatavots ar mākslīgā intelekta palīdzību"
+# X ir 280 zīmes, tur ejot pilnā formulējumā, teksts paliktu bez satura
+ai_disclosure_short: "Veidots ar MI"
+# ko balss pasaka lentes beigās (skaņa sasniedz arī tos, kas ekrānu neredz)
+ai_disclosure_spoken: "Šo saturu sagatavoja mākslīgais intelekts."
