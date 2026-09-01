@@ -217,11 +217,11 @@ def test_resolve_format_prefers_sections_over_points(session, monkeypatch):
     assert captured["images"] == ["https://cdn/foto.jpg"]
 
 
-def test_a_ready_made_graphic_is_shown_whole_not_cropped_into_the_frame():
-    """Photopost grafikas izkārtojums IR vāks: virsraksta plāksne, atkāpes,
-    sarkanā svītra. `cover` to iegrieza kartes rāmī — plāksne tika nogriezta
-    pusvārdā un uzgulās mūsu baltajai apakšjoslai, tā ka divi balti saplūda
-    vienā laukumā."""
+def test_a_ready_made_graphic_keeps_a_gap_above_the_white_footer():
+    """Photopost grafikas virsraksta plāksne ir kartes apakšā. Pilnekrānā tā
+    pieskārās mūsu baltajai joslai, un divi balti saplūda vienā laukumā, kurā
+    virsraksts izskatījās iesprūdis. Attēls paliek pilnekrāna, bet ar tumšu
+    joslu apakšā, un kadru griežam no apakšas, lai plāksne paliktu vesela."""
     from app import cards
 
     graphic = "https://cdn/photopost-x.jpg"
@@ -229,16 +229,16 @@ def test_a_ready_made_graphic_is_shown_whole_not_cropped_into_the_frame():
         "Virsraksts", "news", "#ZIŅAS",
         [{"title": "A", "body": "Pirmais teksts par notikumu."}],
         [], "Ko tālāk?", cover_image=graphic, cover_title=False)
-    assert 'class="whole"' in doc          # vesela grafika
-    assert "object-fit: contain" in doc.replace("object-fit:contain",
-                                                "object-fit: contain")
-    assert "blurbg" in doc                 # uz savas izpludinātās kopijas
-    # tīram foto vāks paliek pilnekrāna ar mūsu virsrakstu
+    assert 'class="fill"' in doc and graphic in doc
+    assert "center bottom/cover" in doc      # plāksne paliek vesela
+    assert ".fill {" in doc and "bottom:34px" in doc
+
+    # tīram foto vāks paliek pilnekrāna ar mūsu virsrakstu, bez joslas
     clean = cards.build_section_cards_html(
         "Virsraksts", "news", "#ZIŅAS",
         [{"title": "A", "body": "Pirmais teksts par notikumu."}],
         [], "Ko tālāk?", cover_image="https://cdn/foto.jpg", cover_title=True)
-    assert 'class="whole"' not in clean
+    assert 'class="fill"' not in clean
     assert "cover-txt" in clean
 
 

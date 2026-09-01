@@ -470,15 +470,16 @@ def build_section_cards_html(title: str, section: str, tag: str,
                 f"{_shade(color, .06)},{_shade(color, -.2)});")
     whole = ""
     if cover_image and not cover_title:
-        # Gatava photopost grafika: tās pašas izkārtojums IR vāks — virsraksta
-        # plāksne, atkāpes, sarkanā svītra. `cover` to iegriež kartes rāmī,
-        # un plāksne tad tiek nogriezta pusvārdā un uzguļas mūsu baltajai
-        # apakšjoslai. Tāpēc rādām grafiku VESELU uz tās pašas izpludinātās
-        # kopijas — tāpat, kā to jau dara vertikālais stāsts.
-        cover_bg = gradient
-        blur_layer = (f'<div class="blurbg" style="background-image:'
-                      f'url({attr(cover_image)})"></div>')
-        whole = f'<img class="whole" src="{attr(cover_image)}">'
+        # Gatava photopost grafika: tās pašas virsraksta plāksne ir kartes
+        # apakšā. Pilnekrānā tā izskatās labāk nekā ievietota rāmī ar
+        # izpludinātām malām — bet plāksne tad pieskaras mūsu baltajai
+        # joslai, un divi balti saplūst vienā laukumā. Tāpēc attēls paliek
+        # pilnekrāna, tikai ar tumšu joslu apakšā: plāksne dabū elpu, un
+        # kadru nogriež no APAKŠAS, lai tā paliktu vesela.
+        cover_bg = f"background:{_shade(color, -0.55)};"
+        blur_layer = ""
+        whole = (f'<div class="fill" style="background:url({attr(cover_image)}) '
+                 f'center bottom/cover"></div>')
     elif cover_image:
         cover_bg = f'background:url({attr(cover_image)}) center/cover, {color};'
         blur_layer = ""
@@ -556,12 +557,11 @@ def build_section_cards_html(title: str, section: str, tag: str,
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
 .blurbg {{ position:absolute; inset:-60px; background-size:cover;
   background-position:center; filter:blur(30px) brightness(.78) saturate(1.15); }}
-/* Gatavā grafika redzama VESELA. Atkāpe no apakšas ir apzināta: tās pašas
-   virsraksta plāksne citādi pieskaras mūsu baltajai joslai, un divi balti
-   saplūst vienā laukumā, kurā virsraksts izskatās iesprūdis. */
-.whole {{ position:absolute; top:20px; left:0; right:0; bottom:36px;
-  width:100%; height:calc(100% - 56px); object-fit:contain;
-  filter:drop-shadow(0 10px 34px rgba(0,0,0,.45)); }}
+/* Gatavajai grafikai atstājam tumšu joslu apakšā. Tās pašas virsraksta
+   plāksne citādi pieskaras mūsu baltajai joslai, un divi balti saplūst vienā
+   laukumā, kurā virsraksts izskatās iesprūdis. Kadru griežam no apakšas
+   (`center bottom`), lai plāksne paliktu vesela. */
+.fill {{ position:absolute; top:0; left:0; right:0; bottom:34px; }}
 .veil {{ position:absolute; inset:0; background:rgba(10,8,14,.28); }}
 .shade {{ position:absolute; inset:0;
   background:linear-gradient(to top, rgba(10,5,15,.92) 18%, rgba(10,5,15,.1) 55%); }}
