@@ -28,7 +28,7 @@ import secrets
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from app import config, credentials
+from app import config, credentials, lvnum
 
 log = logging.getLogger(__name__)
 
@@ -129,10 +129,15 @@ def voice_name(rules: dict | None = None) -> str:
 def spoken_text(text: str, rules: dict | None = None) -> str:
     """Teksts tā, kā tas JĀIZRUNĀ (izrunas vārdnīca pielietota).
 
-    Aizstājam garākos ierakstus vispirms, lai «tv3.lv» netiktu sadalīts pa
-    «tv3». Rakstiskais scenārijs paliek neskarts — priekšskatījumā redaktors
-    grib redzēt «lasi tv3.lv», nevis fonētisko pierakstu.
+    Divi soļi. Pirmais — kārtas skaitļi vārdos pareizā locījumā: balss
+    «59. minūtē» citādi nolasa kā «piecdesmit devītā minūtē» (sk. lvnum).
+    Otrais — izrunas vārdnīca; aizstājam garākos ierakstus vispirms, lai
+    «tv3.lv» netiktu sadalīts pa «tv3».
+
+    Rakstiskais scenārijs paliek neskarts — priekšskatījumā redaktors grib
+    redzēt «lasi tv3.lv» un «59. minūtē», nevis fonētisko pierakstu.
     """
+    text = lvnum.speak_ordinals(text or "")
     table = {k.lower(): v for k, v in PRONUNCIATION.items()}
     extra = (rules or {}).get("tts_pronunciation") or {}
     if isinstance(extra, dict):

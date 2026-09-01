@@ -58,9 +58,30 @@ this tool's job.
 | Kadrā tik teksta, cik paspēj izlasīt | vismaz `MIN_FRAME_SECONDS`; klusam kadram 5.5 s (punkts 2.8 s) |
 | Balss nelasa to, kas jau ir uz ekrāna | `chapter_voice`: nodaļas virsraksts ir vizuāls marķieris, balss saka tikai tekstu |
 | Ieruna latviski, rakstīta RUNĀŠANAI | sadaļu `body`; izrunas vārdnīca (`tv3.lv` → «tv trīs punkts lv») |
-| Skatītājs redz, cik tālu stāsts | nodaļu josla kadra augšā (`_progress_html`) |
+| Skatītājs redz, cik tālu stāsts | josla kadra augšā skaita VISUS kadrus, ne tikai nodaļas |
+| Vāks runā tikai virsrakstu | atsevišķs āķis atkārtoja to pašu, ko pirmā nodaļa |
+| Skaitļi izrunāti latviski | `lvnum`: «59. minūtē» → «piecdesmit devītajā minūtē» |
 | Kadrs nekad nav plakans krāsas laukums | foto → izpludināta photopost grafika → gradients (`_bg_layers`) |
 | Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
+
+### Kāpēc kadru HTML top pēc apgriešanas
+
+Sākumā kadrus zīmējām, tad rēķinājām ierunu, tad apgriezām lenti budžetā.
+Izdzīvojušie kadri tad nesa veco kopskaitu, un progresa josla solīja «1 no 3»
+lentē, kurā nodaļu bija divas. Tagad ir plāns (`plan_beats`) → ieruna →
+apgriešana → un tikai tad HTML. Katrs kadrs plānā nes savu ierunu un savu
+ilgumu, tāpēc teksti un kadri vairs nav divi paralēli saraksti, kas var
+izšķirties.
+
+### Kāpēc skaitļus pārrakstām pirms sintēzes
+
+Balss «59. minūtē» lasa kā «piecdesmit devītā minūtē»: punkts aiz cipara tai
+nozīmē kārtas skaitli nominatīvā. Latviski tur vajag lokatīvu, un locījumu
+nosaka NĀKAMAIS vārds — analīzi, ko sintēze nedara. `app/lvnum.py` to izdara
+pirms teksts aiziet uz Azure; ekrānā redzamais «59. minūtē» paliek neskarts.
+Apzināta robeža: pārrakstām tikai tad, kad nākamais vārds locījumu tiešām
+pasaka; citādi atstājam ciparus, jo uzminēts locījums skan sliktāk nekā tas,
+ko balss dara šodien.
 
 ### Kāpēc ieruna ir pa kadriem
 
@@ -86,7 +107,7 @@ pamanāmam, tāpēc tas ir trijās vietās vienlaikus:
 | Uz grafikas | «MI · Veidots ar MI» zīmīte lentes kadros un karuseļa vākā |
 | Grafikas beigās | pilns teikums CTA kadrā / beigu kartītē |
 | Parakstā | atsevišķa pēdējā rinda; X — īsā forma (280 zīmes) |
-| Skaļi | noslēguma teikums lentes ierunā — skaņa sasniedz arī tos, kas ekrānu neredz |
+| Skaļi | pēc noklusējuma NĒ (`ai_disclosure_spoken: ""`) — izrunāta tā nāca kā liekais teikums aiz aicinājuma; parakstu ekrānlasītājs nolasa tāpat |
 
 Vieta parakstā tiek **rezervēta pirms** teksta apgriešanas
 (`sanitize_copy(reserve_chars=…)`), citādi tvīts ar atrunu pārsniegtu limitu
@@ -120,9 +141,13 @@ ko viņš neredz.
 ## Kas apzināti NAV izdarīts
 
 - **Ierunas subtitri.** Nodaļu kadros balss saka tieši to, kas rakstīts uz
-  ekrāna — tur paraksts faktiski ir. Vāka un noslēguma kadrā tā nav: tur
-  balss saka āķi un atrunu, kas rakstītā veidā neparādās. Īsti subtitri
+  ekrāna — tur paraksts faktiski ir. Vāka kadrā balss lasa virsrakstu, kas
+  arī ir ekrānā; nesegts paliek tikai noslēguma aicinājums. Īsti subtitri
   (word-level no Azure `WordBoundary` → burn-in vai SRT) vēl nav.
+- **Skaitļi ārpus 1-999 un gadskaitļiem.** `lvnum` pārraksta kārtas skaitļus
+  tikai tad, kad nākamais vārds locījumu pasaka, un neaiztiek apaļus
+  gadskaitļus («2000. gadā»), decimāldaļas un rezultātus («1:0»). Tie skan
+  tā, kā Azure tos lasa šodien.
 - **Mašīnlasāms MI marķējums.** Redzamā un dzirdamā atruna ir; C2PA /
   IPTC metadatu marķējums failā vēl nav — 50. panta 2. punkts to sagaida no
   ģenerētāja, un mūsu gadījumā tas ir Azure/Anthropic, ne mēs. Kad publicējam

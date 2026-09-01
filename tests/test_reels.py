@@ -517,41 +517,51 @@ def test_narration_skips_the_chapter_headline():
     assert spoken.startswith("meklēšanā iesaistīti")
 
 
-def test_narration_lines_up_one_to_one_with_the_frames():
+def test_every_frame_carries_its_own_narration():
+    """Teksti un kadri vairs nav divi paralēli saraksti, ko jātur vienā
+    garumā — katrs kadrs nes savu rindu, tāpēc nesakrist nav kur."""
     from app import reels
 
     secs = [{"title": "A", "body": "Pirmais teksts."},
             {"title": "B", "body": "Otrais teksts."}]
-    lines = reels.narration("Āķis.", secs, "Beigas.", n_content=2)
-    assert lines == ["Āķis.", "Pirmais teksts.", "Otrais teksts.", "Beigas."]
+    beats = reels.plan_beats("Virsraksts", secs, [], cover_voice="Āķis.",
+                             end_voice="Beigas.")
+    assert [b["kind"] for b in beats] == ["cover", "section", "section", "end"]
+    assert [b["text"] for b in beats] == ["Āķis.", "Pirmais teksts.",
+                                          "Otrais teksts.", "Beigas."]
 
-    # bez vāka un bez CTA kadra rindu ir tieši tik, cik satura kadru
-    assert reels.narration("", secs, "", include_cover=False,
-                           include_end=False, n_content=2) == [
-        "Pirmais teksts.", "Otrais teksts."]
+    # bez vāka un bez CTA kadra paliek tikai saturs
+    bare = reels.plan_beats("Virsraksts", secs, [], include_cover=False,
+                            include_end=False)
+    assert [b["text"] for b in bare] == ["Pirmais teksts.", "Otrais teksts."]
 
 
 def test_a_too_long_reel_loses_whole_chapters_not_half_sentences():
     from app import reels
 
-    docs = ["cover", "s1", "s2", "s3", "end"]
-    durations = [3.0, 30.0, 30.0, 30.0, 3.0]
-    voices = ["v0", "v1", "v2", "v3", "v4"]
-    speech = [2.0, 28.0, 28.0, 28.0, 2.0]
-    dropped = reels._trim_to_budget(docs, durations, voices, speech,
-                                    include_end=True)
+    beats = [{"kind": "cover", "duration": 3.0},
+             {"kind": "section", "duration": 30.0},
+             {"kind": "section", "duration": 30.0},
+             {"kind": "section", "duration": 30.0},
+             {"kind": "end", "duration": 3.0}]
+    dropped = reels._trim_beats(beats)
     assert dropped >= 1
-    assert docs[0] == "cover" and docs[-1] == "end"   # vāks un CTA paliek
-    assert sum(durations) <= reels.VOICE_MAX_SECONDS
+    assert beats[0]["kind"] == "cover" and beats[-1]["kind"] == "end"
+    assert sum(b["duration"] for b in beats) <= reels.VOICE_MAX_SECONDS
 
 
-def test_the_end_frame_is_spoken_and_marked_as_ai():
+def test_the_end_frame_is_marked_as_ai_but_does_not_say_it_out_loud():
+    """Marķējums ir redzams; izrunāts tas nāca kā liekais teikums aiz
+    aicinājuma. Kam vajag arī skaļi — noteikums to atgriež atpakaļ."""
     from app import reels
 
     said = reels.end_voice_text({})
     assert "tv3.lv" in said
-    assert "mākslīgais intelekts" in said.lower()
+    assert "mākslīg" not in said.lower()
     assert "MI" in reels._end_frame_html({})
+
+    louder = reels.end_voice_text({"ai_disclosure_spoken": "Sagatavoja MI."})
+    assert louder.endswith("Sagatavoja MI.")
 
 
 # --- lente nekad nepaliek bez attēla ----------------------------------------
@@ -654,3 +664,91 @@ def test_per_frame_narration_end_to_end_keeps_video_and_voice_together(
     assert reels.media_duration(path) == pytest.approx(expected, abs=0.6)
     # garā nodaļa aizņem savu vietu, nevis vidējo daļu
     assert reels.frame_seconds_for(9.0) > 2 * reels.frame_seconds_for(2.0)
+
+
+# --- ievads, progress un marķējums pēc redakcijas atsauksmēm ----------------
+
+def test_the_cover_reads_the_headline_and_nothing_else(session, monkeypatch):
+    """AI rakstītais āķis bija gan garš, gan saturiski tas pats, ko pirmā
+    nodaļa — divas reizes viena doma, pirms stāsts vispār sācies."""
+    from app import pipeline, reels
+    from app.models import Article
+
+    monkeypatch.setattr(reels, "available", lambda: True)
+    built = {}
+
+    def fake_build(title, section, image, points, report=None, **kw):
+        built.update(kw)
+        return "/data/cards/reel_i.mp4"
+
+    monkeypatch.setattr(reels, "build_reel", fake_build)
+    a = Article(guid="iv-1", url="u", canonical_url="u", raw_json={},
+                title="Saka vārti nodrošina uzvaru Birmingemā", section="sport",
+                images=["https://cdn/f.jpg"])
+    session.add(a)
+    session.flush()
+
+    pipeline.resolve_format(
+        session, "ig", {"formats": ["reel"], "platform": "instagram"}, a,
+        {"format": "reel",
+         # pat ja modelis āķi tomēr atsūta, vāks to nelieto
+         "voice_script": "Šis ir garš ievads par to pašu, kas nāk nākamajā kadrā.",
+         "card_sections": [
+             {"title": "Vārti", "body": "Bukajo Saka guva vienīgos vārtus."},
+             {"title": "Sekas", "body": "Komanda izcīnīja pirmo uzvaru izbraukumā."}]})
+
+    assert built["cover_voice"] == "Saka vārti nodrošina uzvaru Birmingemā."
+
+
+def test_the_progress_bar_counts_the_frames_the_viewer_actually_sees():
+    """«1 no 3» otrajā kadrā no pieciem ir maldinoši — skatītājs skaita to,
+    ko redz, nevis to, ko mēs saucam par saturu."""
+    from app import reels
+
+    beats = reels.plan_beats(
+        "T", [{"title": "A", "body": "Pirmais."}, {"title": "B", "body": "Otrais."}],
+        [], cover_voice="Virsraksts.", end_voice="Lasi tv3.lv.")
+    html = reels._beat_html(beats[1], 2, len(beats), "news", "T", "", "",
+                            None, None)
+    assert html.count("<i class=") == 4        # vāks + 2 nodaļas + CTA
+    assert html.count('<i class="on">') == 2   # esam otrajā kadrā
+
+
+def test_a_trimmed_reel_does_not_promise_chapters_it_no_longer_has(monkeypatch,
+                                                                   tmp_path):
+    """Kadrus zīmējām PIRMS apgriešanas, tāpēc izdzīvojušie nesa veco
+    kopskaitu — josla solīja nodaļas, kuru lentē vairs nebija."""
+    from pathlib import Path
+
+    from app import reels
+
+    rendered = {}
+
+    def fake_render(docs, out_dir):
+        rendered["docs"] = docs
+        return [tmp_path / f"f{i}.png" for i in range(len(docs))]
+
+    def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
+                      voice=None, voices=None):
+        Path(out).write_bytes(b"mp4")
+        return sum(durations)
+
+    monkeypatch.setattr(reels, "_render_frames", fake_render)
+    monkeypatch.setattr(reels, "_assemble", fake_assemble)
+    # katra nodaļa runā 25 s -> 60 s budžetā visas trīs neietilpst
+    monkeypatch.setattr(reels, "media_duration", lambda p: 25.0)
+
+    report: dict = {}
+    reels.build_reel(
+        "T", "news", "", [], out_dir=tmp_path,
+        sections=[{"title": "A", "body": "Pirmais teksts."},
+                  {"title": "B", "body": "Otrais teksts."},
+                  {"title": "C", "body": "Trešais teksts."}],
+        cover_voice="Virsraksts.", end_voice="Lasi tv3.lv.",
+        synth=lambda text, **kw: "/audio/x.m4a", report=report)
+
+    docs = rendered["docs"]
+    assert report["frames"] == len(docs) < 5          # kaut kas ir izmests
+    for doc in docs:
+        if 'class="prog"' in doc:
+            assert doc.count("<i class=") == len(docs)

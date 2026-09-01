@@ -572,10 +572,12 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         if (len(sections) >= 2 or len(points) >= 2) and reels.available():
             # Ieruna vairs nav viens gabals pār visu lenti: katram kadram ir
             # sava rinda, un kadrs ir tieši tik garš, cik tā runa. Vāks saka
-            # āķi, nodaļas — savu tekstu (NE virsrakstu, tas jau ir ekrānā),
-            # beigu kadrs CTA un MI atrunu.
-            cover_voice = reels.spoken_line(
-                (ch_dec.get("voice_script") or "").strip() or article.title)
+            # virsrakstu, nodaļas — savu tekstu (NE virsrakstu, tas jau ir
+            # ekrānā), beigu kadrs īsu aicinājumu uz portālu.
+            # Vāka ieruna ir TIKAI virsraksts. AI rakstītais āķis te bija
+            # gan garš, gan saturiski tas pats, ko pirmā nodaļa — divas
+            # reizes viena doma, pirms stāsts vispār sācies.
+            cover_voice = reels.spoken_line(article.title)
             end_voice = reels.end_voice_text()
             bgs, blur = section_backgrounds(article)
             report: dict = {}

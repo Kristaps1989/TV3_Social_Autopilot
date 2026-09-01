@@ -172,5 +172,8 @@ ai_disclosure: true
 ai_disclosure_text: "Saturs sagatavots ar mākslīgā intelekta palīdzību"
 # X ir 280 zīmes, tur ejot pilnā formulējumā, teksts paliktu bez satura
 ai_disclosure_short: "Veidots ar MI"
-# ko balss pasaka lentes beigās (skaņa sasniedz arī tos, kas ekrānu neredz)
-ai_disclosure_spoken: "Šo saturu sagatavoja mākslīgais intelekts."
+# Ko balss pasaka lentes beigās. Tukšs (noklusējums) = neko: marķējums ir
+# redzams uz kadra, pilnā tekstā noslēguma kadrā un parakstā, bet izrunāts
+# tas nāca kā liekais teikums aiz aicinājuma. Ieraksti teikumu, ja gribi arī
+# skaļi.
+ai_disclosure_spoken: ""

@@ -180,10 +180,11 @@ def test_reel_build_speaks_the_script(session, monkeypatch, tmp_path):
                                    "ēkas nākotni vēl nav pieņemts.")})
 
     assert fmt == "reel"
-    # AI scenārijs tagad ir ATKLĀŠANAS rinda pār vāku, nevis viss stāsts
+    # Vāks runā VIRSRAKSTU. Modeļa rakstītais āķis te vairs neiet: tas bija
+    # gan garš, gan saturiski tas pats, ko pirmā nodaļa.
     assert built["voice"] is None
-    assert built["cover_voice"].startswith("Namā daļēji iebruka jumts")
-    assert recipe["voice_script"].startswith("Namā daļēji iebruka jumts")
+    assert built["cover_voice"] == "Kas zināms par namu."
+    assert recipe["voice_script"].startswith("Kas zināms par namu")
 
 
 def test_reel_stays_silent_when_the_script_is_a_stub(session, monkeypatch):
@@ -211,11 +212,11 @@ def test_reel_stays_silent_when_the_script_is_a_stub(session, monkeypatch):
         session, "ig_tv3lv", {"formats": ["reel"], "platform": "instagram"},
         article, {"format": "reel", "card_points": ["Viens fakts", "Otrs fakts"],
                   "voice_script": "Par īsu."})
-    # īss scenārijs vairs nenozīmē klusu lenti: atklāšanas rinda drīkst būt
-    # īsa, un nodaļu tekstus tāpat nolasa balss — bet Azure te netiek
-    # aiztikts, jo sintēze notiek build_reel iekšienē (šeit aizvietots)
+    # īss scenārijs vairs nenozīmē klusu lenti: vāks tāpat nolasa virsrakstu,
+    # un nodaļu tekstus — balss. Azure te netiek aiztikts, jo sintēze notiek
+    # build_reel iekšienē (šeit aizvietots).
     assert built["voice"] is None
-    assert built["cover_voice"] == "Par īsu."
+    assert built["cover_voice"] == "Ziņa."
 
 
 def test_a_second_key_is_verified_against_azure_not_the_cache(client, session,

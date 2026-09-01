@@ -96,18 +96,6 @@ DECISION_TOOL = {
                             "description": "Only for card_carousel: jautājums pēdējai "
                                            "kartītei, kas liek atvērt rakstu.",
                         },
-                        "voice_script": {
-                            "type": "string",
-                            "description": "Tikai reel: ATKLĀŠANAS teikums, ko "
-                                           "balss saka pār pirmo kadru — viens "
-                                           "teikums, līdz 20 vārdiem, kas pasaka, "
-                                           "par ko stāsts. Pārējo lentes ierunu "
-                                           "veido card_sections teksti, tāpēc te "
-                                           "NEATSTĀSTI visu rakstu. Rakstīts "
-                                           "runāšanai: bez iekavām, saīsinājumiem "
-                                           "un URL, skaitļi vārdiem, kad tā runā. "
-                                           "Tukšs = balss nolasa virsrakstu.",
-                        },
                         "hook_type": {
                             "type": "string",
                             "enum": ["fact", "number", "question", "quote",
@@ -223,9 +211,9 @@ cik tā ieruna. Tāpēc:
   - title ir nodaļas MARĶIERIS (2-4 vārdi), ne body pirmā teikuma atstāstījums:
     balss to nelasa, tas stāv uz ekrāna. Ja title un body saka to pašu,
     skatītājs vienu domu saņem divreiz.
-voice_script ir tikai atklāšanas teikums pār pirmo kadru (līdz 20 vārdiem).
-Ja raksta teksta nav, atstāj gan to, gan card_sections tukšu — labāk klusa
-lente nekā izdomāts saturs.
+Ievadu neraksti: pār vāka kadru balss nolasa raksta virsrakstu, un atsevišķs
+āķis tur nāca kā tā paša atkārtojums pirms stāsta sākuma. Ja raksta teksta
+nav, atstāj card_sections tukšu — labāk klusa lente nekā izdomāts saturs.
 
 link pret photo: link posts ir galvenais klikšķu formāts (saites kartīte ar
 CTA, un tikai to Facebook var pastiprināt kā maksas traffic reklāmu) —

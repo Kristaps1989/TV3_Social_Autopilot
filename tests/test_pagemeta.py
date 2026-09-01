@@ -315,7 +315,9 @@ def test_prompt_carries_the_article_body(session, monkeypatch):
                                {"fb_tv3lv": {}}, session)
     assert "Raksta teksts (sākums):" in prompt
     assert "daudzdzīvokļu namam tika nodarīti smagi bojājumi" in prompt
-    assert "voice_script" in prompt   # reelam ir ko ierunāt
+    # ar raksta tekstu modelim ir ko sadalīt nodaļās, un tieši nodaļu teksts
+    # kļūst par lentes ierunu
+    assert "card_sections" in prompt
 
 
 # --- īstā tv3.lv lapas struktūra -------------------------------------------

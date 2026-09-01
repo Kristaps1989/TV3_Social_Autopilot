@@ -20,9 +20,12 @@ import html
 
 DEFAULT_TEXT = "Saturs sagatavots ar mākslīgā intelekta palīdzību"
 DEFAULT_SHORT = "Veidots ar MI"
-# ierunātās lentes beigās to arī pasakām skaļi — cilvēks, kas skatās bez
-# ekrāna (vai neredz), citādi marķējumu nesaņem vispār
-DEFAULT_SPOKEN = "Šo saturu sagatavoja mākslīgais intelekts."
+# Izrunātā atruna pēc noklusējuma ir IZSLĒGTA. Regula prasa skaidru un
+# pamanāmu marķējumu — to dod zīmīte uz katra kadra, pilns teikums noslēguma
+# kadrā un pēdējā rinda parakstā (parakstu ekrānlasītājs nolasa). Balsī tā
+# nāca kā liekais teikums aiz aicinājuma un stāsta beigas padarīja gurdenas.
+# Kam vajag, ieraksta `ai_disclosure_spoken` Noteikumos.
+DEFAULT_SPOKEN = ""
 
 
 def _rules(rules: dict | None) -> dict:
@@ -52,6 +55,7 @@ def short(rules: dict | None = None) -> str:
 
 
 def spoken(rules: dict | None = None) -> str:
+    """Ko pateikt skaļi ('' = neko; sk. DEFAULT_SPOKEN)."""
     r = _rules(rules)
     if not r.get("ai_disclosure", True):
         return ""

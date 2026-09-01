@@ -114,11 +114,12 @@ def spoken_line(text: str, max_words: int = 34) -> str:
 
 
 def end_voice_text(rules: dict | None = None) -> str:
-    """Noslēguma teikums: aicinājums uz portālu un MI atruna skaļi.
+    """Noslēguma teikums — aicinājums uz portālu.
 
-    Atrunu izrunājam, nevis tikai uzrakstām: lente tiek skatīta arī bez
-    skaņas un bez ekrāna, un marķējums, ko sasniedz tikai viena no abām
-    auditorijām, savu uzdevumu nepilda.
+    MI atruna te pēc noklusējuma NEskan: marķējums ir redzams uz kadra,
+    pilnā tekstā noslēguma kadrā un parakstā, un izrunāts tas nāca kā
+    liekais teikums aiz aicinājuma. Kam vajag arī skaļi — `ai_disclosure_spoken`
+    Noteikumos (sk. app/disclosure.py).
     """
     from app import disclosure
 
@@ -641,25 +642,46 @@ def chapter_voice(sec: dict) -> str:
     return body
 
 
-def narration(cover_voice: str, sections: list[dict], end_voice: str,
-              include_cover: bool = True, include_end: bool = True,
-              n_content: int = 0) -> list[str]:
-    """Ierunas teksts KATRAM kadram, tajā pašā secībā, kādā kadri top."""
-    out: list[str] = []
+def plan_beats(title: str, sections: list[dict], points: list[str],
+               cover_voice: str = "", end_voice: str = "",
+               include_cover: bool = True, include_end: bool = True,
+               max_points: int = MAX_POINTS,
+               frame_seconds: float = FRAME_SECONDS,
+               edge_seconds: float | None = None,
+               point_images: list[str] | None = None) -> list[dict]:
+    """Lentes plāns: pa vienam ierakstam katram kadram, pareizā secībā.
+
+    Katrs kadrs nes SAVU ierunu un savu ilgumu. Agrāk teksti un kadri bija
+    divi paralēli saraksti, kurus vajadzēja turēt vienā garumā ar rokām —
+    un tieši tur radās nesakritība: kadrus apgriezām īsākus, bet HTML jau
+    bija uzzīmēts ar veco kopskaitu, tāpēc progresa josla rādīja «1 no 3»
+    lentē, kurā nodaļu bija divas.
+    """
+    edge = frame_seconds if edge_seconds is None else edge_seconds
+    imgs = point_images or []
+    beats: list[dict] = []
     if include_cover:
-        out.append(cover_voice)
-    out.extend(chapter_voice(s) for s in sections[:n_content])
-    if len(out) < n_content + (1 if include_cover else 0):
-        out.extend([""] * (n_content + (1 if include_cover else 0) - len(out)))
+        beats.append({"kind": "cover", "text": cover_voice, "duration": edge})
+    used = list((sections or [])[:max_points])
+    if sections:
+        for i, sec in enumerate(used):
+            beats.append({
+                "kind": "section", "sec": sec,
+                "bg": imgs[i % len(imgs)] if imgs else "",
+                "text": chapter_voice(sec),
+                "duration": max(frame_seconds, SECTION_FRAME_SECONDS)})
+    else:
+        for i, point in enumerate(points[:max_points]):
+            beats.append({
+                "kind": "point", "point": point,
+                "bg": imgs[i] if i < len(imgs) else "",
+                "text": "", "duration": frame_seconds})
     if include_end:
-        out.append(end_voice)
-    return out
+        beats.append({"kind": "end", "text": end_voice, "duration": edge})
+    return beats
 
 
-def _trim_to_budget(docs: list[str], durations: list[float],
-                    voices: list[str], speech: list[float],
-                    include_end: bool,
-                    budget: float = VOICE_MAX_SECONDS) -> int:
+def _trim_beats(beats: list[dict], budget: float = VOICE_MAX_SECONDS) -> int:
     """Izmet PĒDĒJĀS nodaļas, kamēr lente ietilpst budžetā. Atgriež, cik izmests.
 
     Platformai ir griesti, un tos var sasniegt divējādi: nogriežot balsi
@@ -667,14 +689,39 @@ def _trim_to_budget(docs: list[str], durations: list[float],
     beidzas pie nodaļas robežas, nevis pie pusteikuma.
     """
     dropped = 0
-    end = 1 if include_end else 0
-    while len(docs) - end - 1 > 1 and sum(durations) > budget:
-        i = len(docs) - end - 1      # pēdējais satura kadrs
-        for seq in (docs, durations, voices, speech):
-            if i < len(seq):
-                del seq[i]
+    while sum(b["duration"] for b in beats) > budget:
+        content = [i for i, b in enumerate(beats)
+                   if b["kind"] in ("section", "point")]
+        if len(content) <= 1:
+            break
+        del beats[content[-1]]
         dropped += 1
     return dropped
+
+
+def _beat_html(beat: dict, step: int, total: int, section: str,
+               title: str, image_url: str, blur_image: str,
+               cover_images: list[str] | None, rules: dict | None) -> str:
+    """Viena kadra HTML. step/total ir pozīcija VISĀ lentē, ne tikai starp
+    nodaļām: skatītājs skaita kadrus, kurus redz, nevis tos, kurus mēs
+    saucam par saturu — «1 no 3» otrajā kadrā no pieciem ir maldinoši."""
+    kind = beat["kind"]
+    if kind == "cover":
+        if cover_images:
+            return cards.build_mosaic_story_html(title, section, cover_images)
+        return cards.build_story_html(title, section, image_url,
+                                      inset=SAFE_INSET, blur_image=blur_image,
+                                      ai_badge=True)
+    if kind == "section":
+        sec = beat["sec"]
+        return _section_frame_html(section, step, sec.get("title", ""),
+                                   sec.get("body", ""), bg_image=beat["bg"],
+                                   blur_image=blur_image, total=total,
+                                   rules=rules)
+    if kind == "point":
+        return _point_frame_html(section, step, beat["point"],
+                                 bg_image=beat["bg"])
+    return _end_frame_html(rules)
 
 
 def build_reel(title: str, section: str, image_url: str, points: list[str],
@@ -701,6 +748,11 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
     (edge_seconds) — vāks dod kontekstu, beigu kadrs CTA, bet saturs paliek
     video centrā.
 
+    Kārtība ir svarīga: vispirms plāns (`plan_beats`), tad ieruna un
+    apgriešana, un TIKAI TAD kadru HTML. Kad kadrus zīmēja pirms
+    apgriešanas, izdzīvojušie kadri nesa veco kopskaitu, un progresa josla
+    solīja nodaļas, kuru lentē vairs nebija.
+
     cover_voice / end_voice: ko balss saka pār vāku un noslēguma kadru. Kad
     kāds no tiem vai kāda nodaļa ir ierunājama, katram kadram tiek sintezēta
     SAVA ieruna, un kadrs ir tieši tik garš, cik tā runa. `voice` (viens fails
@@ -708,60 +760,36 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
     """
     out_dir = Path(out_dir or cards.CARDS_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
-    edge = frame_seconds if edge_seconds is None else edge_seconds
-    docs, durations = [], []
-    if include_cover:
-        if cover_images:
-            docs.append(cards.build_mosaic_story_html(title, section,
-                                                      cover_images))
-        else:
-            docs.append(cards.build_story_html(title, section, image_url,
-                                               inset=SAFE_INSET,
-                                               blur_image=blur_image,
-                                               ai_badge=True))
-        durations.append(edge)
-    point_images = point_images or []
-    used = list((sections or [])[:max_points])
-    if sections:
-        # sadaļu kadri: virsraksts + teikumi — tekstam vajag vairāk laika
-        # nekā vienam punktam, un balss stiepj kadrus vēl garākus
-        for i, sec in enumerate(used, start=1):
-            bg = point_images[(i - 1) % len(point_images)] if point_images else ""
-            docs.append(_section_frame_html(section, i, sec.get("title", ""),
-                                            sec.get("body", ""), bg_image=bg,
-                                            blur_image=blur_image,
-                                            total=len(used), rules=rules))
-            durations.append(max(frame_seconds, SECTION_FRAME_SECONDS))
-    else:
-        for i, p in enumerate(points[:max_points], start=1):
-            bg = point_images[i - 1] if i - 1 < len(point_images) else ""
-            docs.append(_point_frame_html(section, i, p, bg_image=bg))
-            durations.append(frame_seconds)
-    n_content = len(used) if sections else len(points[:max_points])
-    if include_end:
-        docs.append(_end_frame_html(rules))
-        durations.append(edge)
+    beats = plan_beats(title, sections or [], points,
+                       cover_voice=cover_voice, end_voice=end_voice,
+                       include_cover=include_cover, include_end=include_end,
+                       max_points=max_points, frame_seconds=frame_seconds,
+                       edge_seconds=edge_seconds, point_images=point_images)
 
     voices: list[str] = []
-    narration_texts: list[str] = []
-    if voice is None:
-        narration_texts = texts = narration(cover_voice, used, end_voice,
-                          include_cover=include_cover,
-                          include_end=include_end, n_content=n_content)
-        if any(t.strip() for t in texts):
-            if synth is None:
-                from app import tts
+    if voice is None and any(b["text"].strip() for b in beats):
+        if synth is None:
+            from app import tts
 
-                synth = tts.synthesize
-            voices = [synth(t) if t.strip() else "" for t in texts]
-            voices += [""] * (len(docs) - len(voices))
-            speech = [media_duration(v) if v else 0.0 for v in voices]
-            durations = plan_durations(durations, voices, speech)
-            dropped = _trim_to_budget(docs, durations, voices, speech,
-                                      include_end)
-            if dropped:
-                log.info("reel trimmed by %d chapter(s) to fit %ds",
-                         dropped, VOICE_MAX_SECONDS)
+            synth = tts.synthesize
+        voices = [synth(b["text"]) if b["text"].strip() else "" for b in beats]
+        speech = [media_duration(v) if v else 0.0 for v in voices]
+        for beat, planned in zip(beats, plan_durations(
+                [b["duration"] for b in beats], voices, speech)):
+            beat["duration"] = planned
+        for beat, path in zip(beats, voices):
+            beat["voice"] = path
+        dropped = _trim_beats(beats)
+        if dropped:
+            log.info("reel trimmed by %d chapter(s) to fit %ds",
+                     dropped, VOICE_MAX_SECONDS)
+        voices = [b.get("voice", "") for b in beats]
+
+    total_frames = len(beats)
+    docs = [_beat_html(b, i + 1, total_frames, section, title, image_url,
+                       blur_image, cover_images, rules)
+            for i, b in enumerate(beats)]
+    durations = [b["duration"] for b in beats]
 
     out = out_dir / f"reel_{secrets.token_hex(6)}.mp4"
     with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
@@ -771,9 +799,9 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                           voice=voice, voices=voices or None)
     if report is not None:
         report.update({"voiced": bool(voice or any(voices)),
-                       "frames": len(docs), "seconds": round(total, 2),
-                       "narration": [t for t in (narration_texts or []) if t]})
+                       "frames": total_frames, "seconds": round(total, 2),
+                       "narration": [b["text"] for b in beats if b["text"]]})
     log.info("reel built: %s (%d frames, %.0fs total%s)",
-             out.name, len(docs), total,
+             out.name, total_frames, total,
              ", ar ierunu" if (voice or any(voices)) else "")
     return str(out)
