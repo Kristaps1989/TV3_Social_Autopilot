@@ -1,6 +1,12 @@
 # Channel configuration. Everything here is editable without a deploy.
 # Cadence values follow social best practice: don't flood the feed,
 # keep a minimum gap between posts, respect night-time quiet hours.
+#
+# PIEZĪME par `feeds:` un `click_weight:`: kods tos NELASA. Plūsmas tiek
+# aptaujātas visas, kas feeds.yaml ir active: true, un maršrutēšanu uz kanālu
+# nosaka `sections:`. Šeit tie palikuši kā redakcijas piezīme par nodomu —
+# formātu nosaukumus tur nelikt, tiem ir `formats:` (saglabājot to tagad
+# noķer arī pārbaude).
 
 fb_tv3lv:
   platform: facebook_page

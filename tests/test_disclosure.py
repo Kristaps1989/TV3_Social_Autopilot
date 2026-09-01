@@ -112,3 +112,35 @@ def test_missing_rules_are_reported_instead_of_silently_defaulted(tmp_path,
     monkeypatch.setattr(config, "RULES_DIR", editable)
     monkeypatch.setattr(config, "DEFAULT_RULES_DIR", default)
     assert config.missing_rules() == ["ai_disclosure"]
+
+
+def test_a_format_name_in_the_feeds_list_is_caught_on_save(monkeypatch):
+    """«reel» kanāla `feeds:` sarakstā ir formāts, nevis plūsma.
+
+    Klusi tas neko nelauza (kanāla `feeds:` kods pagaidām nelasa), un tieši
+    tāpēc kļūda varēja nostāvēt nepamanīta. Saglabājot to tagad noķer.
+    """
+    from app import config
+
+    bad = ("fb:\n  platform: facebook_page\n"
+           "  feeds: [news_all, reel]\n  formats: [link, reel]\n")
+    err = config.validate_editable("channels", bad)
+    assert err and "formāts, nevis plūsma" in err
+
+
+def test_unknown_feeds_formats_and_platforms_are_named(monkeypatch):
+    from app import config
+
+    base = ("fb:\n  platform: facebook_page\n"
+            "  feeds: [news_all]\n  formats: [link]\n")
+    assert config.validate_editable("channels", base) is None
+
+    err = config.validate_editable("channels", base.replace("news_all", "ziņas"))
+    assert err and "ziņas" in err and "neeksistē" in err
+
+    err = config.validate_editable("channels", base.replace("[link]", "[link, reelz]"))
+    assert err and "reelz" in err
+
+    err = config.validate_editable("channels",
+                                   base.replace("facebook_page", "fejsbuks"))
+    assert err and "fejsbuks" in err

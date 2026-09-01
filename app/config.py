@@ -171,6 +171,46 @@ def system_prompt_for(platform: str) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
+# Formāti, ko sistēma prot uzbūvēt un publicēt. Nepazīstams nosaukums
+# `formats:` sarakstā klusi neko nedara — kanāls vienkārši to nekad
+# neizvēlas, un redaktors nedēļu brīnās, kāpēc formāta nav.
+KNOWN_FORMATS = {"link", "photo", "photo_album", "card_carousel", "reel",
+                 "story", "text_only", "carousel", "video"}
+
+
+def _channel_errors(data: dict) -> str | None:
+    """Kanālu faila kļūdas, kas citādi paliktu klusas līdz pirmajam brīnumam."""
+    from adapters import _REAL
+
+    feeds = {k for k in (load_feeds() or {})
+             if k not in ("term_sections", "url_sections")}
+    for name, cfg in data.items():
+        if not isinstance(cfg, dict):
+            return (f"«{name}» nav kanāla bloks, bet atsevišķa vērtība "
+                    f"({cfg!r}) — visticamāk trūkst atkāpes: kanāla "
+                    f"iestatījumiem jāsākas ar diviem tukšumiem")
+        platform = cfg.get("platform")
+        if platform and platform not in _REAL:
+            return (f"«{name}»: nezināma platforma «{platform}». "
+                    f"Pieejamās: {', '.join(sorted(_REAL))}")
+        for fmt in cfg.get("formats") or []:
+            if fmt not in KNOWN_FORMATS:
+                return (f"«{name}»: nezināms formāts «{fmt}». "
+                        f"Pieejamie: {', '.join(sorted(KNOWN_FORMATS))}")
+        # `feeds:` kanāla blokā kods pagaidām nelasa (plūsmas tiek aptaujātas
+        # visas, kas feeds.yaml ir aktīvas, un maršrutē `sections:`), bet
+        # nepareizs ieraksts te ir brīdinājuma vērts: tieši šajā rindā mēdz
+        # nokļūt formāta nosaukums, kura īstā vieta ir `formats:`.
+        for feed in cfg.get("feeds") or []:
+            if feed in KNOWN_FORMATS:
+                return (f"«{name}»: «{feed}» ir formāts, nevis plūsma — "
+                        f"tā vieta ir `formats:` rindā")
+            if feeds and feed not in feeds:
+                return (f"«{name}»: plūsma «{feed}» feeds.yaml neeksistē. "
+                        f"Pieejamās: {', '.join(sorted(feeds))}")
+    return None
+
+
 def validate_editable(kind: str, text: str) -> str | None:
     """Validate an edited config before saving. Returns error message or None."""
     if kind in ("rules", "channels", "feeds"):
@@ -181,9 +221,5 @@ def validate_editable(kind: str, text: str) -> str | None:
         if not isinstance(data, dict):
             return "File must be a YAML mapping (key: value)"
         if kind == "channels":
-            for name, cfg in data.items():
-                if not isinstance(cfg, dict):
-                    return (f"«{name}» nav kanāla bloks, bet atsevišķa vērtība "
-                            f"({cfg!r}) — visticamāk trūkst atkāpes: kanāla "
-                            f"iestatījumiem jāsākas ar diviem tukšumiem")
+            return _channel_errors(data)
     return None
