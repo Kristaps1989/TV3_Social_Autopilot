@@ -55,6 +55,10 @@ VOICE_MAX_SECONDS = 60
 VOICE_LEAD_SECONDS = 0.35   # klusums kadra sākumā
 VOICE_GAP_SECONDS = 0.5     # elpa aiz pēdējā vārda
 MIN_FRAME_SECONDS = 2.2     # arī viena teikuma nodaļa nedrīkst pazibēt
+# Vāks runā tikai virsrakstu, un tas ir īss — divas sekundes balss. Bet
+# skatītājs virsrakstu vēl arī LASA, un tas ir lielākais teksts lentē; kadrs,
+# kas pazūd līdz ar pēdējo izrunāto vārdu, ir kadrs, kuru neviens neizlasīja.
+COVER_MIN_SECONDS = 3.5
 END_VOICE_TAIL = 1.0        # CTA kadrs paliek stāvam pēc noslēguma teikuma
 
 # Feed lauki, kuros meklēt raksta videoklipu (tv3.lv/video 9:16 klipi)
@@ -408,13 +412,17 @@ def _run_ffmpeg(args: list[str]) -> None:
 _AAC = ["-ar", "44100", "-ac", "2", "-c:a", "aac", "-b:a", "128k"]
 
 
-def frame_seconds_for(speech_seconds: float, last: bool = False) -> float:
-    """Cik gara jābūt kadram, lai tā ieruna tajā ietilptu bez steigas."""
+def frame_seconds_for(speech_seconds: float, last: bool = False,
+                      cover: bool = False) -> float:
+    """Cik gara jābūt kadram, lai tā ieruna tajā ietilptu bez steigas.
+
+    Vākam grīda ir augstāka: tā ieruna ir īsākā lentē, bet teksts — lielākais.
+    """
     if speech_seconds <= 0:
         return 0.0
     tail = END_VOICE_TAIL if last else VOICE_GAP_SECONDS
-    return max(MIN_FRAME_SECONDS,
-               VOICE_LEAD_SECONDS + speech_seconds + tail)
+    floor = COVER_MIN_SECONDS if cover else MIN_FRAME_SECONDS
+    return max(floor, VOICE_LEAD_SECONDS + speech_seconds + tail)
 
 
 def _audio_segment(voice: str, seconds: float, dest: Path) -> None:
@@ -445,7 +453,8 @@ def _concat(paths: list[Path], workdir: Path, out: Path, name: str,
 
 
 def plan_durations(durations: list[float], voices: list[str] | None,
-                   speech: list[float] | None = None) -> list[float]:
+                   speech: list[float] | None = None,
+                   kinds: list[str] | None = None) -> list[float]:
     """Kadru garumi, kad katram kadram ir sava ieruna.
 
     Agrāk visu kadru garumus mēroja proporcionāli vienam runas gabalam. Tas
@@ -462,7 +471,9 @@ def plan_durations(durations: list[float], voices: list[str] | None,
         v = voices[i] if i < len(voices) else ""
         secs = (speech[i] if speech and i < len(speech)
                 else (media_duration(v) if v else 0.0))
-        need = frame_seconds_for(secs, last=(i == last_voiced))
+        need = frame_seconds_for(secs, last=(i == last_voiced),
+                                 cover=bool(kinds and i < len(kinds)
+                                            and kinds[i] == "cover"))
         out.append(need if need > 0 else base)
     return out
 
@@ -471,7 +482,8 @@ def _assemble(frames: list[Path], workdir: Path, out: Path,
               frame_seconds: float = FRAME_SECONDS,
               durations: list[float] | None = None,
               voice: str | Path | None = None,
-              voices: list[str] | None = None) -> float:
+              voices: list[str] | None = None,
+              kinds: list[str] | None = None) -> float:
     """durations: sekundes katram kadram atsevišķi (piem., īss intro/outro ap
     garākiem satura kadriem); bez tā visi kadri ir frame_seconds gari.
 
@@ -484,8 +496,10 @@ def _assemble(frames: list[Path], workdir: Path, out: Path,
     """
     voiced = [v for v in (voices or []) if v]
     if voiced:
+        # kinds iet līdzi: vākam ir sava grīda, un bez tā šeit pārrēķinātais
+        # plāns to klusi atņemtu tam, ko build_reel jau bija piešķīris
         durations = plan_durations(durations or [frame_seconds] * len(frames),
-                                   voices)
+                                   voices, kinds=kinds)
     elif voice:
         seconds = media_duration(voice)
         if seconds > 0:
@@ -790,7 +804,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
         speech = [media_duration(v) if v else 0.0 for v in voices]
         spoken = {v: t for v, t in zip(voices, speech) if v}
         for beat, planned in zip(beats, plan_durations(
-                [b["duration"] for b in beats], voices, speech)):
+                [b["duration"] for b in beats], voices, speech,
+                kinds=[b["kind"] for b in beats])):
             beat["duration"] = planned
         for beat, path in zip(beats, voices):
             beat["voice"] = path
@@ -820,7 +835,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
         workdir = Path(tmp)
         frames = _render_frames(docs, workdir)
         total = _assemble(frames, workdir, out, durations=durations,
-                          voice=voice, voices=voices or None)
+                          voice=voice, voices=voices or None,
+                          kinds=[b["kind"] for b in beats])
     if report is not None:
         report.update({"voiced": voiced,
                        # cik ilgi tiešām SKAN balss (bez klusumiem un CTA

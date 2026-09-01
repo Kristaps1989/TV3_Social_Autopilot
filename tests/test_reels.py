@@ -449,7 +449,7 @@ def test_section_frames_take_longer_than_point_frames(monkeypatch, tmp_path):
     seen = {}
 
     def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
-                      voice=None, voices=None):
+                      voice=None, voices=None, kinds=None):
         seen["durations"] = durations
         Path(out).write_bytes(b"mp4")
         return sum(durations)
@@ -659,7 +659,8 @@ def test_per_frame_narration_end_to_end_keeps_video_and_voice_together(
     assert report["voiced"] is True and report["frames"] == 4
     assert made == lengths          # katram kadram sintezēts savs gabals
 
-    expected = sum(reels.frame_seconds_for(lengths[k], last=(k == "end"))
+    expected = sum(reels.frame_seconds_for(lengths[k], last=(k == "end"),
+                                           cover=(k == "cover"))
                    for k in ("cover", "s1", "s2", "end"))
     assert reels.media_duration(path) == pytest.approx(expected, abs=0.6)
     # garā nodaļa aizņem savu vietu, nevis vidējo daļu
@@ -729,7 +730,7 @@ def test_a_trimmed_reel_does_not_promise_chapters_it_no_longer_has(monkeypatch,
         return [tmp_path / f"f{i}.png" for i in range(len(docs))]
 
     def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
-                      voice=None, voices=None):
+                      voice=None, voices=None, kinds=None):
         Path(out).write_bytes(b"mp4")
         return sum(durations)
 
@@ -769,7 +770,7 @@ def test_only_a_voiced_reel_is_marked_as_ai(monkeypatch, tmp_path):
         return [tmp_path / f"f{i}.png" for i in range(len(docs))]
 
     def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
-                      voice=None, voices=None):
+                      voice=None, voices=None, kinds=None):
         Path(out).write_bytes(b"mp4")
         return sum(durations)
 
@@ -801,7 +802,7 @@ def test_the_report_says_how_long_the_voice_actually_speaks(monkeypatch, tmp_pat
     from app import reels
 
     def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
-                      voice=None, voices=None):
+                      voice=None, voices=None, kinds=None):
         Path(out).write_bytes(b"mp4")
         return sum(durations)
 
@@ -834,7 +835,7 @@ def test_the_report_says_which_voice_and_pace_were_actually_used(tmp_path,
     from app import reels
 
     def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
-                      voice=None, voices=None):
+                      voice=None, voices=None, kinds=None):
         Path(out).write_bytes(b"mp4")
         return sum(durations)
 
@@ -866,3 +867,22 @@ def test_the_report_says_which_voice_and_pace_were_actually_used(tmp_path,
     assert news["voice_used"] == "21m00Tcm4TlvDq8ikWAM"
     assert news["voice_rate"] == -4
     assert not news["voice_by_section"] and not news["rate_by_section"]
+
+
+def test_a_short_title_does_not_make_the_cover_flash_past():
+    """Vāks runā tikai virsrakstu — divas sekundes. Bet virsraksts ir
+    lielākais teksts lentē, un to vēl arī jālasa: kadrs, kas pazūd līdz ar
+    pēdējo izrunāto vārdu, ir kadrs, kuru neviens neizlasīja."""
+    from app import reels
+
+    short = 1.6                         # «Vētra nāk pār Latviju.»
+    assert reels.frame_seconds_for(short) < reels.COVER_MIN_SECONDS
+    assert reels.frame_seconds_for(short, cover=True) == reels.COVER_MIN_SECONDS
+    # garam virsrakstam grīda netraucē — kadrs ir tik garš, cik runa
+    assert reels.frame_seconds_for(6.0, cover=True) \
+        == reels.frame_seconds_for(6.0)
+    # un plānā vāks to dabū, nodaļa ar tikpat īsu runu — ne
+    out = reels.plan_durations([2.8, 2.8], ["/a", "/b"], [short, short],
+                               kinds=["cover", "section"])
+    assert out[0] == reels.COVER_MIN_SECONDS
+    assert out[1] == reels.frame_seconds_for(short, last=True)

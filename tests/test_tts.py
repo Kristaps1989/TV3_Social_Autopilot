@@ -782,7 +782,7 @@ def test_the_reel_passes_the_section_to_the_voice(monkeypatch, tmp_path):
     seen = []
 
     def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
-                      voice=None, voices=None):
+                      voice=None, voices=None, kinds=None):
         Path(out).write_bytes(b"mp4")
         return sum(durations)
 
