@@ -423,6 +423,10 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "photos": ((post.extra or {}).get("recipe") or {}).get("photos"),
             "voice_script": ((post.extra or {}).get("recipe")
                              or {}).get("voice_script", ""),
+            # cik ilgi lentē tiešām skan balss: no tā redzams ĪSTAIS temps
+            # vārdos minūtē, nevis mans vērtējums par to, cik tas varētu būt
+            "voice_seconds": ((post.extra or {}).get("recipe")
+                              or {}).get("speech_seconds"),
             "tts_ready": tts.enabled(session=session),
             "card_targets": [
                 {"n": i + 1, "url": u,
@@ -1577,6 +1581,24 @@ def settings(request: Request, saved: str = "", error: str = ""):
          # brīdinājuma redaktors par tām neuzzina nekad
          "missing_rules": config.missing_rules(),
          "missing_channels": config.missing_channels()})
+
+
+@app.post("/settings/sync-rules")
+def settings_sync_rules():
+    """Pieliek noteikumus, kas ir kodā, bet ne šīs instances kopijā.
+
+    Startējot tas notiek pats; poga ir tam gadījumam, kad brīdinājums
+    tomēr redzams — lai to varētu nokārtot uz vietas, nevis kopējot ar roku.
+    """
+    from urllib.parse import quote
+
+    added = config.sync_missing_rules()
+    if not added:
+        return RedirectResponse("/settings?saved=nekas+nebija+jāpievieno",
+                                status_code=303)
+    return RedirectResponse(
+        f"/settings?saved={quote('pievienoti noteikumi: ' + ', '.join(added))}",
+        status_code=303)
 
 
 @app.post("/settings/{kind}")

@@ -200,7 +200,13 @@ kā foto ierakstus.
   <pre style="white-space:pre-wrap;background:var(--card);border:1px solid var(--line);
        border-radius:8px;padding:.7rem;font:inherit">{{ voice_script }}</pre>
   <p style="margin:.2rem 0 0">{{ voice_script.split() | length }} vārdi
-    (~{{ (voice_script.split() | length / 2.6) | round | int }} s runas).
+    {%- if voice_seconds %}, {{ voice_seconds | round | int }} s runas —
+    <b>{{ (voice_script.split() | length * 60 / voice_seconds) | round | int }}
+    vārdi/min</b>. Salīdzinājumam: TV ziņu diktora temps ir tuvu 130–150
+    vārdiem minūtē, sarunvaloda — ātrāka. Tempu maina Noteikumos
+    (<code>reel_voice_rate</code>, arī pa sadaļām).
+    {%- else %} (~{{ (voice_script.split() | length / 2.6) | round | int }} s
+    runas — novērtējums; īsto tempu parāda uzbūvēta lente).{% endif %}
     {% if tts_ready %}Šo tekstu lentē nolasa balss; pārzīmējot ierakstu, ieruna
     tiek pārtaisīta no šī paša teksta.
     {% else %}Balss atslēga nav pieslēgta (Konti → Reelu balss), tāpēc lente

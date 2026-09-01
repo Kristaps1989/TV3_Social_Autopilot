@@ -791,3 +791,33 @@ def test_only_a_voiced_reel_is_marked_as_ai(monkeypatch, tmp_path):
                      synth=lambda text, **kw: "")
     assert not any(disclosure.DEFAULT_SHORT in d for d in rendered["docs"])
     assert not any(disclosure.DEFAULT_TEXT in d for d in rendered["docs"])
+
+
+def test_the_report_says_how_long_the_voice_actually_speaks(monkeypatch, tmp_path):
+    """Tempu vārdos minūtē var izrēķināt tikai no runas garuma. Lentes
+    kopgarums tam neder: tajā ir arī klusumi un CTA kadrs."""
+    from pathlib import Path
+
+    from app import reels
+
+    def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
+                      voice=None, voices=None):
+        Path(out).write_bytes(b"mp4")
+        return sum(durations)
+
+    monkeypatch.setattr(reels, "_render_frames",
+                        lambda docs, out_dir: [tmp_path / f"f{i}.png"
+                                               for i in range(len(docs))])
+    monkeypatch.setattr(reels, "_assemble", fake_assemble)
+    monkeypatch.setattr(reels, "media_duration", lambda p: 4.0)
+
+    report: dict = {}
+    reels.build_reel("T", "news", "", [], out_dir=tmp_path,
+                     sections=[{"title": "A", "body": "Pirmais teksts."},
+                               {"title": "B", "body": "Otrais teksts."}],
+                     cover_voice="Virsraksts.", end_voice="Beigas.",
+                     synth=lambda text, **kw: "/a.m4a", report=report)
+    # četri kadri, katrs ar 4 s runas
+    assert report["speech_seconds"] == 16.0
+    # kopgarums ir lielāks: klusumi un elpas nāk virsū
+    assert report["seconds"] > report["speech_seconds"]

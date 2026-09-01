@@ -176,3 +176,49 @@ def test_unknown_feeds_formats_and_platforms_are_named(monkeypatch):
     err = config.validate_editable("channels",
                                    base.replace("facebook_page", "fejsbuks"))
     assert err and "fejsbuks" in err
+
+
+def test_new_rules_are_added_to_an_older_editable_copy(tmp_path, monkeypatch):
+    """Kopija tiek uzsēta vienu reizi, bet noteikumi kodā turpina rasties.
+    Bez šī katrs jauns noteikums uz strādājošas instances paliek neredzams,
+    līdz kāds to pārkopē ar roku — un tā pēc katra izlaiduma."""
+    from app import config
+
+    default = tmp_path / "repo"
+    editable = tmp_path / "data"
+    default.mkdir(), editable.mkdir()
+    (default / "rules.yaml").write_text(
+        "# vecais\nlink_in_caption: true\n\n"
+        "# jaunais noteikums, ar paskaidrojumu\n"
+        "# otra komentāra rinda\nstale_publish_guard: true\n", encoding="utf-8")
+    # redaktora kopija ar VIŅA labojumu esošajā atslēgā
+    (editable / "rules.yaml").write_text(
+        "# vecais\nlink_in_caption: false\n", encoding="utf-8")
+    monkeypatch.setattr(config, "RULES_DIR", editable)
+    monkeypatch.setattr(config, "DEFAULT_RULES_DIR", default)
+
+    assert config.missing_rules() == ["stale_publish_guard"]
+    assert config.sync_missing_rules() == ["stale_publish_guard"]
+
+    out = (editable / "rules.yaml").read_text(encoding="utf-8")
+    # redaktora labojums palicis neskarts
+    assert "link_in_caption: false" in out
+    # jaunā atslēga klāt KOPĀ ar saviem komentāriem
+    assert "stale_publish_guard: true" in out
+    assert "# jaunais noteikums, ar paskaidrojumu" in out
+    assert "# otra komentāra rinda" in out
+    # brīdinājums pazūd, un otrreiz nav ko pievienot
+    assert config.missing_rules() == []
+    assert config.sync_missing_rules() == []
+
+
+def test_the_sync_never_touches_the_repo_default(tmp_path, monkeypatch):
+    """Izstrādes vidē abas mapes ir viena un tā pati — tur pievienot nav ko."""
+    from app import config
+
+    same = tmp_path / "rules"
+    same.mkdir()
+    (same / "rules.yaml").write_text("a: 1\n", encoding="utf-8")
+    monkeypatch.setattr(config, "RULES_DIR", same)
+    monkeypatch.setattr(config, "DEFAULT_RULES_DIR", same)
+    assert config.sync_missing_rules() == []

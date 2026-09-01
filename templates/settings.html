@@ -7,14 +7,20 @@
 {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
 {% if missing_rules or missing_channels %}
 <div class="notice err">
-  Šīs instances rediģējamā kopija ir vecāka par kodu — tā tika uzsēta vienu
-  reizi un pēc tam netiek aiztikta, lai nepārrakstītu tavus labojumus.
-  Kamēr tālāk uzskaitītā nav ierakstīta zemāk redzamajos laukos, spēkā ir
-  koda noklusējumi, un tu tos šeit nevari ne redzēt, ne mainīt.
+  Šīs instances rediģējamā kopija ir vecāka par kodu. Spēkā ir koda
+  noklusējumi, bet šeit tu tos neredzi un nevari mainīt.
   {% if missing_rules %}<br>Trūkst noteikumu:
-    <b>{{ missing_rules|join(', ') }}</b>{% endif %}
+    <b>{{ missing_rules|join(', ') }}</b>
+    <form method="post" action="/settings/sync-rules" style="margin-top:.5rem">
+      <button class="primary">Pievienot trūkstošos</button>
+    </form>
+    <span class="muted">Esošās atslēgas netiek aiztiktas, tāpēc tavi labojumi
+    paliek; jaunās nāk ar to pašu vērtību, kas jau tāpat ir spēkā, tātad
+    uzvedība nemainās. Parasti tas notiek pats, restartējot.</span>
+  {% endif %}
   {% if missing_channels %}<br>Trūkst kanālu:
-    <b>{{ missing_channels|join(', ') }}</b>{% endif %}
+    <b>{{ missing_channels|join(', ') }}</b> — kanālus pievieno ar roku, jo
+    tur katrs ieraksts ir redakcijas lēmums, ne noklusējums.{% endif %}
 </div>
 {% endif %}
 

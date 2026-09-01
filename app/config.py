@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,13 @@ def ensure_editable_dirs() -> None:
         for f in source.glob("*"):
             if f.is_file() and not (target / f.name).exists():
                 shutil.copy2(f, target / f.name)
+    # Uzsēšana notiek vienu reizi, bet noteikumi kodā turpina rasties. Bez šī
+    # katrs jauns noteikums uz strādājošas instances paliek neredzams, līdz
+    # kāds to pārkopē ar roku — un tā pēc katra izlaiduma.
+    try:
+        sync_missing_rules()
+    except Exception as e:  # noqa: BLE001 — konfigurācija nedrīkst neļaut startēt
+        log.warning("rules.yaml papildināšana neizdevās: %s", e)
 
 
 def _editable(name: str, editable_dir: Path, default_dir: Path) -> Path:
@@ -99,6 +107,72 @@ def missing_channels() -> list[str]:
         return []
 
 
+def _yaml_blocks(text: str) -> dict[str, str]:
+    """Faila teksts sadalīts pa augšējā līmeņa atslēgām, KOPĀ ar komentāriem.
+
+    Komentāri šajā failā redaktoram pasaka, ko katrs noteikums dara, tāpēc
+    jaunu atslēgu bez tiem pievienot nozīmētu pievienot mīklu.
+    """
+    lines = text.splitlines()
+    keys = [i for i, l in enumerate(lines) if re.match(r"^[a-z_]+:", l)]
+
+    def comment_start(i: int) -> int:
+        """Kur sākas komentāri, kas pieder ŠAI atslēgai.
+
+        Ar atkāpi rakstīts komentārs («#  entertainment: 8») šajā failā ir
+        iepriekšējās atslēgas izkomentēts piemērs, ne nākamās virsraksts.
+        Bez šī izņēmuma piemērs aizceļo pie svešas atslēgas, un pievienotais
+        bloks izskatās pēc kļūdas.
+        """
+        j = i
+        while j > 0 and re.match(r"^#(?! {2,})", lines[j - 1]):
+            j -= 1
+        return j
+
+    blocks: dict[str, str] = {}
+    for n, i in enumerate(keys):
+        start = comment_start(i)
+        end = comment_start(keys[n + 1]) if n + 1 < len(keys) else len(lines)
+        body = lines[start:end]
+        while body and not body[-1].strip():
+            body.pop()
+        blocks[lines[i].split(":")[0]] = "\n".join(body)
+    return blocks
+
+
+def sync_missing_rules() -> list[str]:
+    """Pieliek rediģējamajai kopijai noteikumus, kas ir kodā, bet ne tajā.
+
+    Kopija tiek uzsēta VIENU reizi un pēc tam netiek aiztikta, lai nepazustu
+    redaktora labojumi. Tas nozīmēja, ka katrs jauns noteikums uz strādājošas
+    instances paliek neredzams, līdz kāds to pārkopē ar roku — un pēc katra
+    izlaiduma tas bija jādara no jauna.
+
+    Pielikt ir droši: esošās atslēgas neaiztiekam (tātad neviens labojums
+    nepazūd), un jaunā atslēga nāk ar TO PAŠU vērtību, kas jau tāpat ir spēkā
+    kā koda noklusējums. Uzvedība nemainās — mainās tikai tas, ka redaktors
+    to beidzot redz un var mainīt.
+    """
+    editable = RULES_DIR / "rules.yaml"
+    default = DEFAULT_RULES_DIR / "rules.yaml"
+    if not editable.exists() or editable.resolve() == default.resolve():
+        return []
+    missing = missing_rules()
+    if not missing:
+        return []
+    blocks = _yaml_blocks(default.read_text(encoding="utf-8"))
+    added = [k for k in missing if k in blocks]
+    if not added:
+        return []
+    text = editable.read_text(encoding="utf-8").rstrip("\n")
+    text += "\n\n# --- Pievienots automātiski: jauni noteikumi no koda ---\n"
+    text += "\n\n".join(blocks[k] for k in added) + "\n"
+    editable.write_text(text, encoding="utf-8")
+    log.info("rules.yaml papildināts ar %d jauniem noteikumiem: %s",
+             len(added), ", ".join(added))
+    return added
+
+
 def missing_rules() -> list[str]:
     """Noteikumu atslēgas, kas ir repo noklusējumos, bet ne rediģējamajā kopijā.
 
@@ -125,8 +199,6 @@ def set_rule(key: str, value: str) -> None:
     komentārus, un tieši tie šajā failā redaktoram pasaka, ko katrs noteikums
     dara. Ja atslēgas nav, pieliekam beigās.
     """
-    import re
-
     path = RULES_DIR / "rules.yaml"
     if not path.exists():
         path = DEFAULT_RULES_DIR / "rules.yaml"

@@ -41,7 +41,10 @@ MAX_VIDEO_SECONDS = 45      # reels teaser: pietiek āķim, pārējais rakstā
 STORY_MAX_SECONDS = 30      # video stories: API limits 60 s, labā prakse īsāk
 STORY_API_MAX_SECONDS = 60  # Facebook video stāsta griesti
 MAX_VIDEO_BYTES = 300 * 1024 * 1024
-VOICE_MAX_WORDS = 90        # ~30 s runas; garāka ieruna vairs nav teaseris
+# ~40 s runas ziņu tempā (ap 135 vārdiem minūtē); garāka ieruna vairs nav
+# teaseris. Īsto tempu konkrētai lentei rāda priekšskatījums — tas rēķina to
+# no izmērītā runas garuma, nevis no šī pieņēmuma.
+VOICE_MAX_WORDS = 90
 VOICE_TAIL_SECONDS = 0.6    # CTA kadrs paliek redzams pēc pēdējā vārda
 VOICE_MAX_SECONDS = 60
 
@@ -770,6 +773,7 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                        edge_seconds=edge_seconds, point_images=point_images)
 
     voices: list[str] = []
+    spoken: dict[str, float] = {}   # ieruna -> sekundes, kadru garumam un atskaitei
     if voice is None and any(b["text"].strip() for b in beats):
         if synth is None:
             from app import tts
@@ -780,6 +784,7 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
         voices = [synth(b["text"], section=section) if b["text"].strip() else ""
                   for b in beats]
         speech = [media_duration(v) if v else 0.0 for v in voices]
+        spoken = {v: t for v, t in zip(voices, speech) if v}
         for beat, planned in zip(beats, plan_durations(
                 [b["duration"] for b in beats], voices, speech)):
             beat["duration"] = planned
@@ -814,6 +819,14 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                           voice=voice, voices=voices or None)
     if report is not None:
         report.update({"voiced": voiced,
+                       # cik ilgi tiešām SKAN balss (bez klusumiem un CTA
+                       # kadra) — no tā redaktors var izrēķināt īsto tempu
+                       # vārdos minūtē, nevis jāuzticas manam vērtējumam.
+                       # Skaita PĒC apgriešanas: nomestas nodaļas ieruna
+                       # lentē neskan, un tempu tā tikai sabojātu
+                       "speech_seconds": round(
+                           media_duration(voice) if voice
+                           else sum(spoken.get(v, 0.0) for v in voices), 2),
                        "frames": total_frames, "seconds": round(total, 2),
                        "narration": [b["text"] for b in beats if b["text"]]})
     log.info("reel built: %s (%d frames, %.0fs total%s)",

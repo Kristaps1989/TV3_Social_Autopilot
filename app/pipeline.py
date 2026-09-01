@@ -601,6 +601,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                     # dažādi ieraksti
                     "voiced": bool(report.get("voiced")),
                     "seconds": report.get("seconds"),
+                    "speech_seconds": report.get("speech_seconds"),
                     "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)

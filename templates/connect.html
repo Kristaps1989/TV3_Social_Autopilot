@@ -74,6 +74,8 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <summary class="muted">Balsis šajā kontā
         ({{ el_catalogue.voices|length }})</summary>
       <div class="muted" style="font-size:.72rem;margin:.3rem 0 0">Izvēlēta:
+        {% set chosen = el_catalogue.voices | selectattr('id', 'equalto', el_voice) | first %}
+        {% if chosen %}<b>{{ chosen.name }}</b> ·{% endif %}
         <code style="word-break:break-all">{{ el_voice }}</code></div>
       <p class="muted" style="margin:.35rem 0 .3rem;font-size:.78rem">Balsis
       <b>nav piesaistītas valodai</b> — latviski runā modelis, balss dod
@@ -87,7 +89,7 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
           <div style="font-weight:600;line-height:1.25">{{ v.name }}</div>
           <div class="muted" style="font-size:.72rem;margin:.1rem 0 .3rem">
             {{ v.gender or '—' }} · {{ v.accent or '—' }} · {{ v.category }}<br>
-            <code style="word-break:break-all">{{ v.id }}</code></div>
+            <code class="vid" style="word-break:break-all">{{ v.id }}</code></div>
           <div style="display:flex;align-items:center;gap:.4rem">
             {% if v.preview %}
             <button type="button" class="vplay" data-src="{{ v.preview }}"
@@ -100,6 +102,8 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
               <button {% if v.id == el_voice %}disabled{% endif %}>
                 {{ 'Izvēlēta' if v.id == el_voice else 'Izvēlēties' }}</button>
             </form>
+            <button type="button" class="vcopy" data-id="{{ v.id }}"
+                    title="Kopēt balss ID">ID</button>
           </div>
         </div>
         {% endfor %}
@@ -125,6 +129,32 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
           btn.textContent = '\u23F8';
           audio.addEventListener('ended', stop);
           audio.play()['catch'](stop);
+        });
+        // ID kopēšana: sadaļu balsis (reel_voice_by_section) raksta ar roku
+        // Noteikumos, un ID no ekrāna pārrakstīt ir tieši tā vieta, kur
+        // viens simbols aiziet greizi
+        document.addEventListener('click', function (e) {
+          var b = e.target.closest ? e.target.closest('.vcopy') : null;
+          if (!b) { return; }
+          // ja starpliktuve nav pieejama, ID vismaz iezīmējam — poga, kas
+          // klusi neizdarās neko, ir sliktāka par pogu, kas iedod tekstu
+          var select = function () {
+            var code = b.parentNode.parentNode.querySelector('.vid');
+            if (!code || !window.getSelection) { return; }
+            var r = document.createRange();
+            r.selectNodeContents(code);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+          };
+          var done = function () {
+            var old = b.textContent;
+            b.textContent = '\u2713';
+            setTimeout(function () { b.textContent = old; }, 1200);
+          };
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(b.dataset.id).then(done, select);
+          } else { select(); }
         });
       })();
       </script>

@@ -119,10 +119,17 @@ def test_ensure_editable_dirs_seeds_volume(tmp_path, monkeypatch):
     config.ensure_editable_dirs()
     assert (tmp_path / "rules" / "rules.yaml").exists()
     assert (tmp_path / "prompts" / "system_base.md").exists()
-    # user edits are never overwritten
-    (tmp_path / "rules" / "rules.yaml").write_text("edited: true", encoding="utf-8")
+
+    # Redaktora labojumi netiek pārrakstīti — bet jaunie noteikumi tiek
+    # PIELIKTI: kopija tiek uzsēta vienu reizi, un bez šī katrs jauns
+    # noteikums uz strādājošas instances paliktu neredzams uz mūžu.
+    rules = tmp_path / "rules" / "rules.yaml"
+    rules.write_text("link_in_caption: false\n", encoding="utf-8")
     config.ensure_editable_dirs()
-    assert (tmp_path / "rules" / "rules.yaml").read_text(encoding="utf-8") == "edited: true"
+    out = rules.read_text(encoding="utf-8")
+    assert "link_in_caption: false" in out          # labojums palicis
+    assert "scheduling_mode:" in out                # trūkstošie pielikti
+    assert config.missing_rules() == []
 
 
 # --- Facebook saites kartītes apgriezums ------------------------------------

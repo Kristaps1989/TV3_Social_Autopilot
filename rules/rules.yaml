@@ -142,6 +142,7 @@ reel_voice_rate: -4
 # Temps pa sadaļām — tas pats sadaļas jautājums, kas balss.
 reel_voice_rate_by_section: {}
 #  entertainment: 8
+
 # ElevenLabs modelis. Latviski runā tikai eleven_v3; multilingual_v2
 # latviešu valodas sarakstā nav.
 elevenlabs_model: eleven_v3

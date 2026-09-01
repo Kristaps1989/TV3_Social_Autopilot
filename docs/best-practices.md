@@ -120,6 +120,19 @@ tikai tiem, kam gribējām ātrāk.
 Temps ir arī keša atslēgā. Bez tā ātrāka izklaides ieruna atbildētu ar veco,
 lēnāko failu, un iestatījums izskatītos pēc neieviesta.
 
+**Kāds temps ir pareizs.** Orientieris ir TV ziņu diktors — ap 130–150
+vārdiem minūtē; sarunvaloda ir ātrāka, un tieši tāpēc neironu balss
+noklusējums ziņām parasti ir par ātru. Bet procenti paši par sevi neko
+nepasaka: tie ir attiecība pret pakalpojuma noklusējumu, un tas Azure un
+ElevenLabs atšķiras. Tāpēc priekšskatījums pie uzbūvētas lentes rāda **īsto
+izmērīto tempu** (vārdi / izmērītais runas garums) — pēc tā regulē, nevis pēc
+procentiem.
+
+Mūsu gadījumā ir vēl viens ierobežojums, kura TV diktoram nav: **kadra garumu
+nosaka ieruna**. Ātrāka runa nozīmē īsāku kadru, bet teksts uz ekrāna paliek
+tikpat garš — tāpēc temps augšpusē ir ierobežots ar to, cik ātri to tekstu var
+izlasīt, ne ar to, cik ātri to var pateikt.
+
 ### Kāpēc skaitļus pārrakstām pirms sintēzes
 
 Balss «59. minūtē» lasa kā «piecdesmit devītā minūtē»: punkts aiz cipara tai
