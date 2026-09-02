@@ -17,13 +17,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
-from app import (auth, config, credentials, ga4, manual, pagemeta, reels,
-                 runtime, shortlinks, tts)
+from app import (auth, config, credentials, ga4, logbuffer, manual, pagemeta,
+                 reels, runtime, shortlinks, tts)
 from app.db import get_session, init_db
 from app.models import Article, Evaluation, Post, get_setting, set_setting, utcnow
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
+# pēdējie žurnāla ieraksti paliek arī atmiņā, lai tos varētu skatīt sadaļā
+# «Diagnostika» — bez kāpšanas Railway konsolē
+logbuffer.install()
 log = logging.getLogger(__name__)
 
 
@@ -1739,6 +1742,56 @@ def _differs_from_default(kind: str) -> bool:
         return False
     current = path.read_text(encoding="utf-8") if path.exists() else ""
     return current.strip() != default.read_text(encoding="utf-8").strip()
+
+
+@app.get("/logs", response_class=HTMLResponse)
+def logs_page(request: Request, channel: str = "", level: str = "",
+              q: str = "", lines: int = 200, simulate: str = ""):
+    """Diagnostika: kāpēc plūsmā ir tieši šie formāti + pēdējie žurnāla
+    ieraksti. Tas pats, ko rāda `scripts/format_report.py`, tikai lapā."""
+    from app import diagnostics
+
+    session = get_session()
+    try:
+        data = diagnostics.report(session, channel=channel,
+                                  simulate_article=bool(simulate))
+        return templates.TemplateResponse(request, "logs.html", {
+            "data": data,
+            "records": logbuffer.records(limit=max(20, min(lines, 800)),
+                                         level=level, contains=q),
+            "channels": list(config.load_channels()),
+            "channel": channel, "level": level, "q": q, "lines": lines,
+            "simulate": bool(simulate),
+        })
+    finally:
+        session.close()
+
+
+@app.get("/logs/export.json")
+def logs_export(channel: str = "", lines: int = 500):
+    """Viss vienā JSON failā — to var iedot izstrādātājam vai AI asistentam,
+    lai nav jālasa Railway konsole. Tokeni un atslēgas tiek izfiltrētas."""
+    import json
+
+    from fastapi.responses import Response
+
+    from app import diagnostics
+
+    session = get_session()
+    try:
+        payload = {
+            "diagnostics": diagnostics.report(session, channel=channel,
+                                              posts=30, simulate_article=True),
+            "log": logbuffer.records(limit=max(50, min(lines, 800))),
+        }
+        body = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+        stamp = utcnow().strftime("%Y%m%d-%H%M")
+        return Response(
+            content=logbuffer.scrub(body), media_type="application/json",
+            headers={"Content-Disposition":
+                     f'attachment; filename="tv3-diagnostika-{stamp}.json"'})
+    finally:
+        session.close()
 
 
 @app.get("/settings", response_class=HTMLResponse)

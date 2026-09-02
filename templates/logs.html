@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Diagnostika</h1>
+<p class="muted">Kāpēc plūsmā ir tieši šie formāti un ko sistēma pēdējā laikā
+darīja. Tie paši dati, ko dod <code>scripts/format_report.py</code> — te tos
+var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Vide</h2>
+  <table>
+    <tr><td>Noteikumu mape</td><td><code>{{ data.rules_dir }}</code>
+      {% if data.editable_rules_used %}<span class="muted">(rediģējamā kopija — var būt vecāka par kodu)</span>
+      {% else %}<span class="muted">(koda noklusējumi)</span>{% endif %}</td></tr>
+    <tr><td>Attēlu renderētājs</td><td>{{ 'strādā ✓' if data.renderer_available else 'NAV — karuseļi un foto grafikas nevar tapt' }}</td></tr>
+    <tr><td>Lentes (ffmpeg)</td><td>{{ 'strādā ✓' if data.reels_available else 'NAV — lentes nevar tapt' }}</td></tr>
+    <tr><td>Reklāmu režīms</td><td>{{ data.ads_mode }}</td></tr>
+    <tr><td>Pēdējās 24 h publicēts</td><td>
+      {% for f, n in data.published_24h.items() %}{{ f }} {{ n }}{{ ' · ' if not loop.last }}{% else %}nekā{% endfor %}</td></tr>
+    {% if data.last_render_error %}
+    <tr><td>Pēdējā zīmēšanas kļūda</td><td class="muted">{{ data.last_render_error }}</td></tr>
+    {% endif %}
+  </table>
+  <p style="margin-top:.6rem">
+    <a class="button" href="/logs/export.json{% if channel %}?channel={{ channel }}{% endif %}">Lejupielādēt JSON</a>
+    <span class="muted">— visa diagnostika un žurnāls vienā failā (bez atslēgām).</span>
+  </p>
+</div>
+
+{% if data.ads %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Formātu maksas rezultāti <span class="muted" style="font-weight:400;font-size:.85rem">
+    šie skaitļi koriģē formāta izvēli, kad reklāmas iet ārā</span></h2>
+  <table>
+    <tr><th>Formāts</th><th>Reklāmas</th><th>Tērēts</th><th>Sesijas</th><th>Klikšķi</th><th>Rezultāti/€</th></tr>
+    {% for r in data.ads %}
+    <tr><td>{{ r.format }}</td><td class="n">{{ r.ads }}</td><td class="n">{{ '%.2f' % r.eur }} €</td>
+      <td class="n">{{ r.sessions }}</td><td class="n">{{ r.clicks }}</td>
+      <td class="n">{{ r.per_eur if r.per_eur is not none else '—' }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% for ch in data.channels %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>{{ ch.display_name }} <span class="muted" style="font-weight:400;font-size:.85rem">{{ ch.channel }}</span></h2>
+  <p class="muted" style="margin:0 0 .5rem">
+    Pēdējie ieraksti: {{ ch.window | join(', ') if ch.window else '—' }}
+    {%- if ch.run.format %} · plūsmas galā <b>{{ ch.run.format }} ×{{ ch.run.count }}</b>
+      (limits {{ ch.row_limit }} pēc kārtas){% endif %}
+  </p>
+  <table>
+    <tr><th>Formāts</th><th>Daļa</th><th>Šodien</th><th>Kvota</th><th>Grīda</th>
+        <th>Griesti</th><th>Svars</th><th>Statuss</th></tr>
+    {% for s in ch.status %}
+    <tr>
+      <td><strong>{{ s.format }}</strong></td>
+      <td class="n">{{ '%.0f%%' % (s.share * 100) }}</td>
+      <td class="n">{{ s.today }}</td>
+      <td class="n">{{ s.cap if s.cap is not none else '—' }}</td>
+      <td class="n">{{ '%.0f%%' % (s.floor * 100) if s.floor else '—' }}</td>
+      <td class="n">{{ '%.0f%%' % (s.ceiling * 100) if s.ceiling else '—' }}</td>
+      <td class="n">{{ s.weight }}</td>
+      <td>{% if s.blocked %}<span class="state cancelled">{{ s.blocked }}</span>
+          {% elif s.starved %}<span class="state scheduled">grīda: šim formātam priekšroka</span>
+          {% else %}<span class="state published">brīvs</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {% if ch.history %}
+  <h3>Pēdējie ieraksti un iemesli</h3>
+  <table>
+    <tr><th>Laiks</th><th>Formāts</th><th>Statuss</th><th>Raksts</th><th>Kāpēc tieši šis</th></tr>
+    {% for h in ch.history %}
+    <tr>
+      <td>{{ h.at | local }}</td>
+      <td><strong>{{ h.format }}</strong>{% if h.ai_choice and h.ai_choice != h.format %}
+        <span class="muted">(AI gribēja {{ h.ai_choice }})</span>{% endif %}</td>
+      <td><span class="state {{ h.state }}">{{ h.state }}</span></td>
+      <td>{{ h.title }}</td>
+      <td class="muted">
+        {{ h.decision }}
+        {%- for n in h.notes %}<br>↳ {{ n }}{% endfor %}
+        {%- if h.retargeted %}<br>↳ {{ h.retargeted }}{% endif %}
+        {%- for f, why in h.blocked.items() %}<br>↳ bloķēts {{ f }}: {{ why }}{% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if data.simulation %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Simulācija <span class="muted" style="font-weight:400;font-size:.85rem">
+    ko sistēma izvēlētos ŠOBRĪD rakstam «{{ data.simulation.article[:60] }}»</span></h2>
+  {% for name, rows in data.simulation.channels.items() %}
+  <h3>{{ name }}</h3>
+  <table>
+    <tr><th>AI grib</th><th>Iznāks</th><th>Kāpēc</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.ai_choice }}</td>
+      <td><strong>{{ r.chosen }}</strong></td>
+      <td class="muted">{{ r.decision }}{% if r.note %} · {{ r.note }}{% endif %}
+        {%- if r.gate %}<br>↳ bagātā formāta vārti: {{ r.gate }}{% endif %}
+        {%- for f, why in r.blocked.items() %}<br>↳ bloķēts {{ f }}: {{ why }}{% endfor %}
+        {%- for f, sc in r.scores.items() %}<br>{{ f }} = {{ sc.total }}
+          (svars {{ sc.svars }} × izmērītais {{ sc.izmērītais }} × sadaļa {{ sc.sadaļa }}
+           × reklāma {{ sc.reklāma }} × piesātinājums {{ sc.piesātinājums }}
+           × AI {{ sc['AI izvēle'] }}){% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endfor %}
+</div>
+{% else %}
+<p><a class="button" href="/logs?{% if channel %}channel={{ channel }}&{% endif %}simulate=1">Parādīt simulāciju</a>
+  <span class="muted">— ko sistēma izvēlētos šobrīd jaunākajam rakstam.</span></p>
+{% endif %}
+
+<div class="card">
+  <h2>Žurnāls <span class="muted" style="font-weight:400;font-size:.85rem">
+    pēdējie ieraksti procesa atmiņā; konteinera pārstarts tos notīra</span></h2>
+  <form method="get" action="/logs" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">
+    <select name="channel">
+      <option value="">visi kanāli</option>
+      {% for c in channels %}<option value="{{ c }}" {% if c == channel %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+    <select name="level">
+      {% for lv in ['', 'INFO', 'WARNING', 'ERROR'] %}
+      <option value="{{ lv }}" {% if lv == level %}selected{% endif %}>{{ lv or 'visi līmeņi' }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="q" value="{{ q }}" placeholder="meklēt tekstā (piem. format, reel, ads)">
+    <input type="number" name="lines" value="{{ lines }}" min="20" max="800" style="width:6rem">
+    <button class="primary">Rādīt</button>
+  </form>
+  {% if records %}
+  <pre style="white-space:pre-wrap;background:var(--card);border:1px solid var(--line);
+       border-radius:8px;padding:.7rem;font-size:.82rem;max-height:32rem;overflow:auto">{% for r in records %}{{ r.at }}  {{ '%-7s' % r.level }} {{ r.logger }}  {{ r.message }}
+{% endfor %}</pre>
+  {% else %}
+  <p class="muted">Žurnālā vēl nekā nav (vai filtrs neko neatrada). Pēc
+  pārstarta buferis sākas no nulles un piepildās, tiklīdz sistēma strādā.</p>
+  {% endif %}
+</div>
+{% endblock %}
