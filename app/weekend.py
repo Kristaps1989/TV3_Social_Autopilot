@@ -202,6 +202,12 @@ def week_top(session, section: str | None = None,
     for r in scored:
         if r.Article.id in seen:
             continue
+        # mūsu pašu digest ieraksti («Nedēļas nogales TOP 5») plūsmā mēdz būt
+        # lasītākie — bet tie nav raksti: bez foto, ar saiti uz sākumlapu.
+        # Franšīze par franšīzi ir tukša (tieši tā dzima «Trešdienas
+        # jautājums» par TOP 5 ar sarkanu kadru un saiti uz tv3.lv).
+        if (r.Article.raw_json or {}).get("_digest"):
+            continue
         seen.add(r.Article.id)
         out.append(r.Article)
         if len(out) >= limit:
@@ -224,12 +230,32 @@ def _digest_article(session, guid: str, title: str, section: str,
     return a
 
 
+def digest_items(articles: list[Article]) -> list[dict]:
+    """Lasāmais saraksts, ko digest ieraksts sola: virsraksts + saite katram
+    rakstam. Nonāk ieraksta tekstā (numurēti virsraksti) un pirmajā
+    komentārā (ar saitēm) — lasītājs katru no «TOP 5» atrod ar vienu
+    pieskārienu, nevis meklē pa sākumlapu."""
+    return [{"article": a.id, "title": a.title.rstrip("."),
+             "url": a.canonical_url or a.url}
+            for a in articles if (a.canonical_url or a.url)]
+
+
+def digest_link(articles: list[Article], fallback: str = "https://tv3.lv") -> str:
+    """Digest ieraksta galvenā saite: lasītākais raksts, ne sākumlapa.
+    Sākumlapa neko no solītā «TOP 5» nerāda — tā ir maldinoša saite."""
+    for a in articles:
+        if a.canonical_url or a.url:
+            return a.canonical_url or a.url
+    return fallback
+
+
 def _schedule(session, article: Article, fmt: str, copy: str, media: list,
               link: str, marker: str, at: datetime,
               card_links: list[str] | None = None,
               card_titles: list[str] | None = None,
               channel: str = CHANNEL,
-              recipe: dict | None = None) -> Post:
+              recipe: dict | None = None,
+              items: list[dict] | None = None) -> Post:
     from app import cards, runtime
 
     # Franšīzes ieraksti ir ATSKATOŠI pēc būtības: «nedēļas TOP», «nedēļas
@@ -248,6 +274,8 @@ def _schedule(session, article: Article, fmt: str, copy: str, media: list,
         extra["card_links"] = card_links
     if card_titles:
         extra["card_titles"] = card_titles
+    if items:
+        extra["items"] = items
     post = Post(article_id=article.id, channel=channel, format=fmt, copy=copy,
                 media=media, link_url=link, hook_type=marker,
                 state="scheduled", scheduled_at=at, extra=extra,
@@ -363,10 +391,12 @@ def _carousel_digest(session, day, articles: list[Article], title: str,
         return None
     card_links = [a.canonical_url or a.url for a in used][:len(media)]
     card_titles = [a.title for a in used][:len(media)]
+    link = digest_link(used, link)
     return _schedule(session, _digest_article(session, guid, title, sec, link),
                      "card_carousel", copy, media, link, marker,
                      _local_slot(day, hour),
                      card_links=card_links, card_titles=card_titles,
+                     items=digest_items(used),
                      recipe={"kind": "cards", "title": title, "section": sec,
                              "tag": tag, "ribbon": ribbon or title.upper(),
                              "articles": [a.id for a in used],
@@ -432,10 +462,11 @@ def _mosaic_story(session, day, title: str, images: list[str], guid: str,
     except Exception as e:  # noqa: BLE001
         log.warning("%s render failed: %s", marker, e)
         return None
+    link = digest_link(articles or [])
     return _schedule(session, _digest_article(
-        session, guid, f"{title} (stāsts)", "news", "https://tv3.lv"),
-        "story", "", media, "https://tv3.lv", marker, at,
-        channel=STORY_CHANNEL,
+        session, guid, f"{title} (stāsts)", "news", link),
+        "story", "", media, link, marker, at,
+        channel=STORY_CHANNEL, items=digest_items(articles or []),
         recipe={"kind": "mosaic", "title": title, "section": "news",
                 "articles": [a.id for a in (articles or [])],
                 "date": day.strftime("%d.%m.%Y")})
@@ -493,10 +524,11 @@ def build_reel_digest(session, day) -> Post | None:
         return None
     copy = ("Nedēļa 30 sekundēs — pieci notikumi, par kuriem runāja Latvija. "
             "Pilnie stāsti portālā tv3.lv.")
+    link = digest_link(articles)
     return _schedule(session, _digest_article(
         session, f"digest-reel-{day.isoformat()}", title, "news",
-        "https://tv3.lv"), "reel", copy, media, "https://tv3.lv",
-        "digestreel", _local_slot(day, 12),
+        link), "reel", copy, media, link,
+        "digestreel", _local_slot(day, 12), items=digest_items(articles),
         recipe={"kind": "reel", "title": title, "section": "news",
                 "points": points, "articles": [a.id for a in articles],
                 "date": day.strftime("%d.%m.%Y")})
@@ -692,7 +724,9 @@ def build_question(session, day) -> Post | None:
 
     # sarunas jautājums par traģēdiju ir necieņa pret cietušajiem un tiešs
     # zīmola risks — tādus rakstus šis formāts neaiztiek
-    articles = [a for a in week_top(session, limit=6) if playful_safe(a)]
+    # tikai raksts ar attēlu: bez tā kadrs ir plakans krāsas laukums
+    articles = [a for a in week_top(session, limit=6)
+                if playful_safe(a) and _any_image(a)]
     if not articles or not cards.renderer_available():
         return None
     art = articles[0]

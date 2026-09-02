@@ -231,7 +231,11 @@ def test_top5_carousel_is_five_stories_each_with_photo_and_link(session,
     assert titles == [a.title for a in arts]
     assert "https://tv3.lv/sports" not in links
     # ieraksta teksts joprojām ved uz sadaļu un nes ievadu
-    assert post.link_url == "https://tv3.lv/sports"
+    # galvenā saite ir lasītākais raksts, ne sadaļas lapa: sākumlapa/sadaļa
+    # neko no solītā «TOP 5» nerāda
+    assert post.link_url == post.extra["card_links"][0]
+    assert [it["title"] for it in post.extra["items"]] == [
+        t.rstrip(".") for t in seen["points"]]
 
 
 def test_publish_passes_card_links_with_per_card_utm(session, monkeypatch):
@@ -619,7 +623,7 @@ def test_friday_guide_takes_entertainment_only(session, monkeypatch):
     post = session.execute(select(Post).where(
         Post.hook_type == "guide")).scalars().one()
     assert post.format == "card_carousel"
-    assert post.link_url == "https://tv3.lv/izklaide"
+    assert post.link_url == ents[0].canonical_url        # ne sadaļas lapa
     assert post.scheduled_at == datetime(2026, 9, 4, 14, 0)   # 17:00 Rīgā
     assert seen["section"] == "entertainment" and seen["tag"] == "#BRĪVDIENĀM"
     # ziņu hits gidā neiekļūst, arī ja tam ir vairāk sesiju

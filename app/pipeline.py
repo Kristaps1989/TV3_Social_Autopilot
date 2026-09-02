@@ -948,6 +948,41 @@ def link_pointer(platform: str, post, rules: dict) -> str:
     return pointer
 
 
+def digest_items(post) -> list[dict]:
+    return [it for it in ((post.extra or {}).get("items") or [])
+            if isinstance(it, dict) and it.get("title")]
+
+
+def reading_list(post, platform: str, rules: dict | None = None,
+                 links: bool = True) -> str:
+    """Numurēts saraksts, ko digest ieraksts («TOP 5», «Nedēļa 30
+    sekundēs») sola: tekstā tikai virsraksti (apraksts paliek tīrs), pirmajā
+    komentārā — ar saiti katram rakstam un savu utm_term (marker-N), lai GA4
+    redz, kurš no pieciem tiešām atveda lasītāju."""
+    from app.best_practices import add_utm
+
+    items = digest_items(post)
+    if not items:
+        return ""
+    rules = config.load_rules() if rules is None else rules
+    hook = (post.hook_type or "").strip()
+    lines = []
+    for i, it in enumerate(items, 1):
+        lines.append(f"{i}. {it['title']}")
+        if links and it.get("url"):
+            full = add_utm(it["url"], platform, post.id,
+                           hook=f"{hook}-{i}" if hook else str(i))
+            lines.append(full)
+    return "\n".join(lines)
+
+
+def first_comment_text(post, platform: str, shown_link: str,
+                       rules: dict | None = None) -> str:
+    """Kas iet pirmajā komentārā: digest ierakstam — lasāmais saraksts ar
+    saitēm, parastam — tā pati saite, kas aprakstā."""
+    return reading_list(post, platform, rules, links=True) or shown_link
+
+
 def compose_text(post, platform: str, shown_link: str,
                  rules: dict | None = None) -> tuple[str, bool]:
     """(post text, whether the link also goes out as the first comment).
@@ -972,6 +1007,14 @@ def compose_text(post, platform: str, shown_link: str,
         if note and disclosure.in_caption(post.copy or "", rules):
             note = ""
     copy = post.copy or ""
+    # digest ieraksts sola piecus stāstus — nosauc tos tekstā, lai lasītājs
+    # zina, ko atradīs; saites katram ir pirmajā komentārā (X/Threads 280–500
+    # zīmēs saraksts neietilpst, tur paliek galvenā saite — lasītākais raksts)
+    if platform in ("facebook_page", "instagram"):
+        titles = reading_list(post, platform, rules, links=False)
+        if titles:
+            copy = f"{copy}\n\n{titles}" if copy else titles
+            in_comment = in_comment or bool(digest_items(post))
     spec = PLATFORM_SPECS.get(platform)
     reader_sees_link = in_caption and (spec.link_in_copy if spec else True)
     if in_comment and not reader_sees_link:
@@ -1180,7 +1223,8 @@ def publish_due(session) -> int:
             published += 1
             if first_comment_link and post.platform_post_id:
                 try:
-                    adapter.comment(post.platform_post_id, shown)
+                    adapter.comment(post.platform_post_id,
+                                    first_comment_text(post, platform, shown, rules))
                 except Exception as e:  # noqa: BLE001 — post stands even if it fails
                     log.warning("first-comment link failed for post %s: %s", post.id, e)
                     post.error = f"comment failed: {e}"
