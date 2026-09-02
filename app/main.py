@@ -621,6 +621,7 @@ def why(request: Request, url: str = "", msg: str = "", ok: str = ""):
             "manual_options": manual.channel_options() if article else {},
             "manual_unavailable": manual.unavailable() if article else [],
             "missing_channels": config.missing_channels() if article else [],
+            "missing_formats": config.missing_channel_formats() if article else {},
             "msg": msg, "msg_ok": ok == "1",
         })
     finally:
@@ -1610,7 +1611,22 @@ EDITABLE = {
     "prompt_facebook": config.PROMPTS_DIR / "system_facebook.md",
     "prompt_x": config.PROMPTS_DIR / "system_x.md",
     "prompt_threads": config.PROMPTS_DIR / "system_threads.md",
+    "prompt_instagram": config.PROMPTS_DIR / "system_instagram.md",
 }
+# Koda noklusējumi tiem pašiem failiem: rediģējamā kopija tiek uzsēta vienu
+# reizi, tāpēc prompta labojums izlaidumā uz strādājošas instances nenonāk —
+# «Atjaunot no koda» ļauj to paņemt bez kopēšanas ar roku.
+DEFAULTS = {k: (config.DEFAULT_PROMPTS_DIR if k.startswith("prompt_")
+                else config.DEFAULT_RULES_DIR) / p.name
+            for k, p in EDITABLE.items()}
+
+
+def _differs_from_default(kind: str) -> bool:
+    path, default = EDITABLE[kind], DEFAULTS[kind]
+    if not default.exists() or default.resolve() == path.resolve():
+        return False
+    current = path.read_text(encoding="utf-8") if path.exists() else ""
+    return current.strip() != default.read_text(encoding="utf-8").strip()
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -1620,10 +1636,14 @@ def settings(request: Request, saved: str = "", error: str = ""):
     return templates.TemplateResponse(
         request, "settings.html",
         {"files": files, "saved": saved, "error": error,
+         # kuri faili atšķiras no koda noklusējuma — vai nu redaktora
+         # labojums, vai izlaidums, kas kopiju nav sasniedzis
+         "differs": {k: _differs_from_default(k) for k in EDITABLE},
          # jaunas atslēgas, kas kodā ir, bet šīs instances kopijā nav: bez
          # brīdinājuma redaktors par tām neuzzina nekad
          "missing_rules": config.missing_rules(),
-         "missing_channels": config.missing_channels()})
+         "missing_channels": config.missing_channels(),
+         "missing_formats": config.missing_channel_formats()})
 
 
 @app.post("/settings/sync-rules")
@@ -1642,6 +1662,20 @@ def settings_sync_rules():
     return RedirectResponse(
         f"/settings?saved={quote('pievienoti noteikumi: ' + ', '.join(added))}",
         status_code=303)
+
+
+@app.post("/settings/{kind}/reset")
+def reset_settings(kind: str):
+    """Pārraksta rediģējamo kopiju ar koda noklusējumu (tikai promptiem —
+    noteikumu un kanālu failos katra rinda ir redakcijas lēmums)."""
+    if kind not in EDITABLE or not kind.startswith("prompt_"):
+        return RedirectResponse("/settings?error=unknown+file", status_code=303)
+    default = DEFAULTS[kind]
+    if not default.exists():
+        return RedirectResponse("/settings?error=nav+noklusējuma", status_code=303)
+    EDITABLE[kind].parent.mkdir(parents=True, exist_ok=True)
+    EDITABLE[kind].write_text(default.read_text(encoding="utf-8"), encoding="utf-8")
+    return RedirectResponse(f"/settings?saved={kind}+atjaunots+no+koda", status_code=303)
 
 
 @app.post("/settings/{kind}")

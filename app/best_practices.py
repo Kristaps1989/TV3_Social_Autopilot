@@ -19,6 +19,8 @@ class PlatformSpec:
     max_emoji: int
     link_char_cost: int | None     # X counts every URL as 23 chars; None = actual length
     link_in_copy: bool             # whether the link goes into the post text
+    # ko platformas adapteris prot publicēt (channels.yaml `formats:` izvēlas
+    # no šiem; pārējo formātu ieraksts adapterī pārtop par tuvāko)
     formats: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -26,22 +28,26 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
     "facebook_page": PlatformSpec(
         max_chars=5000, ideal_max_chars=400, max_hashtags=1, max_emoji=2,
         link_char_cost=None, link_in_copy=True,
-        formats=("link", "photo", "photo_album", "text_only"),
+        formats=("link", "photo", "photo_album", "card_carousel", "reel",
+                 "story", "text_only"),
     ),
     "x": PlatformSpec(
         max_chars=280, ideal_max_chars=280, max_hashtags=2, max_emoji=2,
         link_char_cost=23, link_in_copy=True,
-        formats=("link", "text_only", "photo"),
+        # card_carousel = tvīts ar līdz 4 attēliem; reel = video tvīts
+        formats=("link", "text_only", "photo", "photo_album", "card_carousel",
+                 "reel"),
     ),
     "threads": PlatformSpec(
         max_chars=500, ideal_max_chars=500, max_hashtags=1, max_emoji=2,
         link_char_cost=None, link_in_copy=True,
-        formats=("link", "text_only", "photo"),
+        formats=("link", "text_only", "photo", "photo_album", "card_carousel",
+                 "reel"),
     ),
     "instagram": PlatformSpec(
         max_chars=2200, ideal_max_chars=300, max_hashtags=5, max_emoji=3,
         link_char_cost=None, link_in_copy=False,  # links don't work in IG captions
-        formats=("photo", "carousel"),
+        formats=("photo", "photo_album", "card_carousel", "reel", "story"),
     ),
 }
 

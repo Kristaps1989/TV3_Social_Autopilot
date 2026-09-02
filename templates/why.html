@@ -46,7 +46,7 @@
   Ieraksts iet caur to pašu ceļu: tā pati grafika, ieruna un laika plānotājs;
   kanāla atstarpes un klusās stundas paliek spēkā, tāpēc «tūlīt» nozīmē
   «nākamajā derīgajā logā».</p>
-  {% if manual_unavailable or missing_channels %}
+  {% if manual_unavailable or missing_channels or missing_formats %}
   <div class="notice err" style="background:#fef3c7;color:#92400e">
     {% if manual_unavailable %}
     <p style="margin:0 0 .4rem"><strong>Neviens aktīvs kanāls nepieņem formātu
@@ -55,6 +55,13 @@
     nav, ieraksts klusi pārtop par saites ierakstu. Pielabo sadaļā
     <a href="/settings">Noteikumi → Kanāli</a>: pievieno formātu vajadzīgā
     kanāla <code>formats</code> rindai.</p>
+    {% endif %}
+    {% if missing_formats %}
+    <p style="margin:0 0 .4rem">Kods prot formātus, kas šīs instances kanālu
+    <code>formats:</code> rindās nav:
+    {% for ch, fmts in missing_formats.items() %}<strong>{{ ch }}</strong>: {{ fmts | join(', ') }}{{ '; ' if not loop.last }}{% endfor %}.
+    Pieliec tos <a href="/settings">Noteikumos → Kanāli</a>, ja gribi, lai
+    kanāls tos izmanto.</p>
     {% endif %}
     {% if missing_channels %}
     <p style="margin:0">Konfigurācijā trūkst kanālu, kas ir koda

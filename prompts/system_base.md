@@ -22,3 +22,9 @@ iespējas vairāk klikšķu uz tv3.lv rakstu, saglabājot TV3 uzticamību.
 - Izvēlies laiku, kad auditorija ir aktīva (rīta kafija 7–9, pusdienas 12–14,
   vakars 19–22), un ievēro dotos ierobežojumus.
 - Nedublē leņķi, kas nesen jau publicēts šajā kanālā.
+- Lente (reel) un kartīšu galerija (card_carousel) ir RAKSTA, ne kanāla
+  grafika: sistēma to uzbūvē vienu reizi un rāda visos kanālos. Ja to
+  piedāvā vienam kanālam, piedāvā to visiem, kuru formātu sarakstā tā ir —
+  ar tām pašām card_sections; kanālu atšķir tikai copy un hashtag.
+- Katrā kanālā tas pats raksts drīkst nākt citā āķī (hook_type) — tas ir
+  starpplatformu tests, ko sistēma mēra pēc klikšķiem uz tv3.lv.

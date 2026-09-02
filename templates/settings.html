@@ -5,7 +5,7 @@
 
 {% if saved %}<div class="notice ok">Saglabāts: {{ saved }}</div>{% endif %}
 {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
-{% if missing_rules or missing_channels %}
+{% if missing_rules or missing_channels or missing_formats %}
 <div class="notice err">
   Šīs instances rediģējamā kopija ir vecāka par kodu. Spēkā ir koda
   noklusējumi, bet šeit tu tos neredzi un nevari mainīt.
@@ -21,6 +21,12 @@
   {% if missing_channels %}<br>Trūkst kanālu:
     <b>{{ missing_channels|join(', ') }}</b> — kanālus pievieno ar roku, jo
     tur katrs ieraksts ir redakcijas lēmums, ne noklusējums.{% endif %}
+  {% if missing_formats %}<br>Kods šiem kanāliem prot formātus, kas šīs
+    instances <code>formats:</code> rindā nav:
+    {% for ch, fmts in missing_formats.items() %}<b>{{ ch }}</b>: {{ fmts|join(', ') }}{{ '; ' if not loop.last }}{% endfor %}
+    — pieliec tos kanāla <code>formats:</code> rindai, ja gribi, lai
+    kanāls tos izmanto (formāts kanālā ir redakcijas lēmums, tāpēc
+    automātiski to nepieliekam).{% endif %}
 </div>
 {% endif %}
 
@@ -31,7 +37,8 @@
   'prompt_base': 'AI stila pamatinstrukcija',
   'prompt_facebook': 'AI stils — Facebook',
   'prompt_x': 'AI stils — X',
-  'prompt_threads': 'AI stils — Threads'
+  'prompt_threads': 'AI stils — Threads',
+  'prompt_instagram': 'AI stils — Instagram'
 } %}
 
 {% for kind, content in files.items() %}
@@ -41,6 +48,14 @@
     <textarea name="content" class="code">{{ content }}</textarea>
     <div style="margin-top:.5rem"><button class="primary">Saglabāt</button></div>
   </form>
+  {% if kind.startswith('prompt_') and differs.get(kind) %}
+  <form method="post" action="/settings/{{ kind }}/reset" style="margin-top:.5rem"
+        onsubmit="return confirm('Pārrakstīt šo promptu ar koda noklusējumu? Tavi labojumi šajā failā pazudīs.')">
+    <span class="muted">Šī kopija atšķiras no koda noklusējuma — vai nu tavs
+    labojums, vai jaunāks izlaidums, kas te nav nonācis.</span>
+    <button>Atjaunot no koda</button>
+  </form>
+  {% endif %}
 </div>
 {% endfor %}
 {% endblock %}

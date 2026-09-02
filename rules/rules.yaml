@@ -77,6 +77,28 @@ link_in_first_comment: true
 # apraksta saites nav klikšķināmas. false = vecā "tīrā apraksta" taktika.
 link_in_caption: true
 
+# Instagram apraksta saites nav klikšķināmas, tāpēc tur saite ir TIKAI
+# pirmajā komentārā — un lasītājam tas jāpasaka: šī rinda tiek pielikta
+# apraksta beigās (traģēdijās/noziegumos bez emocijzīmes). Tukšs = bez
+# norādes.
+ig_link_pointer: "Saite komentāros 👇"
+
+# X un Threads: saite tekstā ir klikšķināma, un tas ir noklusējums — viens
+# pieskāriens līdz portālam. true = «saite atbildē» taktika: tvīts/ieraksts
+# bez saites, saite pirmajā atbildē (sasniedzamībai labāk, klikšķiem parasti
+# sliktāk; utm to izmēra). Attiecas tikai uz mediju ierakstiem (photo,
+# galerija, lente) — saites ierakstam saite ir pati kartīte.
+x_link_in_reply: false
+threads_link_in_reply: false
+# Norāde apraksta beigās, kad saite ir atbildē (tikai ja kāds no augšējiem
+# ir true).
+reply_link_pointer: "Saite atbildē 👇"
+
+# Lente un kartīšu galerija ir raksta, ne kanāla grafika: ja Facebook
+# kanālam tā jau uzbūvēta, Instagram/Threads/X to pārizmanto (tas pats
+# fails, tā pati ieruna). false = katrs kanāls renderē savu.
+share_built_media: true
+
 # Apzinātā dublēšana (channels.yaml repost_after_minutes): otro ierakstu
 # dabū tikai raksti ar vismaz šādu AI vērtējumu — lai dublējas spēcīgākais
 # saturs, nevis viss.

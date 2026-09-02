@@ -13,7 +13,7 @@ from sqlalchemy import select
 from adapters import get_adapter
 from adapters.base import PublishError
 from app import config, disclosure, pagemeta, shortlinks, tts
-from app.best_practices import (add_utm, alt_text, assemble_post_text,
+from app.best_practices import (PLATFORM_SPECS, add_utm, alt_text, assemble_post_text,
                                 sanitize_copy)
 from app.decide import decide
 from app.formats import choose_format, mix_deficit, recent_format_shares
@@ -488,6 +488,41 @@ def sections_voice_text(sections: list[dict]) -> str:
     return " ".join(f"{sec['title']}. {sec['body']}" for sec in sections)
 
 
+def built_media(session, article, fmt: str,
+                rules: dict | None = None) -> tuple[list[str], dict] | None:
+    """Cita kanāla jau uzbūvētā lente vai karuselis šim rakstam (None ja nav).
+
+    Lente un karuselis nav kanāla, bet RAKSTA grafika: vāks, nodaļas un
+    beigu aicinājums «tv3.lv» ir vienādi, vai to rāda Facebook, Instagram,
+    Threads vai X. Renderēt un ierunāt to otrreiz nozīmē tērēt TTS un
+    minūti procesora tam pašam failam — un riskēt, ka divi kanāli rāda divas
+    nedaudz atšķirīgas versijas. Viens fails, visi kanāli; tāpēc arī
+    `order_channels` liek lentes un karuseļu kanālus pirmos.
+
+    Ņem jaunāko ierakstu ar to pašu formātu, kura faili vēl ir uz diska
+    (konteinerā tie mūžīgi neglabājas); recepte nāk līdzi, lai arī otrs
+    ieraksts ir pārzīmējams un statistikā (ierunāts / kluss) skaitās pareizi.
+    """
+    if fmt not in ("reel", "card_carousel"):
+        return None
+    rules = config.load_rules() if rules is None else rules
+    if not (rules or {}).get("share_built_media", True):
+        return None
+    posts = session.execute(
+        select(Post).where(Post.article_id == article.id, Post.format == fmt)
+        .order_by(Post.id.desc())).scalars().all()
+    for post in posts:
+        media = [str(m) for m in (post.media or []) if m]
+        if not media:
+            continue
+        if all(m.startswith("http") or Path(m).exists() for m in media):
+            recipe = dict((post.extra or {}).get("recipe") or {})
+            log.info("article %s: %s reuses %s media from post %s",
+                     article.id, fmt, post.channel, post.id)
+            return media, recipe
+    return None
+
+
 def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     """(format, media, recipe) for this post. A carousel happens only when the
     AI proposed it AND provided usable card points AND the renderer works;
@@ -497,6 +532,11 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
     from app import cards
 
     ai_fmt = ch_dec.get("format")
+    if ai_fmt in ("card_carousel", "reel") and ai_fmt in (cfg.get("formats") or []):
+        # tas pats raksts, tas pats formāts, cits kanāls — grafika jau ir
+        ready = built_media(session, article, ai_fmt)
+        if ready is not None:
+            return ai_fmt, ready[0], ready[1]
     if ai_fmt == "card_carousel" and "card_carousel" in (cfg.get("formats") or []):
         sections = clean_sections(ch_dec.get("card_sections"))
         if len(sections) >= 2 and cards.renderer_available():
@@ -708,23 +748,69 @@ def repost_offset(article, cfg: dict, existing: list) -> datetime | None:
     return first + timedelta(minutes=minutes) if first else None
 
 
+# Formāti, kuros saite iet arī pirmajā komentārā (FB/IG) vai atbildē (X,
+# Threads): tie, kur ierakstu nes mūsu grafika, ne saites kartīte.
+MEDIA_FORMATS = ("photo", "photo_album", "card_carousel", "reel", "video")
+
+
+def link_placement(platform: str, fmt: str, rules: dict) -> tuple[bool, bool]:
+    """(saite tekstā?, saite komentārā/atbildē?) — kur saite nonāk.
+
+    Facebook / Instagram: mediju ierakstos saite iet pirmajā komentārā
+    (SocialFlow taktika, `link_in_first_comment`) un FB paliek ARĪ aprakstā
+    (`link_in_caption`) — tikai apraksts ar saiti ir tas, ko FB var pastiprināt
+    kā traffic reklāmu. Instagram apraksta saites nav klikšķināmas, tāpēc tur
+    tā aiziet pats par sevi (PLATFORM_SPECS link_in_copy=False).
+
+    X / Threads: saite tekstā ir klikšķināma, un tas ir noklusējums — tieši
+    tā lasītājs nonāk portālā ar vienu pieskārienu. `x_link_in_reply` /
+    `threads_link_in_reply` pārslēdz uz «saite atbildē» taktiku: teksts bez
+    saites, saite pirmajā atbildē. Tā palīdz sasniedzamībai, bet maksā
+    klikšķus, tāpēc tā ir izvēle, ne noklusējums — un to var izmērīt (utm).
+    """
+    if fmt not in MEDIA_FORMATS:
+        return True, False
+    if platform in ("facebook_page", "instagram"):
+        in_comment = bool(rules.get("link_in_first_comment", True))
+        return (bool(rules.get("link_in_caption", True)) or not in_comment), in_comment
+    if platform in ("x", "threads") and rules.get(f"{platform}_link_in_reply", False):
+        return False, True
+    return True, False
+
+
+def link_pointer(platform: str, post, rules: dict) -> str:
+    """Rinda apraksta beigās, kas pasaka, KUR saite ir — tikai tur, kur
+    lasītājs to tekstā neredz (Instagram, vai X/Threads ar saiti atbildē).
+    Facebook to nevajag: tur saite ir arī aprakstā."""
+    from app.best_practices import EMOJI_RE, SOBER_SENSITIVITIES
+
+    if platform == "instagram":
+        pointer = rules.get("ig_link_pointer", "Saite komentāros 👇")
+    elif platform in ("x", "threads"):
+        pointer = rules.get("reply_link_pointer", "Saite atbildē 👇")
+    else:
+        return ""
+    pointer = str(pointer or "").strip()
+    article = getattr(post, "article", None)
+    sensitivity = list(getattr(article, "sensitivity", None) or [])
+    if any(s in SOBER_SENSITIVITIES for s in sensitivity):
+        # traģēdijās un noziegumos bez emocijzīmēm, kā visā parakstā
+        pointer = EMOJI_RE.sub("", pointer).strip()
+    return pointer
+
+
 def compose_text(post, platform: str, shown_link: str,
                  rules: dict | None = None) -> tuple[str, bool]:
     """(post text, whether the link also goes out as the first comment).
 
-    On FB/IG image posts the link goes into the first comment — the
-    SocialFlow tactic. It ALSO stays in the caption (rules.yaml
-    link_in_caption): one tap for the reader either way, and a caption that
-    carries the destination is what Facebook can amplify as a traffic ad.
-    Instagram drops it from the caption on its own (links aren't clickable
-    there), so only the comment carries it.
+    Kur saite nonāk, nosaka `link_placement`; ja lasītājs to tekstā neredz,
+    apraksta beigās ir norāde «Saite komentāros» (`link_pointer`), citādi
+    Instagram lasītājs nezina, ka rakstu vispār var atvērt.
     """
     rules = config.load_rules() if rules is None else rules
-    in_comment = bool(
-        shown_link and platform in ("facebook_page", "instagram")
-        and post.format in ("photo", "photo_album", "card_carousel", "reel")
-        and rules.get("link_in_first_comment", True))
-    in_caption = rules.get("link_in_caption", True) or not in_comment
+    in_caption, in_comment = link_placement(platform, post.format, rules)
+    in_comment = bool(shown_link) and in_comment
+    in_caption = in_caption or not in_comment
     # ES MI akta 50. panta atruna. Noklusēti tikai tur, kur tiešām ir
     # mākslīgi ģenerēts medijs — lentē ar sintezēto balsi. Zem katra ieraksta
     # tā lasījās kā apgalvojums, ka MI ir uzrakstījis RAKSTU, un tas nav
@@ -736,7 +822,17 @@ def compose_text(post, platform: str, shown_link: str,
         note = disclosure.caption_line(platform, rules)
         if note and disclosure.in_caption(post.copy or "", rules):
             note = ""
-    text = assemble_post_text(post.copy, post.hashtags or [],
+    copy = post.copy or ""
+    spec = PLATFORM_SPECS.get(platform)
+    reader_sees_link = in_caption and (spec.link_in_copy if spec else True)
+    if in_comment and not reader_sees_link:
+        pointer = link_pointer(platform, post, rules)
+        low = copy.lower()
+        already = pointer.lower() in low or (
+            "saite" in low and ("koment" in low or "atbild" in low))
+        if pointer and not already:
+            copy = f"{copy}\n\n{pointer}" if copy else pointer
+    text = assemble_post_text(copy, post.hashtags or [],
                               shown_link if in_caption else "", platform,
                               disclosure=note)
     return text, in_comment

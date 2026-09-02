@@ -251,7 +251,50 @@ zīmēta 1.91:1), gan procentu, gan to, kurš noteikums nostrādās.
 - Photo album only for real galleries (≥4 images); photo post for
   entertainment/visual stories.
 - Instagram is reach, not clicks (no links in captions) — lowest weight for
-  the pageview KPI, optional in phase 1.
+  the pageview KPI; the link lives in the first comment and the caption
+  says so.
+
+## Platformu stratēģija (mērķis: tv3.lv apmeklējumi)
+
+Facebook fotoieraksts, kartīšu galerija, lente un saites ieraksts ir
+atstrādāti; pārējās platformas dabū TO PAŠU, ne savu versiju. Grafika ir
+raksta, ne kanāla: lenti un galeriju uzbūvē vienu reizi (pirmais kanāls
+rindā, `order_channels`), pārējie to pārizmanto (`built_media`,
+`share_built_media`). Viens fails, viena ieruna, viens rēķins par TTS — un
+visos kanālos redzama tā pati versija.
+
+| | Facebook | Instagram | Threads | X |
+|---|---|---|---|---|
+| Ātra ziņa | link (kartīte ar virsrakstu) | photo | link (teksts + saites kartīte) | link |
+| Vizuāls stāsts | photo (brendēts attēls) | photo | photo | photo (X kartīte virsrakstu nerāda) |
+| Skaidrojums, «kas jāzina», analīze | card_carousel / reel | reel → card_carousel | reel / card_carousel | reel; card_carousel = tvīts ar 4 attēliem (vāks + pirmās nodaļas) |
+| Galerija (≥ 4 attēli) | photo_album | photo_album | photo_album (karuselis) | photo_album (4 attēli) |
+| Vertikāls | story (pārizmanto lenti) | story (pārizmanto lenti) | — | — |
+| Kur saite | ierakstā + pirmajā komentārā | TIKAI pirmajā komentārā; aprakstā «Saite komentāros 👇» (`ig_link_pointer`) | tekstā (klikšķināma); `threads_link_in_reply` liek atbildē | tekstā; `x_link_in_reply` liek atbildē |
+| Hashtag | 0–1 | 3–5 tematiski | 0–1 | ≤ 2 tematiski |
+| Ko mēra | GA4 utm + FB ieskati | GA4 utm + reach/likes | GA4 utm + views/likes | GA4 utm |
+
+Kāpēc tieši tā:
+
+- **Lente ir formāts, ko visas trīs platformas ceļ augstāk par citiem** —
+  IG Reels un X video ir vienīgie ceļi ārpus sekotāju loka; Threads video ir
+  jauns un ar mazu konkurenci. Tāpēc AI to piedāvā visos kanālos reizē
+  (`system_base.md`), nevis katram atsevišķi.
+- **Saite tekstā ir noklusējums X un Threads.** «Saite atbildē» taktika
+  paceļ sasniedzamību, bet katrs papildu pieskāriens maksā klikšķus, un mūsu
+  KPI ir klikšķi. Tā ir ieslēdzama (`x_link_in_reply`,
+  `threads_link_in_reply`), lai to var izmērīt ar utm, nevis ticēt.
+- **Instagram saite nav klikšķināma aprakstā**, tāpēc tur saite iet pirmajā
+  komentārā, un aprakstā tiek pateikts, kur tā ir — bez norādes lasītājs
+  nezina, ka rakstu vispār var atvērt. Story ar saites uzlīmi API nedod, tāpēc
+  IG stāsts ir sasniedzamības, ne klikšķu formāts.
+- **X kartīšu galerija ir 4 attēli**, jo vairāk tvītā nevar. Ņemam vāku un
+  pirmās nodaļas — beigas lasītājs atrod rakstā, un tieši tas ir mērķis.
+- **Katrā kanālā cits āķis** (`hook_type` → `utm_term`): tas pats raksts
+  četrās platformās ir starpplatformu A/B tests, ko GA4 izmēra.
+- **Kanālu formātu saraksti ir redakcijas lēmums**, tāpēc jauns formāts
+  strādājošas instances `channels.yaml` kopijā automātiski nenonāk —
+  Noteikumu lapa un `/why` pasaka, kas trūkst (`missing_channel_formats`).
 
 ## Measurement
 
@@ -277,5 +320,11 @@ zīmēta 1.91:1), gan procentu, gan to, kurš noteikums nostrādās.
   IPTC metadatu marķējums failā vēl nav — 50. panta 2. punkts to sagaida no
   ģenerētāja, un mūsu gadījumā tas ir Azure/Anthropic, ne mēs. Kad publicējam
   pārkodētu MP4, sākotnējie metadati tāpat pazūd, tāpēc te vajag savu soli.
-- **Threads alt teksts** — API to nepieņem.
-- **Instagram kanāls** izslēgts (`active: false`), līdz konts ir sasaistīts.
+- **Threads alt teksts** sūtām (IMAGE/VIDEO konteineriem), bet ja API to
+  noraida, ieraksts iet bez tā — bez apraksta ieraksts ir sliktāks, bez
+  ieraksta nav nekāda.
+- **Instagram kanāls** izslēgts (`active: false`), līdz konts ir sasaistīts;
+  stratēģija, prompts un adapteris ir gatavi.
+- **X saite atbildē / Threads saite atbildē** — implementēts, bet izslēgts:
+  KPI ir klikšķi, un bez mērījuma pieņemam, ka papildu pieskāriens tos
+  samazina. Ieslēdz un salīdzini utm.

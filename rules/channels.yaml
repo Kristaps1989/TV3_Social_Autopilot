@@ -60,9 +60,15 @@ x_tv3zinas:
   quiet_hours: ["01:00-06:00"]
   sections: []
   # X link cards no longer show the headline -> photo (branded title
-  # image) + link in text is the strongest format for visual stories
-  formats: [link, photo, text_only]
+  # image) + link in text is the strongest format for visual stories.
+  # reel = tā pati ierunātā lente, kas Facebook/Instagram (video X ceļ
+  # augstāk par visu); card_carousel = tvīts ar 4 attēliem (vāks + pirmās
+  # nodaļas). Abus piedāvā tikai AI, grafika top vienu reizi visiem kanāliem.
+  formats: [link, photo, text_only, card_carousel, reel]
   format_weights: {link: 1.0, photo: 1.0, text_only: 0.5}
+  # Saite paliek tvītā (klikšķināma, viens pieskāriens). «Saite atbildē»
+  # taktiku ieslēdz rules.yaml x_link_in_reply — tad tvīts ir bez saites un
+  # tā iet pirmajā atbildē; sasniedzamībai labāk, klikšķiem parasti sliktāk.
   click_weight: 0.7
 
 ig_tv3lv:
@@ -77,7 +83,11 @@ ig_tv3lv:
   quiet_hours: ["00:00-07:00"]
   sections: []
   # IG nav link/teksta postu: brendēts foto, karuselis (card gallery tur ir
-  # visdabiskākais formāts) un story. Saite vienmēr pirmajā komentārā.
+  # visdabiskākais formāts), lente (reel — vislielākā sasniedzamība ārpus
+  # sekotājiem) un story (video stāsts pārizmanto lenti). Saite vienmēr
+  # pirmajā komentārā, apraksta beigās norāde «Saite komentāros»
+  # (rules.yaml ig_link_pointer). reel un card_carousel piedāvā AI; grafika
+  # ir tā pati, ko uzbūvē Facebook kanālam — otrreiz to nerenderē.
   formats: [photo, photo_album, card_carousel, reel, story]
   format_weights: {photo: 1.0, photo_album: 1.0, story: 0.6}
   click_weight: 0.5
@@ -90,7 +100,11 @@ threads_sport:
   daily_cap: 0               # bez dienas limita
   quiet_hours: ["00:00-07:00"]
   sections: [sport]
-  formats: [link, photo, text_only]
-  # photo posts carry the branded title image (same as FB/X)
-  format_weights: {link: 1.0, photo: 0.9, text_only: 0.7}
+  # photo posts carry the branded title image (same as FB/X); reel un
+  # card_carousel — tā pati lente/galerija, ko uzbūvē Facebook kanālam
+  # (Threads API prot VIDEO un CAROUSEL); photo_album = raksta galerija
+  # karuselī, ja rakstā ≥ 4 attēli. Saite mediju ierakstos paliek tekstā
+  # (klikšķināma); rules.yaml threads_link_in_reply liek to atbildē.
+  formats: [link, photo, text_only, photo_album, card_carousel, reel]
+  format_weights: {link: 1.0, photo: 0.9, text_only: 0.7, photo_album: 0.6}
   click_weight: 0.6

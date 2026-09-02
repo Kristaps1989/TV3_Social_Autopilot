@@ -107,6 +107,36 @@ def missing_channels() -> list[str]:
         return []
 
 
+def missing_channel_formats() -> dict[str, list[str]]:
+    """Formāti, ko koda noklusējums kanālam dod, bet rediģējamā kopija ne.
+
+    Tas pats klusums, kas `missing_channels`, tikai vienu līmeni zemāk: kad
+    adapteris iemācās jaunu formātu (piem., lente X vai karuselis Threads),
+    repo channels.yaml to pieliek `formats:` rindai — bet strādājošās
+    instances kopijā tā rinda paliek vecā, un formāts tur nekad neparādās.
+    Pielikt to automātiski nedrīkst (formāts kanālā ir redakcijas lēmums),
+    tāpēc rādām, kas trūkst, un redaktors pieliek pats.
+    """
+    editable = RULES_DIR / "channels.yaml"
+    default = DEFAULT_RULES_DIR / "channels.yaml"
+    if not editable.exists() or editable.resolve() == default.resolve():
+        return {}
+    try:
+        have, want = _load_yaml(editable), _load_yaml(default)
+    except ConfigError:
+        return {}
+    out: dict[str, list[str]] = {}
+    for name, cfg in want.items():
+        mine = have.get(name)
+        if not isinstance(cfg, dict) or not isinstance(mine, dict):
+            continue
+        missing = [f for f in (cfg.get("formats") or [])
+                   if f not in (mine.get("formats") or [])]
+        if missing:
+            out[name] = missing
+    return out
+
+
 def _yaml_blocks(text: str) -> dict[str, str]:
     """Faila teksts sadalīts pa augšējā līmeņa atslēgām, KOPĀ ar komentāriem.
 
