@@ -96,6 +96,8 @@ atzīmēti uz paša ieraksta, ne uzminēti pēc receptes veida:
 | Skaitļi izrunāti latviski | `lvnum`: «59. minūtē» → «piecdesmit devītajā minūtē»; «pret 64.» → «pret sešdesmit četri» |
 | Kadrs nekad nav plakans krāsas laukums | foto → izpludināta photopost grafika → gradients. Tas attiecas uz VISIEM pilnekrāna formātiem: vāki, sadaļu kartītes, lentes kadri, «Nedēļas skaitlis», jautājuma karte |
 | Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
+| Karuselis un lente nepārņem plūsmu | `format_daily_cap` (2+2 dienā) un saites grīda `format_mix` attiecas arī uz AI izvēli; pārsniegums kļūst par saiti ar iemeslu vērtējumā un `post.extra.format_notes`; promptā AI redz šodienas kvotas kā faktus |
+| Lentes neveiksme nav klusa | `record_render_failure("reel")` + piezīme «bija reel → …» lapā «Kāpēc» |
 | Lente, kas top PĒC stāsta, stāstu tomēr sasniedz | rokas «Uztaisīt» un nākamie viļņi atjauno vēl nepublicēto stāstu; pirms publicēšanas stāsts ar attēlu vēlreiz paskatās, vai lente nav parādījusies |
 
 ### Kāpēc kadru HTML top pēc apgriešanas

@@ -159,7 +159,8 @@ def build(session, article, channel: str, fmt: str) -> tuple[Post | None, str]:
 
     recipe: dict = {}
     if fmt in ("reel", "card_carousel"):
-        built, media, recipe = resolve_format(session, channel, cfg, article, ch_dec)
+        built, media, recipe = resolve_format(session, channel, cfg, article, ch_dec,
+                                              enforce=False)
         if built != fmt or not media:
             return None, (f"«{fmt}» šim rakstam uzbūvēt neizdevās — renderētājs "
                           "vai ffmpeg nav pieejams (sk. Pārskatu).")

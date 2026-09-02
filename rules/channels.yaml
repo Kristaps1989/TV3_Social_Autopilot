@@ -34,6 +34,11 @@ fb_tv3lv:
   # Link posts ir arī vienīgais ieraksta veids, ko Facebook var pastiprināt
   # kā traffic reklāmu (mērķa saite un CTA poga ir pašā ierakstā).
   format_mix: {link: 0.4}
+  # Dienas griesti «bagātajiem» formātiem, ko piedāvā AI. Tā katru rakstu
+  # redz atrauti un dienas kopsummu saskaitīt nevar; bez griestiem karuselis
+  # bija 6 no 8 ierakstiem. Pārsniedzot kvotu, ieraksts iet kā saite/foto,
+  # un iemesls ir redzams lapā «Kāpēc». Rokas «Uztaisīt» kvotu neskata.
+  format_daily_cap: {card_carousel: 2, reel: 2}
   # Apzinātā dublēšana: spēcīgākajiem rakstiem AI drīkst pieteikt OTRU
   # ierakstu šajā pašā kanālā citā formātā (foto tagad, saites posts pēc
   # stundas). 0 = izslēgts. Slieksni nosaka rules.yaml repost_min_score.

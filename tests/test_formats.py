@@ -112,9 +112,11 @@ def test_a_broken_card_overrides_the_link_quota_but_a_survivable_one_does_not(
     nepilda — un vēl iemācīt svariem, ka saites posti nestrādā. Mērenam
     apgriezumam grīda paliek svarīgāka; tieši šī ķēde reiz deva 99% photo.
     """
-    from app import imageinfo, pipeline
+    from app import config, imageinfo, pipeline
     from app.models import Article, Post
 
+    # slieksni lasa no noteikumiem; rediģējamā kopija var būt vecāka par kodu
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
     monkeypatch.setattr(imageinfo, "orientation", lambda article: "portrait")
     a = Article(guid="mix-2", url="https://tv3.lv/b", canonical_url="https://tv3.lv/b",
                 title="Ziņa ar photopost grafiku", section="news",
@@ -141,14 +143,21 @@ def test_a_broken_card_overrides_the_link_quota_but_a_survivable_one_does_not(
     fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "link"
 
-    # kad link kvota ir izpildīta, arī mērenais apgriezums pārslēdzas
+    # kad link kvota ir izpildīta, arī mērenais apgriezums pārslēdzas —
+    # «mērens» tagad ir virs 30 % (5:4 -> 35 %); 3:2 (21 %) ir FB norma
     session.query(Post).delete()
     for fmt_name in ("link", "link", "link", "photo", "photo", "photo"):
         session.add(Post(article_id=a.id, channel="fb_mix2", format=fmt_name,
                          state="published"))
     session.commit()
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1250, 1000))
     fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "photo"
+    # 3:2 pie izpildītas kvotas paliek saite: 21 % nav sabojāta kartīte
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1500, 1000))
+    fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a,
+                                              {})
+    assert fmt == "link"
 
 
 def test_a_link_card_that_would_cut_heads_becomes_a_photo_post(session, monkeypatch):

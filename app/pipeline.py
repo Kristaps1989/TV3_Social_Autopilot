@@ -101,8 +101,9 @@ def run_decisions(session, limit: int = 20) -> int:
             if existing and repost_at is None:
                 continue
 
+            format_notes: list[str] = []
             fmt, card_media, recipe = resolve_format(session, channel, cfg,
-                                                     article, ch_dec)
+                                                     article, ch_dec, notes=format_notes)
             if any(p.format == fmt for p in existing):
                 # the second wave only earns its place as a different format
                 session.add(Evaluation(article_id=article.id, channel=channel,
@@ -183,7 +184,8 @@ def run_decisions(session, limit: int = 20) -> int:
                 # neskartu (sk. refresh_missing_media)
                 extra=(({"render_version": cards_mod.RENDER_VERSION}
                         | ({"recipe": recipe} if recipe else {}))
-                       if media else {}),
+                       if media else {})
+                      | ({"format_notes": format_notes} if format_notes else {}),
             )
             session.add(post)
             session.flush()
@@ -195,7 +197,9 @@ def run_decisions(session, limit: int = 20) -> int:
                                    reason=f"scheduled {slot:%Y-%m-%d %H:%M} UTC as {fmt}"
                                           + (" (otrais vilnis)" if existing else "")
                                           + (" (vēlāk — rinda bija pilna)" if late else "")
-                                          + (f" (fixes: {', '.join(fixes)})" if fixes else "")))
+                                          + (f" (fixes: {', '.join(fixes)})" if fixes else "")
+                                          + (f" (formāts: {'; '.join(format_notes)})"
+                                             if format_notes else "")))
             created += 1
             scheduled_here += 1
         if scheduled_here == 0:
@@ -572,22 +576,97 @@ def built_media(session, article, fmt: str,
     return None
 
 
-def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
+# Cik «bagāto» formātu (karuselis, lente) kanālā drīkst būt dienā, ja kanāla
+# konfigurācijā nav `format_daily_cap`. AI šos formātus piedāvā pa vienam
+# rakstam un dienas kopsummu saskaitīt nevar — prompta «~1-2 dienā» bez šī
+# griesta deva 6 karuseļus no 8 ierakstiem.
+DEFAULT_FORMAT_DAILY_CAP = {"card_carousel": 2, "reel": 2}
+RICH_FORMATS = ("card_carousel", "reel")
+
+
+def format_daily_cap(cfg: dict, fmt: str) -> int | None:
+    caps = {**DEFAULT_FORMAT_DAILY_CAP, **(cfg.get("format_daily_cap") or {})}
+    cap = caps.get(fmt)
+    return int(cap) if cap is not None else None
+
+
+def posts_today(session, channel: str, fmt: str, now=None) -> int:
+    """Cik šī formāta ierakstu kanālā jau ir šodienas (Rīgas) datumā —
+    ieplānotie skaitās tāpat kā publicētie."""
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(config.TIMEZONE)
+    now = now or utcnow()
+    today = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).date()
+    rows = session.execute(
+        select(Post).where(Post.channel == channel, Post.format == fmt,
+                           Post.state.in_(("scheduled", "publishing", "published")))
+    ).scalars().all()
+    count = 0
+    for p in rows:
+        when = p.scheduled_at or p.published_at or p.created_at
+        if when and when.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).date() == today:
+            count += 1
+    return count
+
+
+def rich_format_gate(session, channel: str, cfg: dict, article, fmt: str,
+                     now=None) -> str:
+    """Kāpēc AI piedāvāto karuseli/lenti šodien šajā kanālā NEtaisīt ('' =
+    drīkst). Divi sargi, kas līdz šim uz šiem formātiem neattiecās:
+
+    * dienas kvota (`format_daily_cap`) — formāts nolietojas, ja tas ir
+      katrā otrajā ierakstā;
+    * saites grīda (`format_mix`) — saite ir klikšķu un boosta formāts, un
+      tai jāpaliek plūsmā arī tad, kad AI katram rakstam redz karuseli.
+    """
+    cap = format_daily_cap(cfg, fmt)
+    if cap is not None:
+        used = posts_today(session, channel, fmt, now)
+        if used >= cap:
+            return f"dienas kvota {used}/{cap} jau izpildīta"
+    formats = cfg.get("formats") or []
+    if "link" in formats and (article.canonical_url or article.url):
+        shares = recent_format_shares(session, channel)
+        # bez vēstures grīda nav «neizpildīta» — tukšā kanālā pirmā lente drīkst būt
+        if shares and mix_deficit(shares, cfg.get("format_mix") or {}, ["link"]):
+            return "saites grīda (format_mix) pēdējos ierakstos nav izpildīta"
+    return ""
+
+
+def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
+                   notes: list[str] | None = None, enforce: bool = True):
     """(format, media, recipe) for this post. A carousel happens only when the
-    AI proposed it AND provided usable card points AND the renderer works;
-    otherwise the diversity-aware chooser decides and media is derived from
-    the article. The recipe records what the graphic was built from, so an
-    editor can redraw it later without cancelling the post."""
+    AI proposed it AND provided usable card points AND the renderer works
+    AND the channel's daily quota / link floor allow it; otherwise the
+    diversity-aware chooser decides and media is derived from the article.
+    The recipe records what the graphic was built from, so an editor can
+    redraw it later without cancelling the post. `notes` savāc, kāpēc AI
+    formāts netika izpildīts — tas nonāk vērtējumā un ierakstā, lai lapā
+    «Kāpēc» redz, ka bija domāta lente. `enforce=False` (rokas režīms)
+    kvotu un grīdu neskata."""
     from app import cards
 
+    if notes is None:
+        notes = []
     ai_fmt = ch_dec.get("format")
-    if ai_fmt in ("card_carousel", "reel") and ai_fmt in (cfg.get("formats") or []):
+    if ai_fmt in RICH_FORMATS and ai_fmt in (cfg.get("formats") or []) and enforce:
+        why = rich_format_gate(session, channel, cfg, article, ai_fmt)
+        if why:
+            notes.append(f"{ai_fmt} → cits formāts: {why}")
+            ai_fmt = None
+    if ai_fmt in RICH_FORMATS and ai_fmt in (cfg.get("formats") or []):
         # tas pats raksts, tas pats formāts, cits kanāls — grafika jau ir
         ready = built_media(session, article, ai_fmt)
         if ready is not None:
             return ai_fmt, ready[0], ready[1]
     if ai_fmt == "card_carousel" and "card_carousel" in (cfg.get("formats") or []):
         sections = clean_sections(ch_dec.get("card_sections"))
+        if not cards.renderer_available():
+            notes.append("card_carousel → cits formāts: attēlu renderētājs nav pieejams")
+        elif len(sections) < 2 and len([p for p in (ch_dec.get("card_points") or [])
+                                        if isinstance(p, str) and p.strip()]) < 2:
+            notes.append("card_carousel → cits formāts: AI nedeva vismaz 2 derīgas sadaļas")
         if len(sections) >= 2 and cards.renderer_available():
             tag = "#" + (article.labels[0].upper().replace(" ", "")
                          if article.labels else article.section.upper())
@@ -610,6 +689,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                 log.warning("section cards failed for article %s: %s",
                             article.id, e)
                 cards.record_render_failure("card_carousel", e)
+                notes.append(f"card_carousel → cits formāts: renderēšana neizdevās ({str(e)[:80]})")
         points = [p.strip() for p in (ch_dec.get("card_points") or [])
                   if isinstance(p, str) and p.strip()][:4]
         if len(points) >= 2 and cards.renderer_available():
@@ -638,6 +718,7 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("card render failed for article %s: %s", article.id, e)
                 cards.record_render_failure("card_carousel", e)
+                notes.append(f"card_carousel → cits formāts: renderēšana neizdevās ({str(e)[:80]})")
         ai_fmt = None  # fall back to a normal format
     if ai_fmt == "reel" and "reel" in (cfg.get("formats") or []):
         from app import reels
@@ -661,6 +742,10 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
         # tīro attēlu; tukšu vāku ar plakanu krāsu atstājam tikai tad, ja
         # neviena cita attēla nav.
         image = unbranded_image(article)
+        if not reels.available():
+            notes.append("reel → cits formāts: ffmpeg vai attēlu renderētājs nav pieejams")
+        elif len(sections) < 2 and len(points) < 2:
+            notes.append("reel → cits formāts: AI nedeva vismaz 2 derīgas sadaļas")
         if (len(sections) >= 2 or len(points) >= 2) and reels.available():
             # Ieruna vairs nav viens gabals pār visu lenti: katram kadram ir
             # sava rinda, un kadrs ir tieši tik garš, cik tā runa. Vāks saka
@@ -701,6 +786,8 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict):
                     "section": article.section, "date": article_date(article)}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("reel build failed for article %s: %s", article.id, e)
+                cards.record_render_failure("reel", e)
+                notes.append(f"reel → cits formāts: lentes būve neizdevās ({str(e)[:80]})")
         ai_fmt = None
     fmt = choose_format(session, channel, cfg, article, ai_fmt)
     # Saites ierakstā attēlu izvēlas NEVIS mēs: Facebook to paņem no raksta
@@ -742,7 +829,7 @@ def link_card_hurts(session, channel: str, cfg: dict, article,
 
     loss = imageinfo.link_card_crop(article, photo_base_image(article))
     portrait = imageinfo.orientation(article) == "portrait"
-    if not (portrait or loss > rules.get("link_card_max_crop", 0.20)):
+    if not (portrait or loss > rules.get("link_card_max_crop", 0.30)):
         return False, loss
     # Saites postiem ir sava grīda (`format_mix`), un parasti tā ir svarīgāka
     # par vienu apgriezumu. BET grīdas jēga ir turēt plūsmā strādājošus saites

@@ -139,6 +139,41 @@ def performance_context(session, channels: list[str]) -> str:
     return text or "(vēl nav pietiekami daudz datu)"
 
 
+def format_quota_context(session, channels: list[str], channels_cfg: dict) -> str:
+    """Fakti par formātu kvotām ŠODIEN — modelis vienu rakstu redz atrauti
+    un dienas kopsummu saskaitīt nevar, tāpēc to pasakām mēs."""
+    from app import pipeline
+    from app.formats import recent_format_shares
+
+    lines = []
+    for ch in channels:
+        cfg = channels_cfg.get(ch) or {}
+        formats = cfg.get("formats") or []
+        bits = []
+        closed = []
+        for fmt in pipeline.RICH_FORMATS:
+            if fmt not in formats:
+                continue
+            cap = pipeline.format_daily_cap(cfg, fmt)
+            used = pipeline.posts_today(session, ch, fmt)
+            if cap is None:
+                bits.append(f"{used} {fmt}")
+                continue
+            bits.append(f"{used}/{cap} {fmt}")
+            if used >= cap:
+                closed.append(fmt)
+        floor = float((cfg.get("format_mix") or {}).get("link") or 0)
+        if "link" in formats and floor:
+            share = recent_format_shares(session, ch).get("link", 0.0)
+            bits.append(f"saites daļa pēdējos ierakstos {share:.0%} (grīda {floor:.0%})")
+            if share < floor:
+                closed.append("saites grīda nav izpildīta — piedāvā link")
+        if bits:
+            tail = (f" → šodien vairs nepiedāvā: {', '.join(closed)}" if closed else "")
+            lines.append(f"- {ch}: šodien jau {', '.join(bits)}{tail}")
+    return "\n".join(lines) if lines else "(kvotas brīvas)"
+
+
 def build_user_prompt(article: Article, verdicts: dict[str, Verdict],
                       channels_cfg: dict, session) -> str:
     eligible = {n: v for n, v in verdicts.items() if v.outcome in ("eligible", "forced_now")}
@@ -177,21 +212,28 @@ Nesenie ieraksti (neatkārto leņķus):
 Izmērītā veiktspēja (izmanto formāta un laika izvēlē):
 {performance_context(session, list(eligible))}
 
-Formāts card_carousel (ja kanāls to atbalsta): svaipojams kartīšu
-karuselis, kur KATRA kartīte ir klikšķināma saite uz rakstu — izmanto
-skaidrojumiem, sarakstiem, "X lietas, kas jāzina" stāstiem. Saturu dod
-card_sections: raksts, sadalīts sadaļās — katra kartīte ir trekns
-virsraksts plus 2-4 pilni teikumi ar konkrētiem faktiem no RAKSTA TEKSTA
-(skaitļi, vārdi, ieteikumi), nevis viens punkts lielā fontā. Tā strādā
-labākie ziņu konti: kartīte pati izstāsta savu daļu, un tieši tāpēc ar to
-dalās. Piemērs labai sadaļai: title "Spēcīgas vēja brāzmas", body "Vēja
-ātrums vietām var sasniegt 30 m/s. Vētras laikā ieteicams neapmeklēt
-parkus un bērnu rotaļu laukumus." Ja rakstā ir praktiskā daļa (kur zvanīt,
-ko darīt), tā ir laba pēdējā sadaļa. Drīksti atklāt būtību — vērtība dzen
-dalīšanos; card_end_question ved uz pilno rakstu ar to niansi, kas
-kartītēs palika neatbildēta. Ja raksta teksta nav, card_points ar īsiem
-faktiem ir rezerves variants. Ātrām īsziņām labāks parasts saites/foto
-ieraksts.
+Formātu kvotas šodien (sistēmas fakti; slēgtu formātu nepiedāvā — sistēma
+to tik un tā pārvērstu par saiti):
+{format_quota_context(session, list(eligible), channels_cfg)}
+
+Formātu izvēle. Noklusējums ikdienas ziņai ir link: saites kartīte ar
+virsrakstu un CTA dod labāko klikšķu attiecību uz portālu, tā ir vienīgais
+formāts, ko Facebook var pastiprināt kā traffic reklāmu, un tikai ar to
+sistēma iemācās, ko saite ir vērta. Izvēlies link, ja raksts ir notikums,
+rezultāts, paziņojums, viena fakta ziņa — vairums rakstu ir tādi.
+
+Formāts card_carousel (ja kanāls to atbalsta un kvota brīva): svaipojams
+kartīšu karuselis, kur KATRA kartīte ir klikšķināma saite uz rakstu —
+tikai skaidrojumiem, sarakstiem un "X lietas, kas jāzina" stāstiem, kur
+rakstam ir vismaz 2-3 patstāvīgas daļas. Saturu dod card_sections: katra
+kartīte ir trekns virsraksts plus 2-4 pilni teikumi ar konkrētiem faktiem
+no RAKSTA TEKSTA (skaitļi, vārdi, ieteikumi). Piemērs: title "Spēcīgas vēja
+brāzmas", body "Vēja ātrums vietām var sasniegt 30 m/s. Vētras laikā
+ieteicams neapmeklēt parkus un bērnu rotaļu laukumus." Praktiskā daļa (kur
+zvanīt, ko darīt) ir laba pēdējā sadaļa; card_end_question ved uz pilno
+rakstu ar neatbildētu niansi. Ja raksta teksta nav, card_points ar īsiem
+faktiem ir rezerves variants. Karuselis vienas ziņas rakstam ir kļūda — tad
+link vai photo.
 
 Formāts reel (ja kanāls to atbalsta): vertikāls video ar CTA beigu kadru
 "lasi tv3.lv". Ja rakstam IR videoklips, reel izmanto īsto video — dod tam
@@ -221,8 +263,9 @@ izvēlies to ikdienas ziņām. photo lieto, kad attēls pats ir stāsts (spēcī
 foto, gatava photopost grafika, emocionāls kadrs); tad saite aiziet
 komentārā.
 
-Formātu mērķis dienā (kopumā, kur saturs tam der): ~1-2 card_carousel un
-~1-2 reel — neizvēlies visiem rakstiem photo tikai tāpēc, ka tas ir drošākais.
+Formātu līdzsvars dienā: vairums ierakstu ir link, ~1-2 card_carousel un
+~1-2 reel tur, kur saturs tam tiešām der, photo — kad attēls ir stāsts.
+Kvotas augstāk ir stingras; tās nevar "pataupīt" nākamajam rakstam.
 
 Otrais vilnis: dienas spēcīgākajiem rakstiem (score >= 0.75) drīksti pieteikt
 VIENU kanālu DIVAS reizes ar dažādiem formātiem — piem. photo tagad un link

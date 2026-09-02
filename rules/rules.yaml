@@ -243,7 +243,9 @@ ai_disclosure_spoken: ""
 # nevis augšu — galvas paliek veselas, bet saites kartīte pazūd (saite aiziet
 # pirmajā komentārā un aprakstā). 1.0 = nekad nepārslēgt; 0.0 = vienmēr, kad
 # kartīte vispār kaut ko griež.
-link_card_max_crop: 0.20
+# 0.30: 3:2 foto (21 %) ir Facebook norma, ne sabojāta kartīte — pie 0.20
+# gandrīz katrs saites ieraksts kļuva par foto un saites plūsmā pazuda.
+link_card_max_crop: 0.30
 
 # Kad saites kartīte ir sabojāta NEATKARĪGI no formātu kvotas: vertikāls
 # attēls vai vairāk nekā šī daļa nogriezta augstuma. Zem šīs robežas
