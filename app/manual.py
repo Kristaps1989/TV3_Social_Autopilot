@@ -20,7 +20,7 @@ import logging
 from app import config, disclosure, pagemeta, runtime
 from app.best_practices import sanitize_copy
 from app.models import Evaluation, Post, utcnow
-from app.pipeline import format_media, resolve_format
+from app.pipeline import format_media, resolve_format, upgrade_pending_stories
 from app.rules_engine import evaluate_all
 from app.slots import plan_slot
 
@@ -209,7 +209,11 @@ def build(session, article, channel: str, fmt: str) -> tuple[Post | None, str]:
     session.add(Evaluation(
         article_id=article.id, channel=channel, outcome="posted",
         reason=f"redaktora pieprasīts {fmt}, ieplānots {slot:%Y-%m-%d %H:%M} UTC"))
+    # rokas lente ir biežākais gadījums, kad lente top PĒC stāsta: jau
+    # ieplānotais stāsts to pārņem uzreiz, ne tikai publicēšanas brīdī
+    taken = upgrade_pending_stories(session, article) if fmt == "reel" else 0
     session.commit()
     log.info("manual %s for article %s on %s -> post %s",
              fmt, article.id, channel, post.id)
-    return post, f"«{fmt}» ieplānots {slot:%d.%m. %H:%M} UTC kanālā {channel}."
+    note = f" Raksta ieplānotais stāsts pārņēma šo lenti ({taken})." if taken else ""
+    return post, f"«{fmt}» ieplānots {slot:%d.%m. %H:%M} UTC kanālā {channel}.{note}"

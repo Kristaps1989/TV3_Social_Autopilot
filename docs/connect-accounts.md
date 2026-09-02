@@ -29,6 +29,13 @@ for the OAuth redirects below), and make sure the service uses **Postgres**
 (`DATABASE_URL`); with the default SQLite the queue, tokens, and the admin
 password are wiped on every deploy, because Railway's filesystem is ephemeral.
 
+Mount a **Railway Volume** at `/app/data` (or wherever `CARDS_DIR` points)
+as well: rendered cards, reels and the TTS cache live there. Without it every
+deploy wipes them — a queued reel or carousel can no longer be published, a
+story that reused the reel falls back to its static image, and every
+re-render pays ElevenLabs again. The app logs a warning at startup when queued
+posts point at files that are gone.
+
 ## Facebook Page (one-time, ~30 min, needs the Business Manager admin)
 
 1. The person who administers TV3's Business Manager creates an app at

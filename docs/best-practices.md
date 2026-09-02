@@ -96,6 +96,7 @@ atzīmēti uz paša ieraksta, ne uzminēti pēc receptes veida:
 | Skaitļi izrunāti latviski | `lvnum`: «59. minūtē» → «piecdesmit devītajā minūtē»; «pret 64.» → «pret sešdesmit četri» |
 | Kadrs nekad nav plakans krāsas laukums | foto → izpludināta photopost grafika → gradients. Tas attiecas uz VISIEM pilnekrāna formātiem: vāki, sadaļu kartītes, lentes kadri, «Nedēļas skaitlis», jautājuma karte |
 | Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
+| Lente, kas top PĒC stāsta, stāstu tomēr sasniedz | rokas «Uztaisīt» un nākamie viļņi atjauno vēl nepublicēto stāstu; pirms publicēšanas stāsts ar attēlu vēlreiz paskatās, vai lente nav parādījusies |
 
 ### Kāpēc kadru HTML top pēc apgriešanas
 

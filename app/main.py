@@ -33,6 +33,20 @@ async def lifespan(app: FastAPI):
     init_db()
     import os
 
+    try:
+        from app import pipeline as _pipeline
+        from app.cards import CARDS_DIR
+
+        with get_session() as _s:
+            gone = _pipeline.wiped_media_count(_s)
+        if gone:
+            log.warning("%d ieplānotiem ierakstiem zīmētie faili diskā vairs nav — "
+                        "%s nav uz pastāvīgā sējuma (Railway Volume). Lentes un "
+                        "karuseļus bez tā publicēt nevar, stāsts ar lenti krīt "
+                        "atpakaļ uz attēlu, TTS kešs sākas no nulles.", gone, CARDS_DIR)
+    except Exception:  # noqa: BLE001 — brīdinājums nedrīkst apturēt startu
+        log.exception("media check at startup failed")
+
     scheduler = None
     if os.environ.get("DISABLE_SCHEDULER", "").lower() != "true":
         from app.scheduler import start_scheduler

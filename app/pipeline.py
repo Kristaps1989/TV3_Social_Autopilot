@@ -187,6 +187,9 @@ def run_decisions(session, limit: int = 20) -> int:
             )
             session.add(post)
             session.flush()
+            if fmt == "reel":
+                # iepriekšējos viļņos ieplānotie stāsti pārņem jauno lenti
+                upgrade_pending_stories(session, article)
             session.add(Evaluation(article_id=article.id, channel=channel,
                                    outcome="posted",
                                    reason=f"scheduled {slot:%Y-%m-%d %H:%M} UTC as {fmt}"
@@ -359,10 +362,22 @@ def article_reel_file(article, rules: dict | None = None) -> str:
     if not (rules or {}).get("story_reuses_reel", True):
         return ""
 
+    from sqlalchemy.orm import object_session
+
     from app import reels
 
+    # Vaicājums, ne `article.posts`: kolekcija, kas ielādēta pirms lentes
+    # ieraksta (piem., rokas režīmā, kur copy meklē iepriekšējos ierakstus),
+    # jaunpievienoto lenti neredz, jo sesija ielādētās kolekcijas neatsvaidzina.
+    sess = object_session(article)
+    if sess is not None:
+        posts = sess.execute(
+            select(Post).where(Post.article_id == article.id, Post.format == "reel")
+            .order_by(Post.id.desc())).scalars().all()
+    else:
+        posts = sorted(article.posts or [], key=lambda p: p.id, reverse=True)
     candidates = []
-    for post in sorted(article.posts or [], key=lambda p: p.id, reverse=True):
+    for post in posts:
         if post.format != "reel" or not post.media:
             continue
         first = str(post.media[0])
@@ -383,6 +398,40 @@ def article_reel_file(article, rules: dict | None = None) -> str:
             log.info("reel %s too long for a story (%.0fs)", chosen, seconds)
             return ""
     return chosen
+
+
+def upgrade_pending_stories(session, article, rules: dict | None = None) -> int:
+    """Raksta vēl nepublicētie stāsti pārņem lenti, kas tapusi pēc tiem.
+
+    Stāsta mediju fiksē lēmuma brīdī. Ja lente rakstam parādās vēlāk — cits
+    vilnis, cits kanāls vai redaktora «Uztaisīt» —, ieplānotais stāsts
+    citādi aizietu ar statisko attēlu, kaut tieši stāstā ierunātā lente
+    strādā vislabāk. Atgriež, cik stāstu pārņēma lenti.
+    """
+    from adapters.base import is_video
+
+    from app import cards
+
+    reel = article_reel_file(article, rules)
+    if not reel:
+        return 0
+    pending = session.execute(
+        select(Post).where(Post.article_id == article.id, Post.format == "story",
+                           Post.state.in_(("proposed", "scheduled")))
+    ).scalars().all()
+    upgraded = 0
+    for post in pending:
+        current = str((post.media or [""])[0] or "")
+        if is_video(current):
+            continue
+        if (post.article or article).raw_json and (post.article or article).raw_json.get("_digest"):
+            continue    # franšīžu grafika nav šī raksta stāsts
+        post.media = [reel]
+        post.extra = {**(post.extra or {}), "render_version": cards.RENDER_VERSION,
+                      "story_from_reel": True}
+        upgraded += 1
+        log.info("story post %s takes over reel %s", post.id, reel)
+    return upgraded
 
 
 def story_media(article, image_url: str) -> list[str]:
@@ -872,6 +921,28 @@ def stale_now(post, rules: dict | None = None) -> str:
             f"{article.section} limits ir {max_age} h")
 
 
+def wiped_media_count(session) -> int:
+    """Cik rindā stāvošu ierakstu zīmētie faili diskā vairs nav.
+
+    Konteinera pārstarts bez pastāvīgā sējuma noslauka `data/cards`: lentes
+    un karuseļus tad publicēt nevar, stāsts ar lenti krīt atpakaļ uz attēlu,
+    un TTS kešs sākas no nulles. Startā to pasakām skaļi, lai iemesls
+    nebūtu jāmeklē pa ierakstiem.
+    """
+    from pathlib import Path
+
+    pending = session.execute(
+        select(Post).where(Post.state.in_(("proposed", "scheduled")))).scalars().all()
+    gone = 0
+    for post in pending:
+        for m in (post.media or []):
+            m = str(m or "")
+            if m and not m.startswith("http") and not Path(m).exists():
+                gone += 1
+                break
+    return gone
+
+
 def refresh_missing_media(session, post, platform: str) -> None:
     """Re-render photo/story media just before publishing when needed:
     the rendered file was wiped (deploy without the volume), the stored
@@ -899,7 +970,12 @@ def refresh_missing_media(session, post, platform: str) -> None:
     local_gone = bool(current) and not current.startswith("http") and not Path(current).exists()
     raw_fallback = current.startswith("http")
     stale_layout = (post.extra or {}).get("render_version") != cards.RENDER_VERSION
-    if not (local_gone or raw_fallback or not media or stale_layout):
+    # stāsts ar attēlu, kamēr rakstam pa to laiku tapusi lente: stāstā balss
+    # tiešām skan, tāpēc pēdējā brīdī ņemam lenti
+    from adapters.base import is_video
+    reel_now = (post.format == "story" and not is_video(current)
+                and bool(article_reel_file(article)))
+    if not (local_gone or raw_fallback or not media or stale_layout or reel_now):
         return
     if post.format == "photo":
         image = photo_base_image(article)
