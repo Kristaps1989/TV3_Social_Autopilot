@@ -227,3 +227,63 @@ def test_route_reports_the_reason_when_it_cannot(client, session, monkeypatch):
                     data={"channel": "fb_tv3lv", "fmt": "reel"},
                     follow_redirects=False)
     assert "ok=0" in unquote(r.headers["location"])
+
+
+def test_the_post_history_shows_the_format_and_a_preview(client, session,
+                                                         monkeypatch):
+    """Vēsturē ierakstu atrod pēc formāta un bildītes, ne pēc teksta sākuma."""
+    from app import main as main_mod
+
+    article = _article(session, "m-history")
+    session.add_all([
+        Post(article_id=article.id, channel="fb_tv3lv", format="reel",
+             copy="Lentes teksts", state="published", media=["/data/r.mp4"],
+             published_at=utcnow()),
+        Post(article_id=article.id, channel="x_tv3zinas", format="photo",
+             copy="Foto teksts", state="cancelled",
+             media=["https://cdn/uploads/foto.jpg"]),
+    ])
+    session.commit()
+    monkeypatch.setattr(main_mod, "_post_thumb",
+                        lambda p: ({"src": "/media/r.mp4", "video": True}
+                                   if p.format == "reel"
+                                   else {"src": p.media[0], "video": False}))
+
+    page = client.get(f"/why?url={article.canonical_url}").text
+    assert "<th>Formāts</th>" in page and "<th>Priekšskatījums</th>" in page
+    assert ">reel<" in page and ">photo<" in page
+    assert "/media/r.mp4#t=0.5" in page
+    # abiem ierakstiem ceļš uz pilno priekšskatījumu
+    ids = [p.id for p in article.posts]
+    assert all(f"/post/{i}/preview" in page for i in ids)
+
+
+def test_a_reel_whose_file_is_gone_still_shows_up_in_the_history(client,
+                                                                 session):
+    """Konteiners failus nesaglabā — vecs ieraksts nedrīkst pazust no vēstures."""
+    article = _article(session, "m-gone")
+    session.add(Post(article_id=article.id, channel="fb_tv3lv", format="reel",
+                     copy="Vecā lente", state="published",
+                     media=["/data/cards/nekad-nebijis.mp4"],
+                     published_at=utcnow()))
+    session.commit()
+
+    page = client.get(f"/why?url={article.canonical_url}").text
+    assert "Vecā lente" in page and ">reel<" in page
+    assert "fails vairs nav" in page
+
+
+def test_the_thumbnail_points_at_the_file_that_is_still_there(tmp_path,
+                                                              monkeypatch):
+    from app import cards
+    from app.main import _post_thumb
+
+    monkeypatch.setattr(cards, "CARDS_DIR", tmp_path)
+    (tmp_path / "lente.mp4").write_bytes(b"mp4")
+
+    assert _post_thumb(Post(format="reel", media=["/data/cards/lente.mp4"])) \
+        == {"src": "/media/lente.mp4", "video": True}
+    assert _post_thumb(Post(format="photo",
+                            media=["https://cdn/uploads/foto.jpg"])) \
+        == {"src": "https://cdn/uploads/foto.jpg", "video": False}
+    assert _post_thumb(Post(format="text_only", media=[])) == {}

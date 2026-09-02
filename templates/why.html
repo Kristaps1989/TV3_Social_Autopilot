@@ -84,13 +84,36 @@
 
   {% if posts %}
   <h3>Ieraksti</h3>
+  <p class="muted">Visi šī raksta ieraksti, jaunākais augšā — arī vecie un
+  atceltie. Formāts un bildīte ir tas, pēc kā vēsturē atrod tieši to lenti
+  vai kartīti, ko meklē; klikšķis uz bildītes atver pilno priekšskatījumu.
+  Uzzīmētie faili konteinerā mūžīgi neglabājas, tāpēc pie vecākiem
+  ierakstiem bildes vietā rakstīts, ka faila vairs nav — pats ieraksts,
+  formāts un teksts paliek.</p>
   <table>
-    <tr><th>Kanāls</th><th>Laiks</th><th>Statuss</th><th>Teksts</th></tr>
+    <tr><th>Kanāls</th><th>Formāts</th><th>Laiks</th><th>Statuss</th>
+        <th>Priekšskatījums</th><th>Teksts</th></tr>
     {% for p in posts %}
+    {% set t = thumbs.get(p.id) or {} %}
     <tr>
       <td>{{ p.channel }}</td>
-      <td>{{ (p.published_at or p.scheduled_at) | local }}</td>
+      <td><strong>{{ p.format }}</strong></td>
+      <td>{{ (p.published_at or p.scheduled_at or p.created_at) | local }}</td>
       <td><span class="state {{ p.state }}">{{ p.state }}</span></td>
+      <td>
+        <a href="/post/{{ p.id }}/preview" title="Atvērt priekšskatījumu">
+        {%- if t.src and t.video %}
+        <video width="64" height="64" preload="metadata" muted
+               style="border-radius:6px;border:1px solid var(--line);object-fit:cover;vertical-align:middle"
+               src="{{ t.src }}#t=0.5"></video>
+        {%- elif t.src %}
+        <img src="{{ t.src }}" width="64" height="64" loading="lazy" alt=""
+             style="border-radius:6px;border:1px solid var(--line);object-fit:cover;vertical-align:middle"
+             onerror="this.replaceWith(document.createTextNode('skatīt'))">
+        {%- else %}skatīt{% endif -%}
+        </a>
+        {% if t.gone %}<span class="muted">fails vairs nav</span>{% endif %}
+      </td>
       <td class="copytext">{{ p.copy[:140] }}</td>
     </tr>
     {% endfor %}

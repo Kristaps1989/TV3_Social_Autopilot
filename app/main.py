@@ -565,6 +565,28 @@ def media(name: str):
     return FileResponse(path, media_type=media_type)
 
 
+def _post_thumb(post) -> dict:
+    """Ko rādīt ieraksta rindā: bildīti, lentes kadru vai ziņu, ka faila nav.
+
+    Vecākiem ierakstiem uzzīmētie faili diskā vairs nav — konteiners tos
+    nesaglabā —, tāpēc tur bildes vietā būtu salauzta ikona. Labāk to
+    pasakām: pats ieraksts, formāts un teksts vēsturē paliek."""
+    from app.cards import CARDS_DIR
+
+    src = str((post.media or [""])[0] or "")
+    if not src and post.format == "link" and post.article:
+        src = str((post.article.images or [""])[0] or "")
+    if not src:
+        return {}
+    video = src.split("?")[0].lower().endswith((".mp4", ".mov", ".m4v"))
+    if src.startswith("http"):
+        return {"src": src, "video": video}
+    name = Path(src).name
+    if not (CARDS_DIR / name).exists():
+        return {"video": video, "gone": True}
+    return {"src": f"/media/{name}", "video": video}
+
+
 @app.get("/why", response_class=HTMLResponse)
 def why(request: Request, url: str = "", msg: str = "", ok: str = ""):
     session = get_session()
@@ -586,10 +608,16 @@ def why(request: Request, url: str = "", msg: str = "", ok: str = ""):
                     select(Evaluation).where(Evaluation.article_id == article.id)
                     .order_by(desc(Evaluation.created_at)).limit(30)
                 ).scalars().all()
-                posts = article.posts
+                # jaunākais augšā — vēsturi lasa no beigām uz priekšu
+                posts = sorted(
+                    article.posts,
+                    key=lambda p: (p.published_at or p.scheduled_at
+                                   or p.created_at),
+                    reverse=True)
         return templates.TemplateResponse(request, "why.html", {
             "query": url, "article": article,
             "evaluations": evaluations, "posts": posts, "searched": bool(url),
+            "thumbs": {p.id: _post_thumb(p) for p in posts},
             "manual_options": manual.channel_options() if article else {},
             "manual_unavailable": manual.unavailable() if article else [],
             "missing_channels": config.missing_channels() if article else [],
