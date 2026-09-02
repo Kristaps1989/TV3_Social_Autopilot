@@ -14,7 +14,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from app import config, pagemeta
+from app import claude, config, pagemeta
 from app.best_practices import pick_format
 from app.models import Article, DecisionLog, Post
 from app.rules_engine import Verdict
@@ -279,12 +279,21 @@ def call_claude(article: Article, verdicts: dict[str, Verdict], session) -> dict
     for attempt in range(2):
         try:
             resp = client.messages.create(
-                model=model, max_tokens=1500, system=system,
+                model=model,
+                # 4 kanālu copy + kartītes + ierunas teksts; domājošam
+                # modelim griestos ietilpst arī domāšana
+                max_tokens=claude.max_tokens_for(model, 1500),
+                system=claude.cached_system(system),
                 tools=[DECISION_TOOL],
                 tool_choice={"type": "tool", "name": "record_decision"},
                 messages=[{"role": "user", "content": user}],
+                **claude.params(model, "medium"),
             )
             decision = next((b.input for b in resp.content if b.type == "tool_use"), None)
+            log.info("claude %s: in=%d (cache read %d) out=%d", model,
+                     resp.usage.input_tokens,
+                     getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
+                     resp.usage.output_tokens)
             session.add(DecisionLog(
                 article_id=article.id, model=model,
                 prompt_hash=hashlib.sha256((system + user).encode()).hexdigest()[:16],

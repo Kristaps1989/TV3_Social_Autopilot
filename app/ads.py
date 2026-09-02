@@ -201,7 +201,7 @@ def sync_entries(session, now=None) -> int:
 def ad_copy_variants(article: Article, session) -> list[str]:
     """2-3 ad text variants with different hooks. Claude fast model when the
     key is present; the headline is always the safe fallback."""
-    from app import config, credentials
+    from app import claude, config, credentials
 
     fallback = [article.title]
     api_key = credentials.get("anthropic_api_key", session)
@@ -212,7 +212,9 @@ def ad_copy_variants(article: Article, session) -> list[str]:
 
         client = anthropic.Anthropic(api_key=api_key)
         resp = client.messages.create(
-            model=config.AI_MODEL_FAST, max_tokens=300,
+            model=config.AI_MODEL_FAST,
+            max_tokens=claude.max_tokens_for(config.AI_MODEL_FAST, 300),
+            **claude.params(config.AI_MODEL_FAST, "low"),
             messages=[{"role": "user", "content":
                 f"Uzraksti 3 īsus (līdz 120 zīmēm) Facebook reklāmas tekstus "
                 f"latviski ar DAŽĀDIEM āķiem (fakts, jautājums, skaitlis) "

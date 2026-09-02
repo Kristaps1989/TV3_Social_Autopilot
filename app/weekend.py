@@ -34,7 +34,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
-from app import config
+from app import claude, config
 from app.models import Article, Post, PostMetrics, get_setting, set_setting, utcnow
 
 log = logging.getLogger(__name__)
@@ -304,9 +304,11 @@ def _ai_lines(session, prompt: str, max_tokens: int = 400,
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
+        model = model or config.AI_MODEL_STRONG
         resp = client.messages.create(
-            model=model or config.AI_MODEL_STRONG, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}])
+            model=model, max_tokens=claude.max_tokens_for(model, max_tokens),
+            messages=[{"role": "user", "content": prompt}],
+            **claude.params(model, "low"))
         text = "".join(b.text for b in resp.content if b.type == "text")
     except Exception as e:  # noqa: BLE001
         log.warning("AI call failed: %s", e)

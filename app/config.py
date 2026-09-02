@@ -32,8 +32,13 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///data/autopilot.db")
 TIMEZONE = os.environ.get("TZ", "Europe/Riga")
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL_FAST = os.environ.get("AI_MODEL_FAST", "claude-haiku-4-5-20251001")
-AI_MODEL_STRONG = os.environ.get("AI_MODEL_STRONG", "claude-sonnet-5")
+# Ikdienas lēmums raksta copy 3-4 kanāliem latviski un sadala rakstu
+# kartītēs, kas iet grafikā un balsī — tas nav klasifikators, tāpēc
+# noklusējums ir Sonnet 5, ne Haiku: starpība ir ~€30 mēnesī, bet
+# gramatikas kļūda zem TV3 zīmola ir dārgāka. Opus 5 — "now"/"must"
+# rakstiem, kur teksts ir redakcijas prioritāte.
+AI_MODEL_FAST = os.environ.get("AI_MODEL_FAST", "claude-sonnet-5")
+AI_MODEL_STRONG = os.environ.get("AI_MODEL_STRONG", "claude-opus-5")
 
 INGEST_INTERVAL_MINUTES = int(os.environ.get("INGEST_INTERVAL_MINUTES", "3"))
 

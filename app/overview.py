@@ -298,7 +298,7 @@ def weekly_ai_report(session) -> None:
 def ai_report(session) -> str:
     """The performance-marketer memo: Claude reads the same numbers the page
     shows and writes 3-5 concrete recommendations. Cached until regenerated."""
-    from app import config, credentials
+    from app import claude, config, credentials
 
     api_key = credentials.get("anthropic_api_key", session)
     if not api_key:
@@ -329,7 +329,9 @@ round(i['per_post']), i['verdict']) for i in data['franchises']['items']]}"""
 
         client = anthropic.Anthropic(api_key=api_key)
         resp = client.messages.create(
-            model=config.AI_MODEL_STRONG, max_tokens=900,
+            model=config.AI_MODEL_STRONG,
+            max_tokens=claude.max_tokens_for(config.AI_MODEL_STRONG, 900),
+            **claude.params(config.AI_MODEL_STRONG, "medium"),
             system=("Tu esi pieredzējis performance mārketinga vadītājs ziņu "
                     "medijā. Mērķis: ar mazāku budžetu vairāk sesiju uz tv3.lv. "
                     "Atbildi latviski, nevainojamā pareizrakstībā, bez ūdens."),
