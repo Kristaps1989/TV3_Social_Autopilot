@@ -599,11 +599,14 @@ def built_media(session, article, fmt: str,
     return None
 
 
-# Cik «bagāto» formātu (karuselis, lente) kanālā drīkst būt dienā, ja kanāla
-# konfigurācijā nav `format_daily_cap`. AI šos formātus piedāvā pa vienam
-# rakstam un dienas kopsummu saskaitīt nevar — prompta «~1-2 dienā» bez šī
-# griesta deva 6 karuseļus no 8 ierakstiem.
-DEFAULT_FORMAT_DAILY_CAP = {"card_carousel": 2, "reel": 2}
+# Dienas griesti «bagātajiem» formātiem. Rotāciju dara `format_max_share`
+# (35 % no pēdējiem sešiem) un atkārtojuma sargs — šī kvota ir tikai galējais
+# drošinātājs. Mērogs ir svarīgs: kanālā iziet ~30 ierakstu dienā, tāpēc
+# kvota 2 nozīmēja, ka pēc diviem karuseļiem formāts uz visu atlikušo dienu
+# pazūd — tieši tas plūsmu pārvērta par foto rindu. 35 % no 30 ierakstiem ir
+# ~10, tāpēc kvota 8 rotāciju netraucē un tur atpakaļ tikai īstu izbēgšanu.
+# Lentei kvota ir arī naudas jautājums: katra maksā ElevenLabs rakstzīmes.
+DEFAULT_FORMAT_DAILY_CAP = {"card_carousel": 8, "reel": 4}
 RICH_FORMATS = ("card_carousel", "reel")
 
 

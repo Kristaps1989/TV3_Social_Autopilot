@@ -149,8 +149,9 @@ def format_quota_context(session, channels: list[str], channels_cfg: dict) -> st
     for ch in channels:
         cfg = channels_cfg.get(ch) or {}
         formats = cfg.get("formats") or []
-        bits = []
-        closed = []
+        bits: list[str] = []
+        closed: dict[str, str] = {}     # formāts -> iemesls (bez dublikātiem)
+        prefer: list[str] = []          # ko tieši gaidām
         for fmt in pipeline.RICH_FORMATS:
             if fmt not in formats:
                 continue
@@ -161,22 +162,27 @@ def format_quota_context(session, channels: list[str], channels_cfg: dict) -> st
                 continue
             bits.append(f"{used}/{cap} {fmt}")
             if used >= cap:
-                closed.append(fmt)
+                closed[fmt] = f"dienas kvota {used}/{cap}"
         floor = float((cfg.get("format_mix") or {}).get("link") or 0)
         if "link" in formats and floor:
             share = recent_format_shares(session, ch).get("link", 0.0)
             bits.append(f"saites daļa pēdējos ierakstos {share:.0%} (grīda {floor:.0%})")
             if share < floor:
-                closed.append("saites grīda nav izpildīta — piedāvā link")
+                prefer.append("link (saites grīda nav izpildīta)")
         head, run = format_run(session, ch)
         if head and run >= 2:
             bits.append(f"pēdējie {run} ieraksti pēc kārtas ir {head}")
-            closed.append(f"{head} (vienveidība — vajag citu formātu)")
         for fmt in formats:
-            if fmt not in closed and monotony_reason(session, ch, cfg, fmt):
-                closed.append(f"{fmt} ({monotony_reason(session, ch, cfg, fmt)})")
+            why = monotony_reason(session, ch, cfg, fmt)
+            if why and fmt not in closed:
+                closed[fmt] = why
         if bits:
-            tail = (f" → šodien vairs nepiedāvā: {', '.join(closed)}" if closed else "")
+            tail = ""
+            if closed:
+                tail += (" → šodien vairs nepiedāvā: "
+                         + ", ".join(f"{f} ({why})" for f, why in closed.items()))
+            if prefer:
+                tail += " → priekšroka: " + ", ".join(prefer)
             lines.append(f"- {ch}: šodien jau {', '.join(bits)}{tail}")
     return "\n".join(lines) if lines else "(kvotas brīvas)"
 

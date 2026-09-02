@@ -41,6 +41,29 @@ DEFAULT_MAX_SAME_IN_ROW = 2
 # plūsmu arī tad, kad dienas kvota vēl ir brīva. Kanālā: `format_max_share`.
 DEFAULT_FORMAT_MAX_SHARE = {"card_carousel": 0.35, "reel": 0.35, "photo": 0.5}
 
+# X, Threads un Instagram saites kartīte virsrakstu nerāda (vai saites tur
+# vispār nav klikšķināmas), tāpēc brendēts foto ar saiti tekstā TUR ir
+# ieteicamais formāts, ne kompromiss. Facebook griesti (50 %) tur nozīmētu
+# piespiedu tekstu ierakstus; atkārtojuma sargs plūsmu izšķaida tāpat.
+PLATFORM_MAX_SHARE = {
+    "x": {"photo": 0.7},
+    "threads": {"photo": 0.7},
+    "instagram": {"photo": 0.7},
+}
+
+
+def max_shares(cfg: dict) -> dict:
+    return {**DEFAULT_FORMAT_MAX_SHARE,
+            **PLATFORM_MAX_SHARE.get(cfg.get("platform", ""), {}),
+            **(cfg.get("format_max_share") or {})}
+
+
+def single_format(cfg: dict) -> bool:
+    """Kanāls, kuram vispār ir tikai viens formāts (piem. stāsti). Tur
+    «vienveidība» ir bezjēdzīgs jēdziens: cita formāta nav, un sargs to
+    drīkstētu vienīgi nepamatoti apturēt."""
+    return len(cfg.get("formats") or []) <= 1
+
 # Minimum share of the recent window a format must keep when the channel
 # doesn't configure format_mix. Boostot var visus trīs formātus (saites
 # kartīte ar CTA, karuseļa kartītes ir saites, foto ierakstam saite ir
@@ -121,7 +144,7 @@ def repeats_too_much(session, channel: str, cfg: dict, fmt: str) -> bool:
     """Vai šis formāts kanālā jau ir bijis pēc kārtas tik reižu, ka nākamais
     tāds pats būtu vienveidība."""
     limit = row_limit(cfg)
-    if limit <= 0:
+    if limit <= 0 or single_format(cfg):
         return False
     head, run = format_run(session, channel)
     return head == fmt and run >= limit
@@ -130,8 +153,9 @@ def repeats_too_much(session, channel: str, cfg: dict, fmt: str) -> bool:
 def over_max_share(session, channel: str, cfg: dict, fmt: str,
                    shares: dict[str, float] | None = None) -> bool:
     """Vai formāts jau aizņem lielāku daļu pēdējo ierakstu, nekā tam atļauts."""
-    ceilings = {**DEFAULT_FORMAT_MAX_SHARE, **(cfg.get("format_max_share") or {})}
-    ceiling = ceilings.get(fmt)
+    if single_format(cfg):
+        return False
+    ceiling = max_shares(cfg).get(fmt)
     if ceiling is None:
         return False
     shares = recent_format_shares(session, channel) if shares is None else shares
@@ -149,9 +173,8 @@ def monotony_state(session, channel: str, cfg: dict, fmt: str) -> tuple[int, str
                    f"(limits {row_limit(cfg)} pēc kārtas)")
     if over_max_share(session, channel, cfg, fmt):
         share = recent_format_shares(session, channel).get(fmt, 0.0)
-        ceilings = {**DEFAULT_FORMAT_MAX_SHARE, **(cfg.get("format_max_share") or {})}
         return 1, (f"{fmt} jau aizņem {share:.0%} pēdējo ierakstu "
-                   f"(griesti {float(ceilings[fmt]):.0%})")
+                   f"(griesti {float(max_shares(cfg)[fmt]):.0%})")
     return 0, ""
 
 
@@ -239,9 +262,12 @@ def explain(session, channel: str, channel_cfg: dict, article: Article,
              "shares": {f: round(v, 3) for f, v in shares.items()},
              "run": {"format": head, "count": run},
              "ai_choice": ai_choice or "", "blocked": {}, "scores": {}}
-    unsuitable = [f for f in allowed if f not in candidates]
-    for fmt in unsuitable:
-        trace["blocked"][fmt] = "formāts šim rakstam neder (attēli/saite/AI izvēle)"
+    rich = ("card_carousel", "reel")
+    for fmt in [f for f in allowed if f not in candidates]:
+        trace["blocked"][fmt] = (
+            "šo formātu piedāvā tikai AI (ar sadaļām), un to izlemj pirms šī soļa"
+            if fmt in rich else
+            "formāts šim rakstam neder (trūkst attēlu vai saites)")
     if len(candidates) == 1:
         trace.update(chosen=candidates[0], decision="vienīgais derīgais formāts")
         return trace

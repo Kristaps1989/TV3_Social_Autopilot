@@ -32,6 +32,15 @@ def _post(session, article, fmt, channel="fb_q", when=None, created=None):
     return p
 
 
+def _history_append(session, article, formats, channel="fb_q"):
+    """Vēsture plūsmas galā, neaizskarot vecākos ierakstus."""
+    base = utcnow() - timedelta(minutes=len(formats) + 1)
+    for i, fmt in enumerate(formats):
+        _post(session, article, fmt, channel=channel,
+              when=base + timedelta(minutes=i), created=base + timedelta(minutes=i))
+    session.commit()
+
+
 def _history(session, article, formats, channel="fb_q"):
     """Kanāla vēsture, vecākais pirmais — laiki skaidri atšķirīgi, lai
     «pēc kārtas» sargs testā nav atkarīgs no vienlaicīgiem zīmogiem."""
@@ -219,8 +228,10 @@ def test_prompt_states_todays_quotas_as_facts(session, monkeypatch):
     _post(session, a, "card_carousel", channel="fb_tv3lv")
     cfg = config.load_channels()
     text = decide.format_quota_context(session, ["fb_tv3lv"], cfg)
-    assert "2/2 card_carousel" in text and "0/2 reel" in text
-    assert "nepiedāvā: card_carousel" in text
+    assert "2/8 card_carousel" in text and "0/4 reel" in text
+    assert "nepiedāvā: card_carousel (pēdējie 2" in text   # atkārtojums, ne kvota
+    assert text.count("(pēdējie") == 1                      # bez dublikātiem
+    assert "priekšroka: link (saites grīda" in text        # ko gaidām, atsevišķi
     assert "saites daļa" in text
 
 
@@ -345,3 +356,62 @@ def test_the_wave_stores_the_trace_on_the_post(session, monkeypatch):
     trace = post.extra["format_trace"]
     assert trace["chosen"] == post.format
     assert trace["decision"] and trace["run"]["count"] == 2
+
+
+# --- mērogs un platformu atšķirības (no dzīvās diagnostikas) ---------------
+
+def test_a_single_format_channel_is_never_called_monotonous(session):
+    """Stāstu kanālam ir tikai viens formāts: «pēdējie 6 ir story» tur nav
+    problēma, un sargs to nedrīkst apturēt (diagnostikā tas izskatījās pēc
+    kļūdas, un `rich_format_gate` to būtu aizturējis)."""
+    from app.formats import monotony_reason, over_max_share, repeats_too_much
+
+    cfg = {"platform": "facebook_page", "formats": ["story"]}
+    a = _article(session, "sf-1")
+    _history(session, a, ["story"] * 6, channel="fb_stories")
+    assert repeats_too_much(session, "fb_stories", cfg, "story") is False
+    assert over_max_share(session, "fb_stories", cfg, "story") is False
+    assert monotony_reason(session, "fb_stories", cfg, "story") == ""
+
+
+def test_photo_ceiling_is_looser_where_photo_is_the_recommended_format(session):
+    """X un Threads saites kartīte virsrakstu nerāda, tāpēc brendēts foto tur
+    ir ieteicamais formāts — Facebook 50 % griesti tur nozīmētu piespiedu
+    teksta ierakstus."""
+    from app.formats import max_shares, over_max_share
+
+    a = _article(session, "pl-1")
+    _history(session, a, ["photo", "photo", "photo", "photo", "link", "link"],
+             channel="x_tv3zinas")          # foto 67 %
+    x_cfg = {"platform": "x", "formats": ["link", "photo", "text_only"]}
+    fb_cfg = {"platform": "facebook_page", "formats": ["link", "photo"]}
+    assert max_shares(x_cfg)["photo"] == 0.7
+    assert max_shares(fb_cfg)["photo"] == 0.5
+    assert over_max_share(session, "x_tv3zinas", x_cfg, "photo") is False
+    assert over_max_share(session, "x_tv3zinas", fb_cfg, "photo") is True
+    # kanāla sava vērtība uzvar abus
+    own = dict(x_cfg, format_max_share={"photo": 0.5})
+    assert over_max_share(session, "x_tv3zinas", own, "photo") is True
+
+
+def test_the_daily_cap_is_a_backstop_not_the_rotation(session, monkeypatch):
+    """Kvota 2 pie ~30 ierakstiem dienā nozīmēja, ka formāts pēc diviem
+    ierakstiem pazūd uz visu dienu; rotāciju dara griesti un atkārtojums."""
+    _fake_carousel(monkeypatch)
+    a = _article(session, "cap-1")
+    cfg = dict(CFG, format_daily_cap=None)     # koda noklusējumi
+    # četri karuseļi šodien, bet VECĀKI par pēdējiem sešiem: kvotā tie skaitās,
+    # plūsmas galā nav (citādi nostrādātu atkārtojuma sargs, ne kvota)
+    early = utcnow() - timedelta(hours=6)
+    for i in range(4):
+        _post(session, a, "card_carousel", when=utcnow(),
+              created=early + timedelta(minutes=i))
+    session.commit()
+    _history_append(session, a, ["link", "photo", "link", "photo", "link", "photo"])
+    assert pipeline.format_daily_cap(cfg, "card_carousel") == 8
+    assert pipeline.rich_format_gate(session, "fb_q", cfg, a, "card_carousel") == ""
+    for i in range(4, 8):
+        _post(session, a, "card_carousel", when=utcnow(),
+              created=early + timedelta(minutes=i))   # astoņi — drošinātājs
+    session.commit()
+    assert "kvota 8/8" in pipeline.rich_format_gate(session, "fb_q", cfg, a, "card_carousel")

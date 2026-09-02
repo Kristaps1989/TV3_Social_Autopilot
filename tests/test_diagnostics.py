@@ -42,7 +42,8 @@ def test_report_shows_which_guard_holds_each_format(session, monkeypatch):
     status = {s["format"]: s for s in ch["status"]}
     assert "pēc kārtas" in status["photo"]["blocked"]
     assert status["link"]["starved"] is True          # grīda 40 %, daļa 25 %
-    assert status["card_carousel"]["cap"] == 2
+    # kvota ir galējais drošinātājs (rotāciju dara griesti un atkārtojums)
+    assert status["card_carousel"]["cap"] == 8
     assert data["editable_rules_used"] is False
     assert ch["history"][0]["notes"] == []            # jaunākais bez piezīmes
     assert any(h["notes"] for h in ch["history"])
