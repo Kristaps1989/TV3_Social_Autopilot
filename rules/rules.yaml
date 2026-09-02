@@ -261,6 +261,34 @@ link_card_force_crop: 0.40
 # formātiem (plašākā interpretācija; tā bija sākotnēji).
 ai_disclosure_scope: voiced_reels
 
+# --- Kadence: ziņas iet ārā svaigas -----------------------------------
+# Fiksēta atstarpe (channels.yaml min_gap_minutes) sargā tukšu rindu no
+# pārplūdes, bet vakara ziņu vilnī tā ziņas sarindo līdz nākamajam rītam.
+# Tāpēc atstarpe saraujas, kad rinda aug: mērķis ir rindu iztukšot šajā
+# laikā (ne šaurāk par kanāla min_gap_floor_minutes).
+backlog_horizon_hours: 2
+
+# Cik ātri sadaļas ziņa zaudē vērtību (pusperiods stundās): pēc katra
+# pusperioda vērtība dalās uz pusi. Pēc tā rindu kārto pārplānotājs —
+# svaigs sporta rezultāts iet pirms vakardienas skaidrojuma.
+section_half_life_hours:
+  news: 4
+  sport: 2
+  entertainment: 24
+
+# Kas drīkst iziet klusajās stundās: sporta rezultāts pēc vakara mača un
+# ļoti spēcīga ziņa (AI vērtējums >= min_score), ja raksts nav vecāks par
+# max_age_hours — rīt no rīta abi būtu vakardiena. Tukšs ({}) = neviens.
+quiet_hours_exempt:
+  min_score: 0.85
+  sections: [sport]
+  max_age_hours: 2
+
+# Pēc katra lēmumu viļņa kanāla rindu pārkārtot pēc vērtības un svaiguma
+# (ne ienākšanas kārtas) un atcelt to, kas līdz savam slotam būs par vecu.
+# Rokas darbu, franšīzes un «now» ierakstus pārplānošana neaiztiek.
+replan_queue: true
+
 # Vai izmērītie MAKSAS rezultāti drīkst ietekmēt organisko formāta izvēli.
 # Boostot var visus trīs formātus; kurš par eiro atved vairāk sesiju, rāda
 # reklāmu ieraksti. Reizinātājs stājas spēkā tikai režīmā approve/auto, tikai

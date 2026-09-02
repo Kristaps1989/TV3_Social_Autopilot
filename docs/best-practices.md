@@ -342,3 +342,30 @@ Kāpēc tieši tā:
 - **X saite atbildē / Threads saite atbildē** — implementēts, bet izslēgts:
   KPI ir klikšķi, un bez mērījuma pieņemam, ka papildu pieskāriens tos
   samazina. Ieslēdz un salīdzini utm.
+
+
+## Kadence: ziņas iet ārā svaigas, ne pēc kārtas
+
+Problēma, kas bija redzama rindā: vakara ziņu vilnis ar fiksētu 45 min
+atstarpi un klusajām stundām 01:00–06:00 sarindojās līdz nākamā rīta 09:45.
+Rīta plūsmā iznāca vakardienas ziņas, un tieši tās vēlāk būtu jāpastiprina
+ar reklāmu — novēlotas.
+
+Ko dara lielie ziņu konti (BBC, Guardian, Delfi, LSM): dienā ieraksti ik
+pēc 15–30 min, lūzuma ziņa uzreiz, arī 5 min pēc iepriekšējās. Facebook
+plūsma ir ranžēta, ne hronoloģiska — divi ieraksti 15 min attālumā
+nekonkurē; «sods par biežu postēšanu» attiecas uz mēstulēm, ne uz ziņu
+kontu ar iesaisti. Vērtība krīt strauji: cietā ziņa pusi vērtības zaudē
+~4 stundās, sporta rezultāts ~2, skaidrojums un izklaide tur dienām.
+
+| Princips | Ieviests |
+|---|---|
+| Atstarpe ir atkarīga no rindas, ne fiksēta | `slots.adaptive_gap`: tukšā rindā `min_gap_minutes` (45), dziļā saraujas tā, lai rinda iztukšotos `backlog_horizon_hours` (2 h) laikā, bet ne šaurāk par `min_gap_floor_minutes` (FB 15, X 10, Threads 15). Stāstu kanālam adaptācijas nav |
+| Rindu kārto vērtība × svaigums, ne ienākšanas kārta | `slots.priority` = statuss (now 3, must 2, can 1) + AI vērtējums, dalīts uz pusi ik pēc `section_half_life_hours` (news 4, sport 2, entertainment 24); `slots.replan_channel` pēc katra viļņa pārkārto kustināmos ierakstus |
+| Vecu ziņu labāk nepublicēt nekā publicēt vēlu | pārplānojot ierakstu, kas jau pārsniedz `max_age_hours`, atceļ uzreiz un slots aiziet svaigākam (līdz šim to noķēra tikai publicēšanas brīdī) |
+| Klusās stundas nav absolūtas | `quiet_hours_exempt`: sporta rezultāts pēc vakara mača un ziņa ar AI vērtējumu ≥ 0,85 iet arī naktī, ja raksts nav vecāks par 2 h |
+| Redaktora un franšīžu ieraksti stāv, kur likti | pārplānošana neaiztiek `manual`, `timeless` un `now` ierakstus; otrā viļņa ieraksts saglabā «ne agrāk» (`not_before`) |
+| Reklāmai ieraksts ir svaigs | boostu kandidāti ir pēdējo 48 h ieraksti; svaiga publicēšana = boosts strādā ar aktuālu ziņu |
+
+Diagnostikā (`/logs`) katram kanālam redzama rinda uz priekšu: cik gaida,
+kāda atstarpe tagad, katra ieraksta vērtība šobrīd un vai tas pārplānots.

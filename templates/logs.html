@@ -68,6 +68,24 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     {% endfor %}
   </table>
 
+  {% if ch.queue_plan and ch.queue_plan.waiting %}
+  <h3>Rinda uz priekšu <span class="muted" style="font-weight:400;font-size:.85rem">
+    {{ ch.queue_plan.waiting }} gaida · atstarpe tagad {{ ch.queue_plan.gap_now_minutes }} min
+    (tukšā rindā {{ ch.queue_plan.gap_base_minutes }}, grīda {{ ch.queue_plan.gap_floor_minutes }})</span></h3>
+  <table>
+    <tr><th>Laiks</th><th>Formāts</th><th>Raksts</th><th>Vērtība tagad</th><th></th></tr>
+    {% for q in ch.queue_plan.next %}
+    <tr>
+      <td>{{ q.at | local }}</td>
+      <td>{{ q.format }}</td>
+      <td>{{ q.title }}</td>
+      <td class="n">{{ q.priority }}</td>
+      <td class="muted">{{ 'pārplānots' if q.replanned else '' }}{{ ' · fiksēts' if not q.movable else '' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
   {% if ch.history %}
   <h3>Pēdējie ieraksti un iemesli</h3>
   <table>

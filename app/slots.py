@@ -20,6 +20,19 @@ from app.rules_engine import Verdict, in_window, parse_window, title_similarity
 STEP_MINUTES = 5
 SEARCH_HORIZON_HOURS = 48
 
+# Cik ātri ziņa zaudē vērtību: pēc katra pusperioda tās vērtība dalās uz pusi.
+# Sporta rezultāts nākamajā rītā ir nevērtīgs; skaidrojums vai izklaide tur
+# vērtību dienām. Noteikumos: section_half_life_hours.
+DEFAULT_HALF_LIFE_HOURS = {"news": 4.0, "sport": 2.0, "entertainment": 24.0}
+# Cik stundās rindai jāiztukšojas — no tā izriet atstarpe starp ierakstiem,
+# kad rinda ir dziļa. Noteikumos: backlog_horizon_hours.
+DEFAULT_BACKLOG_HORIZON_HOURS = 2.0
+# Šaurākā pieļaujamā atstarpe pa platformām, kad rinda ir pilna (kanālā:
+# min_gap_floor_minutes). Facebook plūsma ir ranžēta, ne hronoloģiska — divi
+# ieraksti 15 min attālumā nekonkurē; lielie ziņu konti tā strādā visu dienu.
+DEFAULT_GAP_FLOOR_MINUTES = {"facebook_page": 15, "x": 10, "threads": 15,
+                             "instagram": 30}
+
 
 def _local(dt_utc: datetime) -> datetime:
     return dt_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(config.TIMEZONE))
@@ -109,6 +122,75 @@ def violates_diversity(queue: list[Post], candidate_section: str, candidate_form
     return len(sections) < min_sections or len(formats) < min_formats
 
 
+def gap_floor(channel_cfg: dict) -> timedelta:
+    """Šaurākā atstarpe, līdz kurai rinda drīkst saspiesties. Viena formāta
+    stāstu kanālam adaptācijas nav: tur atstarpe ir nevis pret pārplūdi, bet
+    pret to, ka stāsti ir piedeva, ne otra plūsma."""
+    base = int(channel_cfg.get("min_gap_minutes", 30))
+    if channel_cfg.get("min_gap_floor_minutes") is not None:
+        return timedelta(minutes=max(1, min(base, int(channel_cfg["min_gap_floor_minutes"]))))
+    if list(channel_cfg.get("formats") or []) == ["story"]:
+        return timedelta(minutes=base)
+    floor = DEFAULT_GAP_FLOOR_MINUTES.get(channel_cfg.get("platform", ""), base)
+    return timedelta(minutes=min(base, floor))
+
+
+def adaptive_gap(channel_cfg: dict, waiting: int, rules: dict | None = None) -> timedelta:
+    """Atstarpe starp ierakstiem, kas atkarīga no rindas dziļuma.
+
+    Fiksēta atstarpe (45 min) ir pareiza tukšai rindai: tur tā sargā no
+    pārplūdes. Bet vakara ziņu vilnī tā pati atstarpe ziņas sarindo līdz
+    nākamajam rītam, un rīta plūsmā iziet vakardienas ziņas. Tāpēc atstarpe
+    saraujas, kad rinda aug: mērķis ir iztukšot rindu `backlog_horizon_hours`
+    laikā, bet ne šaurāk par `min_gap_floor_minutes`.
+    """
+    rules = config.load_rules() if rules is None else rules
+    base = timedelta(minutes=int(channel_cfg.get("min_gap_minutes", 30)))
+    floor = gap_floor(channel_cfg)
+    if floor >= base or waiting <= 0:
+        return base
+    horizon = timedelta(hours=float(rules.get("backlog_horizon_hours",
+                                              DEFAULT_BACKLOG_HORIZON_HOURS)))
+    wanted = horizon / (waiting + 1)
+    return max(floor, min(base, wanted))
+
+
+def half_life_hours(section: str, rules: dict | None = None) -> float:
+    rules = config.load_rules() if rules is None else rules
+    table = {**DEFAULT_HALF_LIFE_HOURS, **(rules.get("section_half_life_hours") or {})}
+    return float(table.get(section) or table.get("news") or 4.0)
+
+
+def priority(post: Post, now: datetime, rules: dict | None = None) -> float:
+    """Cik vērtīgs ieraksts ir TAGAD: redaktora statuss un AI vērtējums,
+    dalīti uz pusi ik pēc sadaļas pusperioda. Rindas kārtību nosaka šis, ne
+    tas, kurš raksts ienāca pirmais."""
+    article = post.article
+    status = getattr(article, "editor_status", "can") if article else "can"
+    base = {"now": 3.0, "must": 2.0}.get(status, 1.0)
+    base += float(getattr(article, "ai_score", 0) or 0)
+    if article is None:
+        return base
+    ref = article.published_at or article.first_seen_at or now
+    age = max(0.0, (now - ref).total_seconds() / 3600)
+    return base * 0.5 ** (age / half_life_hours(article.section or "news", rules))
+
+
+def _quiet_exempt(section: str, score: float, age_hours: float | None,
+                  rules: dict) -> bool:
+    """Kas drīkst iziet klusajās stundās: sporta rezultāts pēc vakara mača
+    un ļoti spēcīga ziņa — abi rīt no rīta būtu vakardiena."""
+    cfg = rules.get("quiet_hours_exempt")
+    if cfg is None:
+        cfg = {"min_score": 0.85, "sections": ["sport"], "max_age_hours": 2}
+    if not cfg:
+        return False
+    if age_hours is not None and age_hours > float(cfg.get("max_age_hours", 2)):
+        return False
+    return (section in (cfg.get("sections") or [])
+            or score >= float(cfg.get("min_score", 1.01)))
+
+
 def find_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
               section: str, fmt: str, title: str,
               now: datetime, preferred: datetime | None = None,
@@ -121,7 +203,9 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
               section: str, fmt: str, title: str,
               now: datetime, preferred: datetime | None = None,
               score: float = 0.0,
-              allow_similar: bool = False) -> tuple[datetime | None, str]:
+              allow_similar: bool = False,
+              pending: int = 0,
+              age_hours: float | None = None) -> tuple[datetime | None, str]:
     """(slot, reason) — earliest valid slot honouring all constraints, and
     when nothing fits, which guard actually blocked it.
 
@@ -145,7 +229,11 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
     # optimize: drift toward measured strong hours + slot-level diversity
     # (flip in rules.yaml scheduling_mode once GA4 data justifies it).
     asap = str(rules.get("scheduling_mode", "asap")).lower() != "optimize"
-    min_gap = timedelta(minutes=int(channel_cfg.get("min_gap_minutes", 30)))
+    # atstarpe saraujas, kad rinda ir dziļa: skaita gaidošos ierakstus pēc
+    # `now` plus tos, kas vēl tiks likti šajā pašā plānošanā (`pending`)
+    waiting = sum(1 for p in queue
+                  if p.scheduled_at and p.scheduled_at > now and p.state == "scheduled")
+    min_gap = adaptive_gap(channel_cfg, waiting + pending, rules)
     daily_cap = int(channel_cfg.get("daily_cap") or 0)  # 0/missing = unlimited
     # the cap is soft: strong content may exceed it (min_gap remains the
     # real anti-flood guard) — rules.yaml daily_cap_flex
@@ -174,7 +262,8 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
         if verdict.fresh_until and candidate > verdict.fresh_until:
             return no("saturs līdz tam būs par vecu")
         local_dt = candidate.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
-        if _quiet(local_dt, quiet_hours):
+        if (_quiet(local_dt, quiet_hours)
+                and not _quiet_exempt(section, score, age_hours, rules)):
             return no("klusās stundas")
         if not _window_ok(local_dt, verdict.allowed_windows):
             return no("jutīga satura laika logs")
@@ -245,3 +334,104 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
     top = sorted(blocked_by.items(), key=lambda kv: -kv[1])[:2]
     reason = ", ".join(name for name, _ in top) or "nav derīga laika"
     return None, reason
+
+
+MOVABLE_STATES = ("scheduled",)
+
+
+def movable(post: Post, now: datetime) -> bool:
+    """Ko pārplānošana drīkst pārvietot: automātikas ieplānoto nākotni.
+    Redaktora rokas darbu, franšīzes (timeless) un `now` ierakstus neaiztiek."""
+    extra = post.extra or {}
+    if post.state not in MOVABLE_STATES or not post.scheduled_at:
+        return False
+    if post.scheduled_at <= now:
+        return False
+    if extra.get("manual") or extra.get("timeless") or extra.get("forced_now"):
+        return False
+    return True
+
+
+def replan_channel(session, channel: str, channel_cfg: dict,
+                   now: datetime, rules: dict | None = None) -> dict:
+    """Pārkārto kanāla rindu pēc vērtības un svaiguma, ne ienākšanas kārtas.
+
+    Fiksēts logs («nākamais brīvais slots + 45 min») rindu veido FIFO: vakara
+    ziņu vilnis sakrājas un iziet nākamajā rītā, un vēlāk ienākusi svarīgāka
+    ziņa stāv aiz vājākām. Šeit gaidošos ierakstus sakārto pēc `priority`
+    (statuss + AI vērtējums, dalīts uz pusi ik pēc sadaļas pusperioda) un
+    sadala no jauna ar adaptīvo atstarpi. Kas līdz savam slotam būtu par
+    vecu, tiek atcelts uzreiz — vecas ziņas publicēšana ir sliktāka par
+    nepublicēšanu, un atbrīvotais slots aiziet svaigākai.
+
+    Atgriež {"moved": n, "cancelled": n, "kept": n}.
+    """
+    rules = config.load_rules() if rules is None else rules
+    if not rules.get("replan_queue", True):
+        return {"moved": 0, "cancelled": 0, "kept": 0}
+    from app.models import Article  # noqa: F401 — relācija ielādējas caur post.article
+
+    rows = session.execute(
+        select(Post).where(Post.channel == channel, Post.state == "scheduled",
+                           Post.scheduled_at.is_not(None), Post.scheduled_at > now)
+        .order_by(Post.scheduled_at)
+    ).scalars().all()
+    posts = [p for p in rows if movable(p, now)]
+    if len(posts) < 2:
+        return {"moved": 0, "cancelled": 0, "kept": len(posts)}
+
+    order = sorted(posts, key=lambda p: -priority(p, now, rules))
+    old = {p.id: p.scheduled_at for p in posts}
+    # visi kustināmie iziet no rindas: plānotājs tad redz tikai nekustināmos
+    for p in posts:
+        p.scheduled_at = None
+    session.flush()
+
+    max_age = rules.get("max_age_hours") or {}
+    moved = cancelled = kept = 0
+    for i, p in enumerate(order):
+        article = p.article
+        extra = p.extra or {}
+        fresh_until = None
+        if article is not None and article.editor_timeframe != "evergreen":
+            limit = max_age.get(article.section)
+            ref = article.published_at or article.first_seen_at
+            if limit is not None and ref is not None:
+                fresh_until = ref + timedelta(hours=float(limit))
+        latest = extra.get("latest")
+        latest = datetime.fromisoformat(latest) if isinstance(latest, str) else None
+        not_before = extra.get("not_before")
+        not_before = (datetime.fromisoformat(not_before)
+                      if isinstance(not_before, str) else None)
+        verdict = Verdict("eligible", earliest=max(now, not_before or now),
+                          latest=latest, fresh_until=fresh_until)
+        age_hours = None
+        if article is not None and (article.published_at or article.first_seen_at):
+            age_hours = max(0.0, (now - (article.published_at or article.first_seen_at))
+                            .total_seconds() / 3600)
+        slot, why = plan_slot(session, channel, channel_cfg, verdict,
+                              article.section if article else "", p.format,
+                              article.title if article else (p.copy or ""),
+                              now, None, score=float(getattr(article, "ai_score", 0) or 0),
+                              allow_similar=True, pending=len(order) - i - 1,
+                              age_hours=age_hours)
+        if slot is None and fresh_until is not None and fresh_until <= now + timedelta(
+                minutes=STEP_MINUTES):
+            p.state = "cancelled"
+            p.error = f"pārplānojot: raksts jau novecojis ({why or 'svaigums'})"
+            p.scheduled_at = old[p.id]
+            cancelled += 1
+            session.flush()
+            continue
+        if slot is None:
+            slot = old[p.id]      # nekas labāks — paliek, kur bija
+        p.scheduled_at = slot
+        if slot != old[p.id]:
+            moved += 1
+            p.extra = {**extra, "replanned": {"from": old[p.id].isoformat(),
+                                             "priority": round(priority(p, now, rules), 3)}}
+        else:
+            kept += 1
+        session.flush()
+    session.commit()
+    return {"moved": moved, "cancelled": cancelled, "kept": kept}

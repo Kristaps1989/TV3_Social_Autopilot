@@ -75,9 +75,30 @@ def channel_diagnostics(session, name: str, cfg: dict, posts: int = 15) -> dict:
                            f"{float(retargeted.get('link_card_crop') or 0) * 100:.0f}%"
                            if retargeted else ""),
         })
+    from app import slots
+
+    upcoming = session.execute(
+        select(Post).where(Post.channel == name, Post.state == "scheduled",
+                           Post.scheduled_at.is_not(None), Post.scheduled_at > utcnow())
+        .order_by(Post.scheduled_at)
+    ).scalars().all()
+    now = utcnow()
+    queue_plan = {
+        "waiting": len(upcoming),
+        "gap_now_minutes": int(slots.adaptive_gap(cfg, len(upcoming)).total_seconds() // 60),
+        "gap_base_minutes": int(cfg.get("min_gap_minutes", 30)),
+        "gap_floor_minutes": int(slots.gap_floor(cfg).total_seconds() // 60),
+        "next": [{"id": p.id, "at": p.scheduled_at, "format": p.format,
+                  "title": (p.article.title if p.article else "")[:60],
+                  "priority": round(slots.priority(p, now), 3),
+                  "movable": slots.movable(p, now),
+                  "replanned": bool((p.extra or {}).get("replanned"))}
+                 for p in upcoming[:12]],
+    }
     return {
         "channel": name,
         "display_name": cfg.get("display_name", name),
+        "queue_plan": queue_plan,
         "formats": allowed,
         "weights": weights,
         "floors": floors,

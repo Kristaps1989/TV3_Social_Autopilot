@@ -19,6 +19,7 @@ from app.decide import decide
 from app.formats import choose_format, mix_deficit, recent_format_shares
 from app.models import Article, Evaluation, Post, get_setting, utcnow
 from app.rules_engine import evaluate_all
+from app import rules_engine
 from app.slots import plan_slot
 from app import runtime
 
@@ -47,6 +48,7 @@ def run_decisions(session, limit: int = 20) -> int:
 
     channels_cfg = config.load_channels()
     created = 0
+    touched: set[str] = set()
     # Raksta lapa nes to, kā feed'ā nav (autors, redakcijas tagi, video/
     # galerija, apjoms, "Tikai tv3.lv"), un tas maina AI lēmumu — tāpēc to
     # velkam tieši šeit. Budžets uz ciklu tur ciklu īsu arī tad, kad portāls
@@ -144,9 +146,11 @@ def run_decisions(session, limit: int = 20) -> int:
                     candidate += timedelta(hours=1)
 
             score = float(article.ai_score or 0)
+            age_hours = rules_engine.article_age_hours(article, now)
             slot, why = plan_slot(session, channel, cfg, verdict,
                                   article.section, fmt, article.title, now, preferred,
-                                  score=score, allow_similar=bool(existing))
+                                  score=score, allow_similar=bool(existing),
+                                  age_hours=age_hours)
             late = False
             if slot is None and verdict.latest is not None:
                 # Pilna rinda statusa logā: vēlāks slots ir labāks par
@@ -159,7 +163,8 @@ def run_decisions(session, limit: int = 20) -> int:
                                       dataclasses.replace(verdict, latest=None),
                                       article.section, fmt, article.title, now,
                                       preferred, score=score,
-                                      allow_similar=bool(existing))
+                                      allow_similar=bool(existing),
+                                      age_hours=age_hours)
                 late = slot is not None
             if slot is None:
                 session.add(Evaluation(article_id=article.id, channel=channel,
@@ -189,6 +194,13 @@ def run_decisions(session, limit: int = 20) -> int:
                         | ({"recipe": recipe} if recipe else {}))
                        if media else {})
                       | ({"format_notes": format_notes} if format_notes else {})
+                      # pārplānošanai: statusa termiņš, otrā viļņa «ne agrāk»
+                      # un tas, ka `now` ierakstu nedrīkst pārvietot
+                      | ({"latest": verdict.latest.isoformat()} if verdict.latest
+                         and verdict.outcome != "forced_now" else {})
+                      | ({"not_before": repost_at.isoformat()} if existing and repost_at
+                         else {})
+                      | ({"forced_now": True} if verdict.outcome == "forced_now" else {})
                       | ({"format_trace": {k: format_trace[k]
                                            for k in ("chosen", "decision", "blocked",
                                                      "shares", "run", "ai_choice")
@@ -210,9 +222,22 @@ def run_decisions(session, limit: int = 20) -> int:
                                              if format_notes else "")))
             created += 1
             scheduled_here += 1
+            touched.add(channel)
         if scheduled_here == 0:
             requeue_for_retry(article, now)
         session.commit()
+    # Rinda pēc vērtības un svaiguma, ne ienākšanas kārtas: katrs vilnis
+    # pārkārto skartos kanālus (sk. slots.replan_channel)
+    from app.slots import replan_channel
+
+    for channel in sorted(touched):
+        try:
+            outcome = replan_channel(session, channel, channels_cfg.get(channel) or {}, now)
+            if outcome["moved"] or outcome["cancelled"]:
+                log.info("replan %s: %s", channel, outcome)
+        except Exception as e:  # noqa: BLE001 — pārplānošana nedrīkst gāzt vilni
+            log.warning("replan %s failed: %s", channel, e)
+            session.rollback()
     return created
 
 

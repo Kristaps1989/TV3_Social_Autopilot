@@ -12,7 +12,11 @@ fb_tv3lv:
   platform: facebook_page
   display_name: "Facebook — tv3.lv"
   feeds: [news_all, entertainment_all, photo_posts]
-  min_gap_minutes: 45        # FB punishes rapid-fire posting; 45 min keeps reach healthy
+  min_gap_minutes: 45        # atstarpe TUKŠĀ rindā; pilnā saraujas līdz min_gap_floor
+  # Šaurākā atstarpe, kad rinda ir dziļa (rules.yaml backlog_horizon_hours).
+  # FB plūsma ir ranžēta, ne hronoloģiska: ieraksti 15 min attālumā
+  # nekonkurē; lielie ziņu konti dienā tā strādā nepārtraukti.
+  min_gap_floor_minutes: 15
   daily_cap: 0               # 0 = bez dienas limita; atstarpe ir īstā aizsardzība
   quiet_hours: ["01:00-06:00"]
   # Sections this channel accepts (empty = all)
