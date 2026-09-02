@@ -886,3 +886,107 @@ def test_a_short_title_does_not_make_the_cover_flash_past():
                                kinds=["cover", "section"])
     assert out[0] == reels.COVER_MIN_SECONDS
     assert out[1] == reels.frame_seconds_for(short, last=True)
+
+
+# --- TTS budžets: maksājam tikai par to, kas lentē tiešām skan -------------
+
+def test_spoken_head_keeps_short_text_and_cuts_long_at_a_sentence():
+    from app import reels
+
+    short = "Viens teikums."
+    assert reels.spoken_head(short, 220) == short
+
+    long = ("Pirmais teikums ir īss. Otrais teikums ir mazliet garāks nekā "
+            "pirmais. Trešais teikums vairs neietilps, jo limits ir mazs.")
+    out = reels.spoken_head(long, 80)
+    assert out == "Pirmais teikums ir īss. Otrais teikums ir mazliet garāks nekā pirmais."
+    # pirmais teikums paliek arī tad, ja tas viens pats pārsniedz limitu
+    assert reels.spoken_head(long, 10) == "Pirmais teikums ir īss."
+
+
+def test_spoken_head_does_not_split_ordinal_numbers():
+    """Latviski «59. minūtē» ir kārtas skaitlis, ne teikuma beigas."""
+    from app import reels
+
+    text = "Vārti krita 59. minūtē pēc stūra sitiena. Otrais teikums nāk vēlāk."
+    assert reels.spoken_head(text, 45) == "Vārti krita 59. minūtē pēc stūra sitiena."
+
+
+def test_chapter_voice_reads_only_the_core_of_the_chapter():
+    from app import reels
+
+    body = " ".join(f"Teikums numur {i} ar dažiem papildu vārdiem iekšā." for i in range(8))
+    sec = {"title": "Nodaļa", "body": body}
+    assert len(reels.chapter_voice(sec)) <= reels.CHAPTER_VOICE_CHARS
+    assert reels.chapter_voice(sec).endswith(".")
+    # noteikums maina griezumu; redaktora dotu ierunu neaiztiekam
+    assert len(reels.chapter_voice(sec, {"reel_chapter_voice_chars": 120})) <= 120
+    assert reels.chapter_voice({"title": "N", "body": body, "voice": body}) == body
+
+
+def test_voice_beats_skips_chapters_that_will_not_fit_before_synthesis(monkeypatch):
+    """Trešā nodaļa agrāk tika ierunāta (un samaksāta) un tad izmesta.
+    Tagad tā netiek sūtīta uz TTS vispār."""
+    from app import reels
+
+    monkeypatch.setattr(reels, "media_duration", lambda p: 20.0)
+    calls: list[str] = []
+
+    def synth(text, **kw):
+        calls.append(text)
+        return "/a.m4a"
+
+    beats = reels.plan_beats(
+        "T", [{"title": "A", "body": "Pirmais teksts."},
+              {"title": "B", "body": "Otrais teksts."},
+              {"title": "C", "body": "Trešais teksts."}], [],
+        cover_voice="Virsraksts.", end_voice="Lasi tv3.lv.")
+    voices, speech, skipped = reels.voice_beats(beats, synth, budget=60)
+
+    assert skipped >= 1
+    assert "Trešais teksts." not in calls
+    assert "Pirmais teksts." in calls and "Lasi tv3.lv." in calls
+    assert [b["kind"] for b in beats] == ["cover"] + ["section"] * (3 - skipped) + ["end"]
+    assert len(voices) == len(speech) == len(beats)
+
+
+def test_voice_beats_skips_the_rest_after_the_first_skipped_chapter(monkeypatch):
+    """Nodaļas ir stāsts pēc kārtas: ja otrā neietilpst, trešo nesāk arī tad,
+    ja tā būtu īsāka."""
+    from app import reels
+
+    monkeypatch.setattr(reels, "media_duration", lambda p: 30.0)
+    calls: list[str] = []
+    beats = reels.plan_beats(
+        "T", [{"title": "A", "body": "Pirmais teksts, kas ir gana garš."},
+              {"title": "B", "body": "Otrais teksts, arī gana garš, lai neietilptu."},
+              {"title": "C", "body": "Īss."}], [],
+        cover_voice="Virsraksts.", end_voice="Lasi.")
+    reels.voice_beats(beats, lambda t, **kw: calls.append(t) or "/a.m4a", budget=60)
+
+    assert "Īss." not in calls
+    assert [b["kind"] for b in beats] == ["cover", "section", "end"]
+
+
+def test_reel_report_counts_the_characters_sent_to_tts(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from app import reels
+
+    monkeypatch.setattr(reels, "_render_frames",
+                        lambda docs, out_dir: [tmp_path / f"f{i}.png" for i in range(len(docs))])
+
+    def fake_assemble(frames, workdir, out, frame_seconds=2.8, durations=None,
+                      voice=None, voices=None, kinds=None):
+        Path(out).write_bytes(b"mp4")
+        return sum(durations)
+
+    monkeypatch.setattr(reels, "_assemble", fake_assemble)
+    monkeypatch.setattr(reels, "media_duration", lambda p: 4.0)
+    report: dict = {}
+    reels.build_reel(
+        "T", "news", "", [], out_dir=tmp_path,
+        sections=[{"title": "A", "body": "Pirmais teksts."}],
+        cover_voice="Virsraksts.", end_voice="Lasi.",
+        synth=lambda text, **kw: "/a.m4a", report=report)
+    assert report["voice_chars"] == len("Virsraksts.") + len("Pirmais teksts.") + len("Lasi.")

@@ -45,6 +45,15 @@ MAX_VIDEO_BYTES = 300 * 1024 * 1024
 # teaseris. Īsto tempu konkrētai lentei rāda priekšskatījums — tas rēķina to
 # no izmērītā runas garuma, nevis no šī pieņēmuma.
 VOICE_MAX_WORDS = 90
+# Cik no nodaļas teksta balss nolasa. Sadaļas ir kopīgas karuselim un lentei:
+# kartītē 2–4 teikumi ir labi, bet teaserī katra nodaļa ir ~14 s — ~220
+# rakstzīmes ziņu tempā. Pārējais paliek uz kadra un rakstā. Maināms
+# Noteikumos (reel_chapter_voice_chars).
+CHAPTER_VOICE_CHARS = 220
+# Aplēse, kamēr nav nevienas izmērītas ierunas: latviešu ziņu temps ir ap
+# 135 vārdiem minūtē, t.i. ~16 rakstzīmes sekundē. Pēc pirmā kadra tempu
+# ņem no izmērītā.
+SPEECH_CHARS_PER_SECOND = 16.0
 VOICE_TAIL_SECONDS = 0.6    # CTA kadrs paliek redzams pēc pēdējā vārda
 VOICE_MAX_SECONDS = 60
 
@@ -644,7 +653,7 @@ def build_video_reel(video_url: str, out_dir: Path | None = None,
     return str(out)
 
 
-def chapter_voice(sec: dict) -> str:
+def chapter_voice(sec: dict, rules: dict | None = None) -> str:
     """Ko balss saka pār vienu nodaļas kadru.
 
     Tikai tekstu, nevis virsrakstu+tekstu. Virsraksts jau stāv uz ekrāna
@@ -658,7 +667,37 @@ def chapter_voice(sec: dict) -> str:
         rest = body[len(head):].lstrip(" .,:;—-")
         if len(rest) > 40:
             body = rest
-    return body
+    if sec.get("voice"):
+        return body   # redaktora dotu ierunu nesaīsinām
+    limit = CHAPTER_VOICE_CHARS
+    if isinstance(rules, dict) and rules.get("reel_chapter_voice_chars"):
+        limit = max(80, int(rules["reel_chapter_voice_chars"]))
+    return spoken_head(body, limit)
+
+
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?…])\s+(?=[A-ZĀČĒĢĪĶĻŅŠŪŽ«\"0-9])")
+
+
+def spoken_head(text: str, max_chars: int = CHAPTER_VOICE_CHARS) -> str:
+    """Teksta sākums līdz `max_chars`, griezts pie teikuma robežas.
+
+    Balss maksā par katru rakstzīmi, un 45 s teaserim pietiek ar nodaļas
+    kodolu — pirmajiem teikumiem. Pirmais teikums paliek vienmēr, lai arī
+    garš: nodaļai bez ierunas nav jēgas. Kārtas skaitļi («59. minūtē») nav
+    teikuma beigas, jo aiz tiem seko mazais burts.
+    """
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    out: list[str] = []
+    for sentence in _SENTENCE_END_RE.split(text):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if out and len(" ".join(out + [sentence])) > max_chars:
+            break
+        out.append(sentence)
+    return " ".join(out)
 
 
 def plan_beats(title: str, sections: list[dict], points: list[str],
@@ -667,7 +706,8 @@ def plan_beats(title: str, sections: list[dict], points: list[str],
                max_points: int = MAX_POINTS,
                frame_seconds: float = FRAME_SECONDS,
                edge_seconds: float | None = None,
-               point_images: list[str] | None = None) -> list[dict]:
+               point_images: list[str] | None = None,
+               rules: dict | None = None) -> list[dict]:
     """Lentes plāns: pa vienam ierakstam katram kadram, pareizā secībā.
 
     Katrs kadrs nes SAVU ierunu un savu ilgumu. Agrāk teksti un kadri bija
@@ -687,7 +727,7 @@ def plan_beats(title: str, sections: list[dict], points: list[str],
             beats.append({
                 "kind": "section", "sec": sec,
                 "bg": imgs[i % len(imgs)] if imgs else "",
-                "text": chapter_voice(sec),
+                "text": chapter_voice(sec, rules),
                 "duration": max(frame_seconds, SECTION_FRAME_SECONDS)})
     else:
         for i, point in enumerate(points[:max_points]):
@@ -698,6 +738,59 @@ def plan_beats(title: str, sections: list[dict], points: list[str],
     if include_end:
         beats.append({"kind": "end", "text": end_voice, "duration": edge})
     return beats
+
+
+def voice_beats(beats: list[dict], synth, section: str = "",
+                budget: float = VOICE_MAX_SECONDS) -> tuple[list[str], list[float], int]:
+    """Ieruna kadru pēc kadra — un tikai tiem, kas lentē ietilps.
+
+    Agrāk visas nodaļas ierunāja uzreiz un tikai tad `_trim_beats` izmeta
+    pēdējo, lai lente ietilptu budžetā: trešā nodaļa bija samaksāta
+    (ElevenLabs rēķina par rakstzīmi), bet lentē neskanēja. Tagad pirms
+    katras nodaļas tās garumu aplēš no rakstzīmēm pēc jau izmērītā tempa,
+    un, ja tā kopā ar CTA kadru vairs neietilpst, to nesintezē — un
+    nesintezē arī nākamās, jo nodaļas ir secīgs stāsts, ne izlase.
+    Pirmā nodaļa paliek vienmēr. Izmestās nodaļas no `beats` pazūd.
+
+    Atgriež (ierunu ceļi, izmērītās sekundes, cik nodaļu izlaists).
+    """
+    voices: list[str] = []
+    speech: list[float] = []
+    chars_done, secs_done = 0, 0.0
+    spent, kept, skipped = 0.0, 0, 0
+    end_text = next((b["text"].strip() for b in beats if b["kind"] == "end"), "")
+    keep: list[dict] = []
+    for beat in beats:
+        text = beat["text"].strip()
+        content = beat["kind"] in ("section", "point")
+        if content and skipped:
+            skipped += 1
+            continue
+        if not text:
+            keep.append(beat)
+            voices.append("")
+            speech.append(0.0)
+            continue
+        rate = chars_done / secs_done if secs_done > 0 else SPEECH_CHARS_PER_SECOND
+        if content and kept:
+            estimate = frame_seconds_for(len(text) / rate)
+            reserve = frame_seconds_for(len(end_text) / rate, last=True) if end_text else 0.0
+            if spent + estimate + reserve > budget:
+                skipped += 1
+                continue
+        path = synth(text, section=section)
+        secs = media_duration(path) if path else 0.0
+        keep.append(beat)
+        voices.append(path)
+        speech.append(secs)
+        if path and secs > 0:
+            chars_done += len(text)
+            secs_done += secs
+        spent += frame_seconds_for(secs, cover=beat["kind"] == "cover")
+        if content:
+            kept += 1
+    beats[:] = keep
+    return voices, speech, skipped
 
 
 def _trim_beats(beats: list[dict], budget: float = VOICE_MAX_SECONDS) -> int:
@@ -784,7 +877,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                        cover_voice=cover_voice, end_voice=end_voice,
                        include_cover=include_cover, include_end=include_end,
                        max_points=max_points, frame_seconds=frame_seconds,
-                       edge_seconds=edge_seconds, point_images=point_images)
+                       edge_seconds=edge_seconds, point_images=point_images,
+                       rules=rules)
 
     voices: list[str] = []
     spoken: dict[str, float] = {}   # ieruna -> sekundes, kadru garumam un atskaitei
@@ -799,9 +893,10 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
         chosen = _tts.voice_choice(rules, section)
         # sadaļa iet līdzi: balsi un tempu var izvēlēties pa sadaļām
         # (izklaidei dzīvāka balss un ātrāks temps nekā pierobežas ziņai)
-        voices = [synth(b["text"], section=section) if b["text"].strip() else ""
-                  for b in beats]
-        speech = [media_duration(v) if v else 0.0 for v in voices]
+        voices, speech, unvoiced = voice_beats(beats, synth, section)
+        if unvoiced:
+            log.info("reel skipped %d chapter(s) before synthesis: no room in %ds",
+                     unvoiced, VOICE_MAX_SECONDS)
         spoken = {v: t for v, t in zip(voices, speech) if v}
         for beat, planned in zip(beats, plan_durations(
                 [b["duration"] for b in beats], voices, speech,
@@ -856,6 +951,11 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                        "voice_by_section": chosen.get("voice_by_section", False),
                        "rate_by_section": chosen.get("rate_by_section", False),
                        "frames": total_frames, "seconds": round(total, 2),
+                       # cik rakstzīmju balss nolasīja — tas ir TTS rēķins
+                       # (kešā atrasts kadrs neko nemaksā, bet tas te nav
+                       # zināms; augšējā robeža ir godīgāka par neko)
+                       "voice_chars": sum(len(b["text"].strip()) for b in beats
+                                          if b.get("voice")),
                        "narration": [b["text"] for b in beats if b["text"]]})
     log.info("reel built: %s (%d frames, %.0fs total%s)",
              out.name, total_frames, total, ", ar ierunu" if voiced else "")

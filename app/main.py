@@ -427,6 +427,10 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             # vārdos minūtē, nevis mans vērtējums par to, cik tas varētu būt
             "voice_seconds": ((post.extra or {}).get("recipe")
                               or {}).get("speech_seconds"),
+            # cik rakstzīmes aizgāja uz TTS (ElevenLabs rēķina par rakstzīmi);
+            # augšējā robeža — kešā trāpītās nodaļas nemaksā
+            "voice_chars": ((post.extra or {}).get("recipe")
+                            or {}).get("voice_chars"),
             # ar KURU balsi un KĀDĀ tempā šī lente tiešām tika ierunāta.
             # Noteikumos sadaļas rinda mēdz palikt izkomentēta un izskatās
             # pēc iestatījuma; te ir rezultāts, ne nodoms

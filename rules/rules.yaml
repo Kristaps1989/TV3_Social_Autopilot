@@ -169,6 +169,12 @@ reel_voice_rate: -4
 reel_voice_rate_by_section:
 #  entertainment: 8
 
+# Cik rakstzīmju no nodaļas teksta balss nolasa lentē (griež pie teikuma
+# robežas; pirmais teikums paliek vienmēr). ElevenLabs rēķina par
+# rakstzīmi, un 45 s teaserim pietiek ar nodaļas kodolu — pilnais teksts
+# paliek karuseļa kartītē un rakstā.
+reel_chapter_voice_chars: 220
+
 # ElevenLabs modelis. Latviski runā tikai eleven_v3; multilingual_v2
 # latviešu valodas sarakstā nav.
 elevenlabs_model: eleven_v3
