@@ -234,7 +234,17 @@ def dashboard(request: Request):
                 select(Post).where(Post.channel == name, Post.state == "published",
                                    Post.published_at >= now - timedelta(hours=24))
             ).scalars().all()
+            # formātu sadalījums pēdējās 24 h + rindā: vienveidība redzama
+            # uzreiz, ne tikai pārlapojot ierakstus
+            from collections import Counter
+
+            mix = Counter(p.format for p in published_today)
+            queued_mix = Counter(p.format for p in session.execute(
+                select(Post).where(Post.channel == name, Post.state == "scheduled")
+            ).scalars().all())
             channel_data.append({
+                "format_mix": mix.most_common(),
+                "queued_mix": queued_mix.most_common(),
                 "name": name,
                 "display_name": (cfg or {}).get("display_name", name),
                 "paused": get_setting(session, f"pause:{name}") == "on",

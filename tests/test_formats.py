@@ -94,8 +94,12 @@ def test_photo_saturated_feed_gets_a_link_post(session):
         session.add(Post(article_id=a.id, channel="fb_mix", format=fmt,
                          state="published"))
     session.commit()
-    # photo ir smagāks un to grib arī AI -> bez grīdas tas uzvar
-    cfg = {"formats": ["link", "photo"], "format_weights": {"link": 1.0, "photo": 1.5}}
+    # photo ir smagāks un to grib arī AI -> bez grīdas tas uzvar. Vienveidības
+    # sargus te izslēdzam ar nolūku: šis tests ir par svariem un grīdu, un
+    # tiem ir savi testi (test_format_diversity.py)
+    cfg = {"formats": ["link", "photo"], "format_weights": {"link": 1.0, "photo": 1.5},
+           "max_same_format_in_row": 0,
+           "format_max_share": {"link": 1.1, "photo": 1.1}}
     assert choose_format(session, "fb_mix", cfg, a, ai_choice="photo") == "photo"
     # grīda 0.7 (link šobrīd 0.5) atgriež link postu plūsmā
     cfg_mix = dict(cfg, format_mix={"link": 0.7})
@@ -112,8 +116,10 @@ def test_a_broken_card_overrides_the_link_quota_but_a_survivable_one_does_not(
     nepilda — un vēl iemācīt svariem, ka saites posti nestrādā. Mērenam
     apgriezumam grīda paliek svarīgāka; tieši šī ķēde reiz deva 99% photo.
     """
+    from datetime import timedelta
+
     from app import config, imageinfo, pipeline
-    from app.models import Article, Post
+    from app.models import Article, Post, utcnow
 
     # slieksni lasa no noteikumiem; rediģējamā kopija var būt vecāka par kodu
     monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
@@ -123,15 +129,25 @@ def test_a_broken_card_overrides_the_link_quota_but_a_survivable_one_does_not(
                 images=["https://cdn/photopost/x.jpg"])
     session.add(a)
     session.flush()
-    for _ in range(6):
-        session.add(Post(article_id=a.id, channel="fb_mix2", format="photo",
-                         state="published"))
-    session.commit()
+
+    def history(formats):
+        """Vēsture ar SKAIDRI atšķirīgiem laikiem — «pēc kārtas» sargs citādi
+        būtu atkarīgs no vienlaicīgiem zīmogiem."""
+        session.query(Post).delete()
+        base = utcnow() - timedelta(hours=6)
+        for i, fmt_name in enumerate(formats):
+            session.add(Post(article_id=a.id, channel="fb_mix2", format=fmt_name,
+                             state="published", created_at=base + timedelta(minutes=i)))
+        session.commit()
+
     cfg = {"formats": ["link", "photo"], "platform": "facebook_page",
            "format_mix": {"link": 0.4}}
-    # Vertikāls attēls tagad grīdu PĀRSNIEDZ: pie 58% nogriezta augstuma
-    # kartīte ir sabojāta neatkarīgi no kvotas, un piespiest to tur nozīmētu
-    # uztaisīt sliktu ierakstu, kas kvotu tik un tā nepilda.
+    # saišu deficīts (1/6) un plūsmas galā nav foto atkārtojuma
+    history(["link", "card_carousel", "reel", "card_carousel", "reel", "card_carousel"])
+
+    # Vertikāls attēls grīdu PĀRSNIEDZ: pie 58% nogriezta augstuma kartīte ir
+    # sabojāta neatkarīgi no kvotas, un piespiest to tur nozīmētu uztaisīt
+    # sliktu ierakstu, kas kvotu tik un tā nepilda.
     monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (800, 1000))
     fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "photo"
@@ -145,19 +161,22 @@ def test_a_broken_card_overrides_the_link_quota_but_a_survivable_one_does_not(
 
     # kad link kvota ir izpildīta, arī mērenais apgriezums pārslēdzas —
     # «mērens» tagad ir virs 30 % (5:4 -> 35 %); 3:2 (21 %) ir FB norma
-    session.query(Post).delete()
-    for fmt_name in ("link", "link", "link", "photo", "photo", "photo"):
-        session.add(Post(article_id=a.id, channel="fb_mix2", format=fmt_name,
-                         state="published"))
-    session.commit()
+    history(["photo", "link", "photo", "link", "link", "link"])
     monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1250, 1000))
     fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "photo"
-    # 3:2 pie izpildītas kvotas paliek saite: 21 % nav sabojāta kartīte
+
+    # 3:2 pie izpildītas kvotas paliek saite: 21 % nav sabojāta kartīte...
+    history(["photo", "link", "photo", "link", "photo", "link"])
     monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1500, 1000))
-    fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a,
-                                              {})
+    fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
     assert fmt == "link"
+
+    # ...bet trīs saites pēc kārtas plūsmas galā nozīmē vienveidību, un tad
+    # nākamais iet kā foto arī ar nevainojamu kartīti
+    history(["photo", "photo", "photo", "link", "link", "link"])
+    fmt, _media, _r = pipeline.resolve_format(session, "fb_mix2", cfg, a, {})
+    assert fmt == "photo"
 
 
 def test_a_link_card_that_would_cut_heads_becomes_a_photo_post(session, monkeypatch):

@@ -102,8 +102,11 @@ def run_decisions(session, limit: int = 20) -> int:
                 continue
 
             format_notes: list[str] = []
+            format_trace: dict = {}
             fmt, card_media, recipe = resolve_format(session, channel, cfg,
-                                                     article, ch_dec, notes=format_notes)
+                                                     article, ch_dec,
+                                                     notes=format_notes,
+                                                     trace=format_trace)
             if any(p.format == fmt for p in existing):
                 # the second wave only earns its place as a different format
                 session.add(Evaluation(article_id=article.id, channel=channel,
@@ -185,7 +188,12 @@ def run_decisions(session, limit: int = 20) -> int:
                 extra=(({"render_version": cards_mod.RENDER_VERSION}
                         | ({"recipe": recipe} if recipe else {}))
                        if media else {})
-                      | ({"format_notes": format_notes} if format_notes else {}),
+                      | ({"format_notes": format_notes} if format_notes else {})
+                      | ({"format_trace": {k: format_trace[k]
+                                           for k in ("chosen", "decision", "blocked",
+                                                     "shares", "run", "ai_choice")
+                                           if k in format_trace}}
+                         if format_trace else {}),
             )
             session.add(post)
             session.flush()
@@ -649,7 +657,11 @@ def rich_format_gate(session, channel: str, cfg: dict, article, fmt: str,
     why = monotony_reason(session, channel, cfg, fmt)
     if why:
         return why
-    if has_link:
+    # Saites grīda karuseli atceļ tikai tad, ja šim rakstam saite VISPĀR ir
+    # iespējama: ja kartīte ir sabojāta (portreta og:image) un saite tāpat
+    # kļūtu par foto, karuseļa atcelšana grīdu nepilda — tā tikai dod vēl
+    # vienu foto. Tad karuselis ir tieši tā dažādība, ko plūsma prasa.
+    if has_link and not link_card_broken(session, channel, cfg, article)[0]:
         shares = recent_format_shares(session, channel)
         # bez vēstures grīda nav «neizpildīta» — tukšā kanālā pirmā lente drīkst būt
         if shares and mix_deficit(shares, cfg.get("format_mix") or {}, ["link"]):
@@ -663,7 +675,8 @@ def rich_format_gate(session, channel: str, cfg: dict, article, fmt: str,
 
 
 def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
-                   notes: list[str] | None = None, enforce: bool = True):
+                   notes: list[str] | None = None, enforce: bool = True,
+                   trace: dict | None = None):
     """(format, media, recipe) for this post. A carousel happens only when the
     AI proposed it AND provided usable card points AND the renderer works
     AND the channel's daily quota / link floor allow it; otherwise the
@@ -820,7 +833,14 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
                 cards.record_render_failure("reel", e)
                 notes.append(f"reel → cits formāts: lentes būve neizdevās ({str(e)[:80]})")
         ai_fmt = None
-    fmt = choose_format(session, channel, cfg, article, ai_fmt)
+    from app.formats import explain
+
+    picked = explain(session, channel, cfg, article, ai_fmt)
+    log.info("format %s: %s (%s; bloķēti %s)", channel, picked["chosen"],
+             picked.get("decision", ""), picked.get("blocked") or "-")
+    if trace is not None:
+        trace.update(picked)
+    fmt = picked["chosen"]
     # Saites ierakstā attēlu izvēlas NEVIS mēs: Facebook to paņem no raksta
     # og:image un apgriež savas kartītes 1.91:1 rāmī. Jo attēls šaurāks, jo
     # vairāk augstuma pazūd (3:2 -> 21%, 4:3 -> 30%, kvadrāts -> 48%), un
@@ -838,7 +858,26 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
 
 def link_card_hurts(session, channel: str, cfg: dict, article,
                     rules: dict | None = None) -> tuple[bool, float]:
-    """(vai pārslēgt uz photo, cik daudz kartīte nogrieztu).
+    """(vai pārslēgt uz photo TAGAD, cik daudz kartīte nogrieztu).
+
+    Vienveidības sargs ir pārāks par kartītes kvalitāti: ja plūsmas galā jau
+    ir divi foto pēc kārtas vai foto pārsniedz savus griestus, arī nogriezta
+    saites kartīte ir labāka par vēl vienu foto. Bez šī pārslēgšana apgāja
+    visus sargus: choose_format izvēlējās saiti, šeit tā kļuva par foto,
+    saites daļa palika 0 %, saites grīda tad bloķēja katru karuseli un
+    lenti — plūsma bija tikai foto.
+    """
+    from app.formats import monotony_reason
+
+    broken, loss = link_card_broken(session, channel, cfg, article, rules)
+    if broken and monotony_reason(session, channel, cfg, "photo"):
+        return False, loss
+    return broken, loss
+
+
+def link_card_broken(session, channel: str, cfg: dict, article,
+                     rules: dict | None = None) -> tuple[bool, float]:
+    """(vai saites kartīte šim rakstam ir sabojāta, cik daudz tā nogrieztu).
 
     Saites ierakstā attēlu izvēlas NEVIS mēs: Facebook to paņem no raksta
     og:image un ieliek savas kartītes 1.91:1 rāmī. Jo attēls šaurāks, jo

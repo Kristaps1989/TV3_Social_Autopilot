@@ -48,6 +48,8 @@ savienojumus). Railway kanvā: labais klikšķis uz servisa → <strong>Attach V
     </h2>
     <div class="meta">
       Šodien publicēti: {{ ch.today_count }} / {{ ch.daily_cap }}
+      {%- if ch.format_mix %} ({% for f, n in ch.format_mix %}{{ f }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %}){% endif %}
+      {%- if ch.queued_mix %} · rindā: {% for f, n in ch.queued_mix %}{{ f }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %}{% endif %}
       · <form class="inline" method="post" action="/toggle/pause/{{ ch.name }}">
           <button>{{ 'Atsākt kanālu' if ch.paused else 'Pauzēt kanālu' }}</button>
         </form>

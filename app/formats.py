@@ -13,9 +13,13 @@ sessions-per-post — the mechanism stays the same.
 """
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 
 from app.models import Article, Post
+
+log = logging.getLogger(__name__)
 
 # Fallback weights when a channel doesn't configure format_weights.
 DEFAULT_FORMAT_WEIGHTS = {
@@ -105,10 +109,18 @@ def format_run(session, channel: str) -> tuple[str, int]:
     return head, run
 
 
+def row_limit(cfg: dict) -> int:
+    """Cik reižu pēc kārtas viens formāts drīkst atkārtoties (0 = sargs
+    izslēgts). `or` te nedrīkst: tas apzināto nulli klusi pārvērstu par
+    noklusējumu."""
+    value = cfg.get("max_same_format_in_row")
+    return DEFAULT_MAX_SAME_IN_ROW if value is None else int(value)
+
+
 def repeats_too_much(session, channel: str, cfg: dict, fmt: str) -> bool:
     """Vai šis formāts kanālā jau ir bijis pēc kārtas tik reižu, ka nākamais
     tāds pats būtu vienveidība."""
-    limit = int(cfg.get("max_same_format_in_row") or DEFAULT_MAX_SAME_IN_ROW)
+    limit = row_limit(cfg)
     if limit <= 0:
         return False
     head, run = format_run(session, channel)
@@ -126,18 +138,26 @@ def over_max_share(session, channel: str, cfg: dict, fmt: str,
     return bool(shares) and shares.get(fmt, 0.0) >= float(ceiling)
 
 
-def monotony_reason(session, channel: str, cfg: dict, fmt: str) -> str:
-    """Kāpēc šis formāts tagad nedrīkst atkārtoties ('' = drīkst)."""
+def monotony_state(session, channel: str, cfg: dict, fmt: str) -> tuple[int, str]:
+    """(cik slikti, iemesls) — 0 tīrs, 1 virs daļas griestiem, 2 atkārtojas
+    pēc kārtas. Pakāpes vajag tāpēc, ka reizēm VISI formāti ir pāri robežai:
+    tad jāizvēlas mazākais ļaunums, ne jāatlaiž sargs pavisam (tieši tur
+    plūsma vienreiz sabruka atpakaļ vienā formātā)."""
     if repeats_too_much(session, channel, cfg, fmt):
         _, run = format_run(session, channel)
-        limit = int(cfg.get("max_same_format_in_row") or DEFAULT_MAX_SAME_IN_ROW)
-        return f"pēdējie {run} ieraksti jau ir {fmt} (limits {limit} pēc kārtas)"
+        return 2, (f"pēdējie {run} ieraksti jau ir {fmt} "
+                   f"(limits {row_limit(cfg)} pēc kārtas)")
     if over_max_share(session, channel, cfg, fmt):
         share = recent_format_shares(session, channel).get(fmt, 0.0)
         ceilings = {**DEFAULT_FORMAT_MAX_SHARE, **(cfg.get("format_max_share") or {})}
-        return (f"{fmt} jau aizņem {share:.0%} pēdējo ierakstu "
-                f"(griesti {float(ceilings[fmt]):.0%})")
-    return ""
+        return 1, (f"{fmt} jau aizņem {share:.0%} pēdējo ierakstu "
+                   f"(griesti {float(ceilings[fmt]):.0%})")
+    return 0, ""
+
+
+def monotony_reason(session, channel: str, cfg: dict, fmt: str) -> str:
+    """Kāpēc šis formāts tagad nedrīkst atkārtoties ('' = drīkst)."""
+    return monotony_state(session, channel, cfg, fmt)[1]
 
 
 MIN_ADS_PER_FORMAT = 3        # zem šī viena veiksmīga reklāma izšķirtu visu
@@ -203,29 +223,54 @@ def mix_deficit(shares: dict[str, float], targets: dict, candidates: list[str]) 
     return worst
 
 
-def choose_format(session, channel: str, channel_cfg: dict, article: Article,
-                  ai_choice: str | None = None) -> str:
+def explain(session, channel: str, channel_cfg: dict, article: Article,
+            ai_choice: str | None = None) -> dict:
+    """Formāta izvēle ar VISU pamatojumu — viens avots gan lēmumam, gan
+    žurnālam un diagnostikas atskaitei (`scripts/format_report.py`).
+
+    Atgriež: chosen, allowed, candidates, blocked {formāts: iemesls},
+    shares, run, decision (kāpēc tieši šis), scores {formāts: skaitlis}.
+    """
     allowed = list(channel_cfg.get("formats") or ["link"])
     candidates = suitable_formats(article, allowed)
+    head, run = format_run(session, channel)
+    shares = recent_format_shares(session, channel)
+    trace = {"channel": channel, "allowed": allowed, "suitable": list(candidates),
+             "shares": {f: round(v, 3) for f, v in shares.items()},
+             "run": {"format": head, "count": run},
+             "ai_choice": ai_choice or "", "blocked": {}, "scores": {}}
+    unsuitable = [f for f in allowed if f not in candidates]
+    for fmt in unsuitable:
+        trace["blocked"][fmt] = "formāts šim rakstam neder (attēli/saite/AI izvēle)"
     if len(candidates) == 1:
-        return candidates[0]
+        trace.update(chosen=candidates[0], decision="vienīgais derīgais formāts")
+        return trace
 
     weights = {**DEFAULT_FORMAT_WEIGHTS, **(channel_cfg.get("format_weights") or {})}
-    shares = recent_format_shares(session, channel)
-
     # Vienveidības sargs: formātu, kas jau atkārtojas pēc kārtas vai aizņem
     # vairāk par saviem griestiem, šoreiz vispār neizskatām — tieši tas
     # padara plūsmu par vienu un to pašu. Ja pāri nepaliek nekas, sargu
     # atlaižam: labāk atkārtojums nekā neizsūtīts saturs.
-    fresh = [f for f in candidates
-             if not monotony_reason(session, channel, channel_cfg, f)]
-    if fresh:
-        candidates = fresh
+    monotony = {f: monotony_state(session, channel, channel_cfg, f) for f in candidates}
+    least = min(p for p, _ in monotony.values())
+    for fmt, (penalty, why) in monotony.items():
+        if penalty > least:
+            trace["blocked"][fmt] = why
+    candidates = [f for f in candidates if monotony[f][0] == least]
+    if least > 0:
+        # neviens formāts nav tīrs: ejam ar mazāko ļaunumu, nevis atlaižam
+        # sargu pavisam — «pēc kārtas» ir smagāks pārkāpums nekā daļas griesti
+        trace["note"] = ("neviens formāts nav tīrs; izvēlamies mazāko ļaunumu: "
+                         + ", ".join(f"{f} ({monotony[f][1]})" for f in candidates))
+    trace["candidates"] = list(candidates)
 
-    starved = mix_deficit(shares, {**DEFAULT_FORMAT_MIX,
-                                   **(channel_cfg.get("format_mix") or {})}, candidates)
+    floors = {**DEFAULT_FORMAT_MIX, **(channel_cfg.get("format_mix") or {})}
+    starved = mix_deficit(shares, floors, candidates)
     if starved:
-        return starved
+        trace.update(chosen=starved,
+                     decision=(f"grīda: {starved} daļa {shares.get(starved, 0.0):.0%} "
+                               f"zem {float(floors[starved]):.0%}"))
+        return trace
 
     # measured sessions-per-post adjusts the configured weights (priors.py)
     from app import priors
@@ -245,13 +290,30 @@ def choose_format(session, channel: str, channel_cfg: dict, article: Article,
 
     best, best_score = candidates[0], -1.0
     for fmt in candidates:
-        score = float(weights.get(fmt, 0.5))
-        score *= measured.get(fmt, 1.0)
-        score *= section_bias.get(fmt, 1.0)
-        score *= paid.get(fmt, 1.0)
-        score *= 1.3 - shares.get(fmt, 0.0)  # unused 1.3x .. saturated 0.3x
-        if fmt == ai_choice:
-            score *= AI_CHOICE_BONUS
+        parts = {
+            "svars": float(weights.get(fmt, 0.5)),
+            "izmērītais": measured.get(fmt, 1.0),
+            "sadaļa": section_bias.get(fmt, 1.0),
+            "reklāma": paid.get(fmt, 1.0),
+            "piesātinājums": 1.3 - shares.get(fmt, 0.0),
+            "AI izvēle": AI_CHOICE_BONUS if fmt == ai_choice else 1.0,
+        }
+        score = 1.0
+        for value in parts.values():
+            score *= value
+        trace["scores"][fmt] = {"total": round(score, 3),
+                                **{k: round(v, 3) for k, v in parts.items()}}
         if score > best_score:
             best, best_score = fmt, score
-    return best
+    trace.update(chosen=best, decision=f"augstākais rezultāts {best_score:.2f}")
+    return trace
+
+
+def choose_format(session, channel: str, channel_cfg: dict, article: Article,
+                  ai_choice: str | None = None) -> str:
+    trace = explain(session, channel, channel_cfg, article, ai_choice)
+    log.info("format %s: %s (%s; daļas %s; pēc kārtas %s×%s; bloķēti %s)",
+             channel, trace["chosen"], trace.get("decision", ""),
+             trace.get("shares"), trace["run"]["format"], trace["run"]["count"],
+             trace.get("blocked") or "-")
+    return trace["chosen"]

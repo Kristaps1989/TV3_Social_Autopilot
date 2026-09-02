@@ -222,3 +222,126 @@ def test_prompt_states_todays_quotas_as_facts(session, monkeypatch):
     assert "2/2 card_carousel" in text and "0/2 reel" in text
     assert "nepiedāvā: card_carousel" in text
     assert "saites daļa" in text
+
+
+# --- sargu konflikts, kas deva 8 foto pēc kārtas ---------------------------
+
+def _portrait_og(monkeypatch):
+    """tv3.lv raksts, kura og:image ir portreta photopost: saites kartīte
+    būtu sabojāta, tāpēc saite līdz šim VIENMĒR kļuva par foto."""
+    from app import imageinfo
+
+    monkeypatch.setattr(imageinfo, "orientation", lambda article: "portrait")
+    monkeypatch.setattr(imageinfo, "image_size", lambda article, url: (1080, 1350))
+
+
+def test_a_broken_link_card_does_not_override_the_photo_run_guard(session, monkeypatch):
+    """Plūsmas galā jau divi foto: nākamais raksts ar portreta og:image
+    tomēr iet kā saite (nogriezta kartīte ir labāka par trešo foto)."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _portrait_og(monkeypatch)
+    a = _article(session, "loop-1")
+    _history(session, a, ["photo", "photo"])
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_q", CFG, a, {"format": "link"})
+    assert fmt == "link"
+    # bez atkārtojuma plūsmas galā kartītes sargs strādā kā līdz šim
+    session.query(Post).delete()
+    session.commit()
+    _history(session, a, ["link", "photo", "link"])
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_q", CFG, a, {"format": "link"})
+    assert fmt == "photo"
+
+
+def test_link_floor_does_not_kill_a_carousel_when_a_link_is_impossible(session, monkeypatch):
+    """Saites daļa 0 %, bet šim rakstam saite tik un tā kļūtu par foto —
+    tad karuselis ir tieši tā dažādība, ko plūsma prasa."""
+    _fake_carousel(monkeypatch)
+    _portrait_og(monkeypatch)
+    a = _article(session, "loop-2")
+    # ekrānuzņēmuma stāvoklis: seši foto pēc kārtas, saišu nav
+    _history(session, a, ["photo"] * 6)
+    notes: list[str] = []
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_q", CFG, a,
+                                          {"format": "card_carousel", "card_sections": SECTIONS},
+                                          notes=notes)
+    assert fmt == "card_carousel", notes
+
+
+def test_the_feed_rotates_instead_of_collapsing_into_photos(session, monkeypatch):
+    """Astoņi raksti pēc kārtas, visiem portreta og:image, AI katram saka
+    «link»: rezultāts drīkst būt foto un saites pamīšus, ne astoņi foto."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _portrait_og(monkeypatch)
+    formats = []
+    for i in range(8):
+        a = _article(session, f"loop-3-{i}")
+        fmt, _m, _r = pipeline.resolve_format(session, "fb_q", CFG, a, {"format": "link"})
+        _history(session, a, [fmt])
+        formats.append(fmt)
+    assert formats.count("photo") <= 5 and formats.count("link") >= 3
+    # nekad trīs vienādi pēc kārtas
+    assert not any(formats[i] == formats[i + 1] == formats[i + 2] for i in range(6))
+
+
+def test_the_trace_explains_every_format_decision(session, monkeypatch):
+    """Diagnostikas pēda (`formats.explain`, scripts/format_report.py): kāpēc
+    tieši šis formāts, kurš sargs ko bloķēja un ar kādiem svariem."""
+    from app.formats import explain, row_limit
+
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    a = _article(session, "tr-1")
+    _history(session, a, ["photo", "photo"])
+    trace = explain(session, "fb_q", CFG, a, "photo")
+    assert trace["chosen"] != "photo"
+    assert "pēc kārtas" in trace["blocked"]["photo"]
+    assert trace["run"] == {"format": "photo", "count": 2}
+    assert trace["shares"]["photo"] == 1.0
+    assert trace["ai_choice"] == "photo"
+    # saites daļa 0 % zem grīdas -> grīda izšķir, un pēda to pasaka
+    assert trace["chosen"] == "link" and "grīda" in trace["decision"]
+
+    # kad grīda ir izpildīta, redzami visi svaru komponenti
+    session.query(Post).delete()
+    session.commit()
+    _history(session, a, ["link", "link", "photo", "link", "photo", "link"])
+    scored = explain(session, "fb_q", CFG, a, "photo")
+    assert scored["scores"]["photo"]["AI izvēle"] == 1.25
+    assert set(scored["scores"]["photo"]) >= {"total", "svars", "izmērītais",
+                                              "sadaļa", "reklāma", "piesātinājums"}
+
+    # kad neviens formāts nav tīrs, izvēlas mazāko ļaunumu, nevis atlaiž sargu
+    session.query(Post).delete()
+    session.commit()
+    _history(session, a, ["photo", "photo", "photo", "link", "link", "link"])
+    trace = explain(session, "fb_q", CFG, a)
+    assert trace["chosen"] == "photo"                    # link = 3 pēc kārtas
+    assert "mazāko ļaunumu" in trace["note"]
+    assert "pēc kārtas" in trace["blocked"]["link"]
+
+    # 0 = sargs izslēgts (agrāk `or` to klusi pārvērta par noklusējumu)
+    assert row_limit({"max_same_format_in_row": 0}) == 0
+    assert row_limit({}) == 2
+    off = dict(CFG, max_same_format_in_row=0, format_max_share={"photo": 1.1})
+    assert explain(session, "fb_q", off, a)["blocked"].get("photo") is None
+
+
+def test_the_wave_stores_the_trace_on_the_post(session, monkeypatch):
+    from sqlalchemy import select as _select
+
+    _fake_carousel(monkeypatch)
+    a = _article(session, "tr-2")
+    _history(session, a, ["photo", "photo"], channel="fb_tv3lv")
+    decision = {"publish": True, "reason": "", "channels": [
+        {"channel": "fb_tv3lv", "format": "photo", "copy": "C", "hook_type": "fact"}]}
+    monkeypatch.setattr(pipeline, "decide", lambda article, verdicts, session: decision)
+    b = Article(guid="tr-3", url="https://tv3.lv/tr3", canonical_url="https://tv3.lv/tr3",
+                title="Jauna ziņa", section="news", editor_status="must",
+                images=["https://tv3.lv/i.jpg"], published_at=utcnow() - timedelta(minutes=5))
+    session.add(b)
+    session.commit()
+    pipeline.run_decisions(session)
+    post = session.execute(_select(Post).where(Post.article_id == b.id,
+                                               Post.channel == "fb_tv3lv")).scalar_one()
+    trace = post.extra["format_trace"]
+    assert trace["chosen"] == post.format
+    assert trace["decision"] and trace["run"]["count"] == 2
