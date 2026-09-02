@@ -98,6 +98,8 @@ atzīmēti uz paša ieraksta, ne uzminēti pēc receptes veida:
 | Stāsts = tā pati lente, ne statisks attēls | `story_reuses_reel`; stāstos skaņa tiešām skan |
 | Karuselis un lente nepārņem plūsmu | `format_daily_cap` (2+2 dienā) un saites grīda `format_mix` attiecas arī uz AI izvēli; pārsniegums kļūst par saiti ar iemeslu vērtējumā un `post.extra.format_notes`; promptā AI redz šodienas kvotas kā faktus |
 | Lentes neveiksme nav klusa | `record_render_failure("reel")` + piezīme «bija reel → …» lapā «Kāpēc» |
+| Plūsma nav vienveidīga | `max_same_format_in_row` (2) un `format_max_share` (karuselis/lente 35 %, foto 50 %) — pārsniegtais formāts konkursā nepiedalās, arī tad, ja tā ir AI izvēle un dienas kvota vēl brīva |
+| Maksas puse formātu izvēli informē ar DATIEM | `ads_inform_format`: boostot var visus trīs formātus (saites kartīte ar CTA, karuseļa kartītes ir saites, foto — saite aprakstā un komentārā), tāpēc sesijas par eiro pa formātiem mēra `formats.ad_multipliers` (±20 %, no 3 reklāmām formātā, tikai approve/auto) |
 | Lente, kas top PĒC stāsta, stāstu tomēr sasniedz | rokas «Uztaisīt» un nākamie viļņi atjauno vēl nepublicēto stāstu; pirms publicēšanas stāsts ar attēlu vēlreiz paskatās, vai lente nav parādījusies |
 
 ### Kāpēc kadru HTML top pēc apgriešanas

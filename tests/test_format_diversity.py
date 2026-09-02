@@ -23,12 +23,23 @@ def _article(session, guid="fd-1"):
     return a
 
 
-def _post(session, article, fmt, channel="fb_q", when=None):
+def _post(session, article, fmt, channel="fb_q", when=None, created=None):
     p = Post(article_id=article.id, channel=channel, format=fmt, copy="x",
-             state="scheduled", scheduled_at=when or utcnow())
+             state="scheduled", scheduled_at=when or utcnow(),
+             created_at=created or utcnow())
     session.add(p)
     session.flush()
     return p
+
+
+def _history(session, article, formats, channel="fb_q"):
+    """Kanāla vēsture, vecākais pirmais — laiki skaidri atšķirīgi, lai
+    «pēc kārtas» sargs testā nav atkarīgs no vienlaicīgiem zīmogiem."""
+    base = utcnow() - timedelta(days=1)
+    for i, fmt in enumerate(formats):
+        _post(session, article, fmt, channel=channel, when=base + timedelta(minutes=i),
+              created=base + timedelta(minutes=i))
+    session.commit()
 
 
 def _fake_carousel(monkeypatch):
@@ -69,16 +80,84 @@ def test_daily_quota_turns_the_third_carousel_into_a_link(session, monkeypatch):
 
 
 def test_link_floor_beats_an_ai_carousel(session, monkeypatch):
+    """Saites grīda pati par sevi: plūsma bez atkārtojuma pēc kārtas (foto un
+    karuselis pamīšus), bet nevienas saites — nākamajam jābūt saitei."""
     _fake_carousel(monkeypatch)
     a = _article(session, "fd-2")
-    for _ in range(6):
-        _post(session, a, "card_carousel", when=utcnow() - timedelta(days=3))
+    # karuselis 2/6 (zem 35 % griestiem), plūsmas galā nav atkārtojuma,
+    # bet nevienas saites — paliek tikai grīdas arguments
+    _history(session, a, ["photo", "card_carousel", "photo", "card_carousel",
+                          "photo", "photo"])
     notes: list[str] = []
     fmt, _m, _r = pipeline.resolve_format(session, "fb_q", CFG, a,
                                           {"format": "card_carousel", "card_sections": SECTIONS},
                                           notes=notes)
     assert fmt == "link"
-    assert any("saites grīda" in n for n in notes)
+    assert any("saites grīda" in n for n in notes), notes
+
+
+def test_the_same_format_never_runs_three_times_in_a_row(session, monkeypatch):
+    """Skaits nav galvenais: pat ar brīvu dienas kvotu trešais vienāds
+    ieraksts pēc kārtas ir vienveidība, un formāts konkursā nepiedalās."""
+    from app.formats import choose_format
+
+    _fake_carousel(monkeypatch)
+    a = _article(session, "fd-run")
+    # divi karuseļi pēc kārtas plūsmas galā, kvota (2) vēl neizpildīta vakar
+    _history(session, a, ["card_carousel", "card_carousel"])
+    notes: list[str] = []
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_q", CFG, a,
+                                          {"format": "card_carousel", "card_sections": SECTIONS},
+                                          notes=notes)
+    assert fmt != "card_carousel"
+    assert any("pēc kārtas" in n for n in notes), notes
+
+    # tas pats attiecas uz parastajiem formātiem, ne tikai AI izvēli
+    session.query(Post).delete()
+    session.commit()
+    _history(session, a, ["photo", "photo"])
+    assert choose_format(session, "fb_q", CFG, a) != "photo"
+
+
+def test_a_format_over_its_share_ceiling_sits_out(session, monkeypatch):
+    """Griesti daļai: bez atkārtojuma pēc kārtas, bet 50 % karuseļu pēdējos
+    ierakstos jau ir virs 35 % griestiem."""
+    _fake_carousel(monkeypatch)
+    a = _article(session, "fd-share")
+    _history(session, a, ["card_carousel", "link", "card_carousel", "link",
+                          "card_carousel", "link"])
+    notes: list[str] = []
+    fmt, _m, _r = pipeline.resolve_format(session, "fb_q", CFG, a,
+                                          {"format": "card_carousel", "card_sections": SECTIONS},
+                                          notes=notes)
+    assert fmt != "card_carousel"
+    assert any("griesti" in n for n in notes), notes
+
+
+def test_paid_results_nudge_the_format_only_when_ads_are_live(session, monkeypatch):
+    """Reklāmas arguments ir izmērīts, ne pieņemts: boostot var visus trīs
+    formātus, tāpēc svaru dod sesijas par eiro — un tikai tad, kad reklāmas
+    tiešām iet ārā."""
+    from app import ads
+    from app.formats import ad_multipliers
+    from app.models import AdEntry
+
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    a = _article(session, "fd-paid")
+    for fmt_name, sessions in (("link", 90), ("link", 80), ("link", 100),
+                               ("photo", 20), ("photo", 30), ("photo", 25)):
+        p = _post(session, a, fmt_name, channel="fb_paid")
+        session.add(AdEntry(post_id=p.id, article_id=a.id, platform="facebook_page",
+                            status="done", spent_cents=1000, sessions=sessions))
+    session.commit()
+
+    ads.save_settings(session, "dry", 20.0, 0)
+    assert ad_multipliers(session, "fb_paid") == {}      # nauda neiet — nav argumenta
+
+    ads.save_settings(session, "auto", 20.0, 0)
+    mults = ad_multipliers(session, "fb_paid")
+    assert mults["link"] > 1.0 > mults["photo"]
+    assert 0.85 <= mults["photo"] and mults["link"] <= 1.2   # koriģē, neizšķir
 
 
 def test_reel_failure_is_recorded_and_explained(session, monkeypatch):
@@ -112,9 +191,8 @@ def test_reel_failure_is_recorded_and_explained(session, monkeypatch):
 def test_the_wave_records_why_the_ai_format_was_not_used(session, monkeypatch):
     _fake_carousel(monkeypatch)
     a = _article(session, "fd-4")
-    for _ in range(6):
-        _post(session, a, "card_carousel", channel="fb_tv3lv",
-              when=utcnow() - timedelta(days=3))
+    _history(session, a, ["photo", "card_carousel", "photo", "card_carousel",
+                          "photo", "photo"], channel="fb_tv3lv")
     decision = {"publish": True, "reason": "", "channels": [
         {"channel": "fb_tv3lv", "format": "card_carousel", "copy": "C", "hook_type": "fact",
          "card_sections": SECTIONS}]}

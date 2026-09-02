@@ -143,7 +143,7 @@ def format_quota_context(session, channels: list[str], channels_cfg: dict) -> st
     """Fakti par formātu kvotām ŠODIEN — modelis vienu rakstu redz atrauti
     un dienas kopsummu saskaitīt nevar, tāpēc to pasakām mēs."""
     from app import pipeline
-    from app.formats import recent_format_shares
+    from app.formats import format_run, monotony_reason, recent_format_shares
 
     lines = []
     for ch in channels:
@@ -168,6 +168,13 @@ def format_quota_context(session, channels: list[str], channels_cfg: dict) -> st
             bits.append(f"saites daļa pēdējos ierakstos {share:.0%} (grīda {floor:.0%})")
             if share < floor:
                 closed.append("saites grīda nav izpildīta — piedāvā link")
+        head, run = format_run(session, ch)
+        if head and run >= 2:
+            bits.append(f"pēdējie {run} ieraksti pēc kārtas ir {head}")
+            closed.append(f"{head} (vienveidība — vajag citu formātu)")
+        for fmt in formats:
+            if fmt not in closed and monotony_reason(session, ch, cfg, fmt):
+                closed.append(f"{fmt} ({monotony_reason(session, ch, cfg, fmt)})")
         if bits:
             tail = (f" → šodien vairs nepiedāvā: {', '.join(closed)}" if closed else "")
             lines.append(f"- {ch}: šodien jau {', '.join(bits)}{tail}")
@@ -257,11 +264,12 @@ Ievadu neraksti: pār vāka kadru balss nolasa raksta virsrakstu, un atsevišķs
 āķis tur nāca kā tā paša atkārtojums pirms stāsta sākuma. Ja raksta teksta
 nav, atstāj card_sections tukšu — labāk klusa lente nekā izdomāts saturs.
 
-link pret photo: link posts ir galvenais klikšķu formāts (saites kartīte ar
-CTA, un tikai to Facebook var pastiprināt kā maksas traffic reklāmu) —
-izvēlies to ikdienas ziņām. photo lieto, kad attēls pats ir stāsts (spēcīgs
-foto, gatava photopost grafika, emocionāls kadrs); tad saite aiziet
-komentārā.
+link pret photo: link posts ir galvenais klikšķu formāts — saites kartīte ar
+virsrakstu un CTA pogu; izvēlies to ikdienas ziņām. photo lieto, kad attēls
+pats ir stāsts (spēcīgs foto, gatava photopost grafika, emocionāls kadrs);
+tad saite ir gan aprakstā, gan pirmajā komentārā. Maksas pastiprināšanai der
+visi trīs formāti (karuseļa katra kartīte ir saite), un kurš no tiem par eiro
+atved vairāk sesiju, sistēma mēra pati — tas nav arguments, kas tev jāmin.
 
 Formātu līdzsvars dienā: vairums ierakstu ir link, ~1-2 card_carousel un
 ~1-2 reel tur, kur saturs tam tiešām der, photo — kad attēls ir stāsts.

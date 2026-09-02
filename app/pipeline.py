@@ -613,24 +613,37 @@ def posts_today(session, channel: str, fmt: str, now=None) -> int:
 def rich_format_gate(session, channel: str, cfg: dict, article, fmt: str,
                      now=None) -> str:
     """Kāpēc AI piedāvāto karuseli/lenti šodien šajā kanālā NEtaisīt ('' =
-    drīkst). Divi sargi, kas līdz šim uz šiem formātiem neattiecās:
+    drīkst). Sargi, kas līdz šim uz šiem formātiem neattiecās:
 
-    * dienas kvota (`format_daily_cap`) — formāts nolietojas, ja tas ir
-      katrā otrajā ierakstā;
-    * saites grīda (`format_mix`) — saite ir klikšķu un boosta formāts, un
-      tai jāpaliek plūsmā arī tad, kad AI katram rakstam redz karuseli.
+    * vienveidība — viens un tas pats formāts pēc kārtas vai virs saviem
+      daļas griestiem (`max_same_format_in_row`, `format_max_share`);
+    * saites grīda (`format_mix`) — saite ir klikšķu formāts ar CTA
+      kartīti, un tai jāpaliek plūsmā arī tad, kad AI katram rakstam redz
+      karuseli;
+    * dienas kvota (`format_daily_cap`) — pēdējā, vājākā robeža.
+
+    Maksas puse te nav sargs, bet svars: boostot var visus trīs formātus
+    (karuseļa kartītes ir saites, foto ierakstam saite ir aprakstā un
+    komentārā), tāpēc kurš no tiem par eiro dod vairāk sesiju, izlemj
+    izmērītie dati `formats.ad_multipliers`, ne noteikums.
     """
+    from app.formats import monotony_reason
+
+    formats = cfg.get("formats") or []
+    has_link = "link" in formats and bool(article.canonical_url or article.url)
+    why = monotony_reason(session, channel, cfg, fmt)
+    if why:
+        return why
+    if has_link:
+        shares = recent_format_shares(session, channel)
+        # bez vēstures grīda nav «neizpildīta» — tukšā kanālā pirmā lente drīkst būt
+        if shares and mix_deficit(shares, cfg.get("format_mix") or {}, ["link"]):
+            return "saites grīda (format_mix) pēdējos ierakstos nav izpildīta"
     cap = format_daily_cap(cfg, fmt)
     if cap is not None:
         used = posts_today(session, channel, fmt, now)
         if used >= cap:
             return f"dienas kvota {used}/{cap} jau izpildīta"
-    formats = cfg.get("formats") or []
-    if "link" in formats and (article.canonical_url or article.url):
-        shares = recent_format_shares(session, channel)
-        # bez vēstures grīda nav «neizpildīta» — tukšā kanālā pirmā lente drīkst būt
-        if shares and mix_deficit(shares, cfg.get("format_mix") or {}, ["link"]):
-            return "saites grīda (format_mix) pēdējos ierakstos nav izpildīta"
     return ""
 
 

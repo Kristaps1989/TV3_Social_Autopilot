@@ -72,8 +72,8 @@ photo_prefer_landscape: true
 link_in_first_comment: true
 
 # Saite paliek ARĪ aprakstā (ne tikai komentārā): lasītājam viens pieskāriens
-# abos gadījumos, un tikai apraksts ar mērķa saiti ir tas, ko Facebook var
-# pastiprināt kā maksas traffic reklāmu. Instagram to izlaiž pats — tur
+# abos gadījumos, un apraksts ar mērķa saiti ir tas, kas foto ierakstam dod
+# klikšķināmu galamērķi arī maksas reklāmā. Instagram to izlaiž pats — tur
 # apraksta saites nav klikšķināmas. false = vecā "tīrā apraksta" taktika.
 link_in_caption: true
 
@@ -260,6 +260,12 @@ link_card_force_crop: 0.40
 # apgalvojums, ka MI ir uzrakstījis RAKSTU. all = marķējums uz visiem
 # formātiem (plašākā interpretācija; tā bija sākotnēji).
 ai_disclosure_scope: voiced_reels
+
+# Vai izmērītie MAKSAS rezultāti drīkst ietekmēt organisko formāta izvēli.
+# Boostot var visus trīs formātus; kurš par eiro atved vairāk sesiju, rāda
+# reklāmu ieraksti. Reizinātājs stājas spēkā tikai režīmā approve/auto, tikai
+# ar vismaz 3 reklāmām formātā, un koriģē ne vairāk par ±20 %.
+ads_inform_format: true
 
 # Vai tieši pirms publicēšanas atcelt ierakstu, kura raksts pa gaidīšanas
 # laiku ir kļuvis vecāks par max_age_hours. Ieraksts rindā var nostāvēt

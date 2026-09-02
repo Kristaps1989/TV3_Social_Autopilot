@@ -31,9 +31,13 @@ fb_tv3lv:
   # Minimālā formāta daļa pēdējos 6 ierakstos. Bez šī grīdas noteikuma
   # viens formāts paņem visu plūsmu (bija 99% photo): tas uzvar katrā
   # neizšķirtā, un tad tas ir vienīgais, par kuru mums vispār ir dati.
-  # Link posts ir arī vienīgais ieraksta veids, ko Facebook var pastiprināt
-  # kā traffic reklāmu (mērķa saite un CTA poga ir pašā ierakstā).
   format_mix: {link: 0.4}
+  # Vienveidības sargi (svarīgāki par dienas kvotu): cik reižu PĒC KĀRTAS
+  # viens formāts drīkst atkārtoties, un cik lielu daļu no pēdējiem 6
+  # ierakstiem tas drīkst aizņemt. Pārsniedzot, formāts šoreiz vispār
+  # netiek izskatīts — plūsmā atgriežas saites un pārējie.
+  max_same_format_in_row: 2
+  format_max_share: {card_carousel: 0.35, reel: 0.35, photo: 0.5}
   # Dienas griesti «bagātajiem» formātiem, ko piedāvā AI. Tā katru rakstu
   # redz atrauti un dienas kopsummu saskaitīt nevar; bez griestiem karuselis
   # bija 6 no 8 ierakstiem. Pārsniedzot kvotu, ieraksts iet kā saite/foto,
