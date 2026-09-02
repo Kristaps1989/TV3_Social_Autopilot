@@ -31,6 +31,8 @@ REQUIRED_PERMS = ("ads_management", "ads_read")
 
 
 class MetaAdsClient:
+    platform = "facebook_page"
+
     def __init__(self, session=None):
         self.account_id = credentials.get("fb_ad_account_id", session)
         self.token = credentials.get("fb_user_token", session)

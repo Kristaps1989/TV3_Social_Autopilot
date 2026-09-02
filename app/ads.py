@@ -1,10 +1,20 @@
-"""Ads autopilot orchestration (Phase 0: dry-run planning).
+"""Ads autopilot orchestration — Meta un Google vienā budžeta ciklā.
 
 Every cycle: pick boostable candidates from recently published Facebook
-posts, allocate the configured daily budget across them, and record the
-plan as AdEntry rows. In dry mode nothing leaves the building — the /ads
-page shows exactly what WOULD be boosted and for how much. Later phases
-turn the same plan into real campaigns via adapters.meta_ads.
+posts, allocate the configured daily budget across them and across the
+connected ad platforms, and record the plan as AdEntry rows. In dry mode
+nothing leaves the building — the /ads page shows exactly what WOULD be
+boosted and for how much. Live modes turn the same plan into campaigns via
+adapters.meta_ads (boosts + variants) and adapters.google_ads (Demand Gen
+for Discover traffic, Display for brand reach, Search for brand queries).
+
+Budžeta struktūra (docs/ads-strategy.md):
+  dienas budžets = zīmola daļa (brand_share %) + konversiju daļa
+  konversiju daļa dalās starp Meta un Google (google_share %) un tālāk
+    starp rakstiem — katrs saņem vismaz MIN_AD_BUDGET_EUR;
+  zīmola daļa: vispirms vienmēr ieslēgtā Google zīmola meklēšana
+    (brand_search_daily €), atlikums — zīmola franšīzēm (Dienas TOP 3,
+    Nedēļas TOP 5, Nedēļa 30 sekundēs) kā sasniedzamības kampaņas.
 
 Safety model (in order):
   1. hard veto — TTPA politics/social issues and tragedy/crime are never
@@ -40,7 +50,53 @@ POLITICS_STEMS = (
 )
 
 
+# --- platforms ------------------------------------------------------------
+
+PLATFORM_LABELS = {"facebook_page": "Meta", "google_ads": "Google"}
+OBJECTIVE_LABELS = {"traffic": "klikšķi", "awareness": "zīmols",
+                    "brand_search": "zīmola meklēšana"}
+
+
+def client_for(platform: str, session=None):
+    """Reklāmu klients platformai (nekonfigurēts klients ir OK — pārbaudi
+    `configured()`)."""
+    if platform == "google_ads":
+        from adapters.google_ads import GoogleAdsClient
+
+        return GoogleAdsClient(session)
+    from adapters.meta_ads import MetaAdsClient
+
+    return MetaAdsClient(session)
+
+
+def clients(session=None) -> dict:
+    """{platforma: klients} tikai pieslēgtajiem kontiem."""
+    out = {}
+    for platform in PLATFORM_LABELS:
+        c = client_for(platform, session)
+        if c.configured():
+            out[platform] = c
+    return out
+
+
+def plan_platforms(session=None) -> list[str]:
+    """Kurām platformām plānot. Pieslēgtās; bez neviena konta — Meta (dry
+    priekšskatījums tāds pats kā līdz šim)."""
+    return list(clients(session)) or ["facebook_page"]
+
+
+def _clients_map(client) -> dict:
+    if client is None:
+        return {}
+    if isinstance(client, dict):
+        return client
+    return {getattr(client, "platform", "facebook_page"): client}
+
+
 # --- settings -------------------------------------------------------------
+
+DEFAULT_BRAND_KEYWORDS = "tv3, tv3 ziņas, tv3 zinas, tv3.lv, tv3 lv, tv3 play"
+
 
 def settings(session) -> dict:
     mode = get_setting(session, "ads:mode", "off")
@@ -48,13 +104,31 @@ def settings(session) -> dict:
         "mode": mode if mode in MODES else "off",
         "daily_budget": float(get_setting(session, "ads:daily_budget", "0") or 0),
         "brand_share": int(get_setting(session, "ads:brand_share", "20") or 20),
+        # cik % no konversiju budžeta iet Google (Demand Gen), pārējais Meta
+        "google_share": int(get_setting(session, "ads:google_share", "50") or 0),
+        # vienmēr ieslēgtā zīmola meklēšana; 0 = izslēgta
+        "brand_search_daily": float(get_setting(session, "ads:brand_search_daily", "3") or 0),
+        "brand_keywords": get_setting(session, "ads:brand_keywords", DEFAULT_BRAND_KEYWORDS),
     }
 
 
-def save_settings(session, mode: str, daily_budget: float, brand_share: int) -> None:
+def save_settings(session, mode: str, daily_budget: float, brand_share: int,
+                  google_share: int | None = None,
+                  brand_search_daily: float | None = None,
+                  brand_keywords: str | None = None) -> None:
     set_setting(session, "ads:mode", mode if mode in MODES else "off")
     set_setting(session, "ads:daily_budget", str(max(0.0, daily_budget)))
     set_setting(session, "ads:brand_share", str(min(50, max(0, brand_share))))
+    if google_share is not None:
+        set_setting(session, "ads:google_share", str(min(100, max(0, int(google_share)))))
+    if brand_search_daily is not None:
+        set_setting(session, "ads:brand_search_daily", str(max(0.0, float(brand_search_daily))))
+    if brand_keywords is not None:
+        set_setting(session, "ads:brand_keywords", brand_keywords.strip() or DEFAULT_BRAND_KEYWORDS)
+
+
+def brand_keywords(cfg: dict) -> list[str]:
+    return [k.strip() for k in str(cfg.get("brand_keywords") or "").split(",") if k.strip()]
 
 
 # --- boostability ---------------------------------------------------------
@@ -88,10 +162,29 @@ def boostable(article: Article) -> tuple[bool, str]:
 # --- candidate selection and the plan ------------------------------------
 
 BOOSTABLE_FORMATS = ("link", "card_carousel", "photo")
+# zīmola franšīzes: ierakstu hook_type marķieri (app.weekend), ko rādām kā
+# TV3.lv zīmolu, ne kā vienu rakstu — sasniedzamības kampaņu kreatīvs
+FRANCHISE_MARKERS = ("dailystory", "mondaytop5", "digest", "digestreel", "number",
+                     "mondaystory", "guide", "icymi", "quiz", "question", "yearago",
+                     "evergreen")
+AWARENESS_FORMATS = ("card_carousel", "photo", "story")
+AWARENESS_WINDOW_HOURS = 7 * 24
+MAX_AWARENESS_ADS = 1          # uz platformu vienlaikus: zīmols ir pastāvīgs, ne plūdi
+BRAND_SEARCH_ARTICLE_GUID = "ads-brand-search"
 
 
-def candidates(session, now=None) -> tuple[list[dict], list[dict]]:
-    """(izvēlētie, noraidītie ar iemesliem) no pēdējo 48 h FB ierakstiem."""
+def _busy(session) -> set[tuple[int, str]]:
+    return {(e.post_id, e.platform) for e in session.execute(
+        select(AdEntry).where(AdEntry.status.in_(
+            ("awaiting_approval", "active", "paused", "done")))
+    ).scalars().all()}
+
+
+def candidates(session, now=None, platform: str = "facebook_page") -> tuple[list[dict], list[dict]]:
+    """(izvēlētie, noraidītie ar iemesliem) no pēdējo 48 h FB ierakstiem.
+
+    Kandidāti ir tie paši visām platformām (raksts, ko drīkst reklamēt,
+    drīkst to gan Meta, gan Google), bet aizņemtība skaitās pa platformām."""
     now = now or utcnow()
     since = now - timedelta(hours=CANDIDATE_WINDOW_HOURS)
     rows = session.execute(
@@ -101,35 +194,91 @@ def candidates(session, now=None) -> tuple[list[dict], list[dict]]:
                            Post.format.in_(BOOSTABLE_FORMATS))
         .order_by(Post.published_at.desc())
     ).scalars().all()
-
-    busy_posts = {e.post_id for e in session.execute(
-        select(AdEntry).where(AdEntry.status.in_(
-            ("awaiting_approval", "active", "paused", "done")))
-    ).scalars().all()}
+    busy = _busy(session)
     picked: list[dict] = []
     rejected: list[dict] = []
     seen_articles: set[int] = set()
     for post in rows:
-        if post.id in busy_posts:
+        if (post.id, platform) in busy:
             continue  # jau reklāmā — budžetu tam tur aktīvais ieraksts
         art = post.article
         if art is None or not post.link_url:
             continue
-        if art.id in seen_articles:
+        if art.id in seen_articles or (art.raw_json or {}).get("_digest"):
             continue
         seen_articles.add(art.id)
         ok, reason = boostable(art)
         entry = {"post": post, "article": art, "reason": reason,
-                 "score": float(art.ai_score or 0)}
+                 "score": float(art.ai_score or 0), "platform": platform}
         (picked if ok else rejected).append(entry)
     picked.sort(key=lambda e: -e["score"])
     return picked[:MAX_ACTIVE_ADS], rejected
 
 
+def franchise_candidates(session, now=None, platform: str = "facebook_page") -> list[dict]:
+    """Jaunākie zīmola franšīžu ieraksti sasniedzamības kampaņai (0–1)."""
+    now = now or utcnow()
+    since = now - timedelta(hours=AWARENESS_WINDOW_HOURS)
+    rows = session.execute(
+        select(Post).where(Post.state == "published", Post.published_at >= since,
+                           Post.hook_type.in_(FRANCHISE_MARKERS),
+                           Post.format.in_(AWARENESS_FORMATS))
+        .order_by(Post.published_at.desc())
+    ).scalars().all()
+    busy = _busy(session)
+    out = []
+    for post in rows:
+        if (post.id, platform) in busy or post.article is None:
+            continue
+        media = [m for m in (post.media or []) if m and not str(m).endswith(".mp4")]
+        if not media and not (post.article.images or []):
+            continue
+        out.append({"post": post, "article": post.article, "platform": platform,
+                    "score": 0.0, "reason": "zīmola franšīze — sasniedzamība, ne klikšķi"})
+        if len(out) >= MAX_AWARENESS_ADS:
+            break
+    return out
+
+
+def brand_post(session) -> Post:
+    """Sintētisks ieraksts, pie kā turēt vienmēr ieslēgto zīmola meklēšanas
+    kampaņu (AdEntry vienmēr pieder ierakstam). Stāvoklis «internal» —
+    rindā un vēsturē tas neparādās."""
+    art = session.execute(
+        select(Article).where(Article.guid == BRAND_SEARCH_ARTICLE_GUID)).scalar_one_or_none()
+    if art is None:
+        art = Article(guid=BRAND_SEARCH_ARTICLE_GUID, url="https://tv3.lv/",
+                      canonical_url="https://tv3.lv/", title="TV3.lv — zīmola meklēšana",
+                      section="news", editor_status="can",
+                      raw_json={"_digest": True, "_brand": True})
+        session.add(art)
+        session.flush()
+    post = session.execute(
+        select(Post).where(Post.article_id == art.id, Post.format == "brand_search")
+    ).scalars().first()
+    if post is None:
+        post = Post(article_id=art.id, channel="google_ads", format="brand_search",
+                    copy="TV3.lv", link_url="https://tv3.lv/", state="internal",
+                    hook_type="brand")
+        session.add(post)
+        session.flush()
+    return post
+
+
+def _split(total: float, count: int) -> list[float]:
+    """Vienmērīgi, ar vismaz MIN_AD_BUDGET_EUR katram; cik ietilpst."""
+    if total < MIN_AD_BUDGET_EUR or count <= 0:
+        return []
+    n = min(count, max(1, int(total // MIN_AD_BUDGET_EUR)))
+    return [round(total / n, 2)] * n
+
+
 def build_plan(session, now=None) -> dict:
-    """Dienas plāns: kandidāti + budžeta sadale. Tikai aprēķins, bez API."""
+    """Dienas plāns: kandidāti + budžeta sadale pa platformām un mērķiem.
+    Tikai aprēķins, bez API."""
+    now = now or utcnow()
     cfg = settings(session)
-    picked, rejected = candidates(session, now)
+    platforms = plan_platforms(session)
     budget = cfg["daily_budget"]
     brand_eur = round(budget * cfg["brand_share"] / 100, 2)
     perf_eur = round(budget - brand_eur, 2)
@@ -138,26 +287,68 @@ def build_plan(session, now=None) -> dict:
     committed = session.execute(
         select(AdEntry).where(AdEntry.status.in_(("awaiting_approval", "active")))
     ).scalars().all()
-    committed_eur = round(sum(e.budget_cents for e in committed) / 100, 2)
-    perf_eur = round(max(0.0, perf_eur - committed_eur), 2)
-    rows = []
-    if picked and perf_eur >= MIN_AD_BUDGET_EUR:
-        # vienmērīgs sākums; svari pēc rezultātiem ienāk 2. fāzē ar bandit
-        n = min(len(picked), max(1, int(perf_eur // MIN_AD_BUDGET_EUR)))
-        share = round(perf_eur / n, 2)
-        for e in picked[:n]:
+    committed_perf = round(sum(e.budget_cents for e in committed
+                               if e.objective == "traffic") / 100, 2)
+    committed_brand = round(sum(e.budget_cents for e in committed
+                                if e.objective != "traffic") / 100, 2)
+    perf_avail = round(max(0.0, perf_eur - committed_perf), 2)
+    brand_avail = round(max(0.0, brand_eur - committed_brand), 2)
+
+    # konversiju budžets pa platformām
+    if len(platforms) == 1:
+        perf_by_platform = {platforms[0]: perf_avail}
+    else:
+        g = round(perf_avail * cfg["google_share"] / 100, 2)
+        perf_by_platform = {"google_ads": g, "facebook_page": round(perf_avail - g, 2)}
+    rows: list[dict] = []
+    rejected: list[dict] = []
+    seen_rejects: set[int] = set()
+    for platform in platforms:
+        picked, rej = candidates(session, now, platform)
+        for r in rej:
+            if r["article"].id not in seen_rejects:
+                seen_rejects.add(r["article"].id)
+                rejected.append(r)
+        shares = _split(perf_by_platform.get(platform, 0.0), len(picked))
+        for e, share in zip(picked, shares):
             rows.append({**e, "budget_eur": share, "objective": "traffic"})
-        for e in picked[n:]:
-            rejected.append({**e, "reason": "budžets šodien pilns — rindā"})
-    elif picked:
-        reason = ("dienas budžetu jau tur aktīvās reklāmas — rindā"
-                  if committed_eur else "dienas budžets par mazu "
-                  f"(min {MIN_AD_BUDGET_EUR:.0f} € reklāmai)")
-        for e in picked:
-            rejected.append({**e, "reason": reason})
-    return {"settings": cfg, "planned": rows, "rejected": rejected,
-            "brand_eur": brand_eur, "perf_eur": perf_eur,
-            "committed_eur": committed_eur}
+        if picked and not shares:
+            reason = ("dienas budžetu jau tur aktīvās reklāmas — rindā"
+                      if committed_perf else "dienas budžets par mazu "
+                      f"(min {MIN_AD_BUDGET_EUR:.0f} € reklāmai)")
+            for e in picked:
+                rejected.append({**e, "reason": f"{PLATFORM_LABELS[platform]}: {reason}"})
+        for e in picked[len(shares):]:
+            rejected.append({**e, "reason": f"{PLATFORM_LABELS[platform]}: budžets šodien pilns — rindā"})
+
+    # zīmola budžets: vispirms vienmēr ieslēgtā zīmola meklēšana Google
+    brand_rows: list[dict] = []
+    bs = cfg["brand_search_daily"]
+    has_brand_search = any(e.objective == "brand_search" for e in committed)
+    if ("google_ads" in platforms and bs > 0 and not has_brand_search
+            and brand_avail >= bs):
+        post = brand_post(session)
+        brand_rows.append({"post": post, "article": post.article, "platform": "google_ads",
+                           "objective": "brand_search", "budget_eur": round(bs, 2),
+                           "score": 0.0,
+                           "reason": "zīmola vaicājumi (tv3, tv3 ziņas, tv3 play) — vienmēr ieslēgts"})
+        brand_avail = round(brand_avail - bs, 2)
+    # atlikums — franšīžu sasniedzamībai, pa platformām tāpat kā konversijas
+    if brand_avail >= MIN_AD_BUDGET_EUR:
+        if len(platforms) == 1:
+            brand_by_platform = {platforms[0]: brand_avail}
+        else:
+            g = round(brand_avail * cfg["google_share"] / 100, 2)
+            brand_by_platform = {"google_ads": g, "facebook_page": round(brand_avail - g, 2)}
+        for platform in platforms:
+            picked = franchise_candidates(session, now, platform)
+            shares = _split(brand_by_platform.get(platform, 0.0), len(picked))
+            for e, share in zip(picked, shares):
+                brand_rows.append({**e, "budget_eur": share, "objective": "awareness"})
+    return {"settings": cfg, "planned": rows + brand_rows, "rejected": rejected,
+            "brand_eur": brand_eur, "perf_eur": perf_avail,
+            "committed_eur": round(committed_perf + committed_brand, 2),
+            "platforms": platforms}
 
 
 def sync_entries(session, now=None) -> int:
@@ -166,29 +357,27 @@ def sync_entries(session, now=None) -> int:
     plan go back to 'rejected' with the newest reason."""
     now = now or utcnow()
     plan = build_plan(session, now)
-    by_post = {e.post_id: e for e in session.execute(
+    by_key = {(e.post_id, e.platform): e for e in session.execute(
         select(AdEntry).where(AdEntry.status.in_(("candidate", "planned")))
     ).scalars().all()}
-    busy = {e.post_id for e in session.execute(
-        select(AdEntry).where(AdEntry.status.in_(
-            ("awaiting_approval", "active", "paused", "done")))
-    ).scalars().all()}
+    busy = _busy(session)
     changed = 0
     for row in plan["planned"]:
-        post = row["post"]
-        if post.id in busy:
+        post, platform = row["post"], row["platform"]
+        if (post.id, platform) in busy:
             continue  # jau palaists vai gaida apstiprinājumu — neaiztiekam
-        entry = by_post.pop(post.id, None)
+        entry = by_key.pop((post.id, platform), None)
         if entry is None:
-            entry = AdEntry(post_id=post.id, article_id=row["article"].id)
+            entry = AdEntry(post_id=post.id, article_id=row["article"].id,
+                            platform=platform)
             session.add(entry)
         entry.status = "planned"
         entry.objective = row["objective"]
-        entry.budget_cents = int(row["budget_eur"] * 100)
+        entry.budget_cents = int(round(row["budget_eur"] * 100))
         entry.reason = row["reason"]
         entry.updated_at = now
         changed += 1
-    for entry in by_post.values():
+    for entry in by_key.values():
         entry.status = "rejected"
         entry.reason = "izkrita no dienas plāna"
         entry.updated_at = now
@@ -244,7 +433,7 @@ def creative_images(article: Article, post: Post) -> list[str]:
     return out[:3]
 
 
-# --- execution (Phase 1/2: approve + auto) --------------------------------
+# --- execution (approve + auto) ------------------------------------------
 
 CAMPAIGNS = {"traffic": ("TV3 Autopilots · Konversijas", "OUTCOME_TRAFFIC"),
              "awareness": ("TV3 Autopilots · Zīmols", "OUTCOME_AWARENESS")}
@@ -262,18 +451,20 @@ def ensure_campaign(session, client, kind: str) -> str:
     return campaign_id
 
 
-def launch_entry(session, client, entry: AdEntry) -> None:
+def _launch_meta(session, client, entry: AdEntry) -> None:
     """One planned entry -> one ACTIVE ad set with two ads inside: the boost
     of the organic post (social proof) and a flexible multi-asset dark ad
-    (Meta optimizes between them, so creative A/B costs no extra budget)."""
+    (Meta optimizes between them, so creative A/B costs no extra budget).
+    Zīmola (awareness) ierakstiem tas pats, tikai kampaņa ir sasniedzamības
+    un optimizācija — REACH, ne klikšķi."""
     from app.best_practices import add_utm
 
     post, article = entry.post, entry.article
-    campaign = ensure_campaign(session, client,
-                               "traffic" if entry.objective == "traffic"
-                               else "awareness")
+    awareness = entry.objective != "traffic"
+    campaign = ensure_campaign(session, client, "awareness" if awareness else "traffic")
     name = f"a{entry.id} {article.title[:40]}"
-    adset_id = client.create_adset(campaign, name, entry.budget_cents)
+    adset_id = client.create_adset(campaign, name, entry.budget_cents,
+                                   optimization_goal="REACH" if awareness else "")
     ads_made = []
     if post.platform_post_id:
         ads_made.append(client.create_ad_from_post(
@@ -305,6 +496,85 @@ def launch_entry(session, client, entry: AdEntry) -> None:
     entry.campaign_id = campaign
     entry.adset_id = adset_id
     entry.ad_id = ads_made[0]
+
+
+BRAND_SEARCH_HEADLINES = ["TV3.lv – ziņas un izklaide", "Jaunākās ziņas Latvijā",
+                          "TV3 Play video un raidījumi", "Sports, izklaide, notikumi",
+                          "Uzticamas ziņas katru dienu"]
+BRAND_SEARCH_DESCRIPTIONS = [
+    "Svarīgākais Latvijā un pasaulē – ātri, precīzi un ar video. Lasi tv3.lv.",
+    "TV3 ziņas, sports, izklaide un TV3 Play raidījumi vienuviet.",
+]
+
+
+def google_texts(entry: AdEntry, session) -> tuple[list[str], list[str]]:
+    """(virsraksti, apraksti) Google reklāmai no raksta un AI variantiem."""
+    from app.adcreative import fit
+
+    if entry.objective == "brand_search":
+        return list(BRAND_SEARCH_HEADLINES), list(BRAND_SEARCH_DESCRIPTIONS)
+    article, post = entry.article, entry.post
+    variants = ad_copy_variants(article, session)
+    limit = 30 if entry.objective == "awareness" else 40
+    headlines = [fit(article.title, limit)]
+    for v in variants:
+        h = fit(v, limit)
+        if h and h not in headlines:
+            headlines.append(h)
+    descriptions = []
+    for text in variants + [post.copy or "", article.lead or ""]:
+        d = fit(text, 90)
+        if d and d not in descriptions:
+            descriptions.append(d)
+    if not descriptions:
+        descriptions = [fit(f"Lasi vairāk tv3.lv — {article.title}", 90)]
+    return headlines[:5], descriptions[:5]
+
+
+def _launch_google(session, client, entry: AdEntry) -> None:
+    """One entry -> one Google campaign: Demand Gen (Discover) for traffic,
+    Display CPM for brand franchises, Search for brand keywords."""
+    from app import adcreative
+    from app.best_practices import add_utm
+
+    post, article = entry.post, entry.article
+    cfg = settings(session)
+    name = f"a{entry.id} {article.title[:40]}"
+    link = add_utm(post.link_url or article.canonical_url, "google_paid",
+                   f"a{entry.id}", hook=post.hook_type or "")
+    headlines, descriptions = google_texts(entry, session)
+    images: dict[str, str] = {}
+    logo = ""
+    keywords = None
+    if entry.objective == "brand_search":
+        keywords = brand_keywords(cfg) or brand_keywords({"brand_keywords": DEFAULT_BRAND_KEYWORDS})
+    else:
+        sources = creative_images(article, post)
+        if not sources:
+            raise RuntimeError("Google reklāmai vajag attēlu, rakstam tāda nav")
+        variants = adcreative.image_variants(
+            sources[0], need_portrait=entry.objective == "traffic")
+        variants["logo"] = adcreative.logo_square()
+        uploaded = client.upload_images(variants, name)
+        logo = uploaded.pop("logo", "")
+        images = uploaded
+        if not images:
+            raise RuntimeError("attēlus Google kontā augšupielādēt neizdevās")
+    made = client.launch(name, entry.objective, link, headlines, descriptions,
+                         entry.budget_cents, images=images, logo=logo,
+                         keywords=keywords)
+    client.set_status(made["campaign_id"], "ACTIVE")
+    entry.campaign_id = made["campaign_id"]
+    entry.adset_id = made["adset_id"]
+    entry.ad_id = made["ad_id"]
+
+
+def launch_entry(session, client, entry: AdEntry) -> None:
+    """Planned entry -> live campaign on its platform."""
+    if entry.platform == "google_ads":
+        _launch_google(session, client, entry)
+    else:
+        _launch_meta(session, client, entry)
     entry.status = "active"
     entry.updated_at = utcnow()
     session.commit()
@@ -312,8 +582,10 @@ def launch_entry(session, client, entry: AdEntry) -> None:
 
 def execute(session, client) -> int:
     """Planned entries -> awaiting_approval (approve mode) or straight to
-    live (auto mode). Returns how many went live."""
+    live (auto mode). `client` ir viens klients vai {platforma: klients}.
+    Returns how many went live."""
     cfg = settings(session)
+    by_platform = _clients_map(client)
     launched = 0
     rows = session.execute(
         select(AdEntry).where(AdEntry.status.in_(("planned", "awaiting_approval")))
@@ -324,8 +596,11 @@ def execute(session, client) -> int:
             entry.updated_at = utcnow()
             continue
         if cfg["mode"] == "auto" and entry.status in ("planned",):
+            c = by_platform.get(entry.platform)
+            if c is None:
+                continue  # šai platformai konta nav — paliek plānā
             try:
-                launch_entry(session, client, entry)
+                launch_entry(session, c, entry)
                 launched += 1
             except Exception as e:  # noqa: BLE001
                 entry.status = "rejected"
@@ -338,22 +613,29 @@ def execute(session, client) -> int:
 # --- measurement + reallocation ------------------------------------------
 
 def collect_metrics(session, client) -> None:
-    """Meta insights (spend/clicks) + GA4 paid sessions onto active entries."""
+    """Platformu insights (spend/clicks) + GA4 paid sessions onto active
+    entries, pa platformām."""
     active = session.execute(
         select(AdEntry).where(AdEntry.status.in_(("active", "paused")))
     ).scalars().all()
     if not active:
         return
-    try:
-        rows = client.insights(level="ad")
-    except Exception as e:  # noqa: BLE001
-        log.warning("ads insights failed: %s", e)
-        rows = []
-    by_ad = {str(r.get("ad_id")): r for r in rows}
+    by_platform = _clients_map(client)
+    rows_by_platform: dict[str, dict] = {}
+    for platform, c in by_platform.items():
+        try:
+            rows = c.insights(level="ad")
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s ads insights failed: %s", platform, e)
+            rows = []
+        rows_by_platform[platform] = {str(r.get("ad_id")): r for r in rows}
     from app import ga4
 
     paid = ga4.paid_sessions(session)
     for entry in active:
+        by_ad = rows_by_platform.get(entry.platform)
+        if by_ad is None:
+            continue  # šai platformai šoreiz datu nav — vecos skaitļus neaiztiekam
         spend = clicks = imps = 0
         for ad_id in (entry.ad_id, entry.dark_ad_id):
             r = by_ad.get(str(ad_id)) if ad_id else None
@@ -384,23 +666,30 @@ REALLOC_STEP = 0.2                   # learning phase: budžets ±20% dienā
 def reallocate(session, client, now=None) -> None:
     """Once per day: winners get more (capped at +20%), clear losers pause.
     Runs on measured results only — entries below the spend floor are left
-    to learn."""
+    to learn. Salīdzina tikai vienas platformas klikšķu reklāmas savā
+    starpā: Google un Meta cenas nav salīdzināmas, un zīmola kampaņas
+    nemēra ar klikšķiem vispār."""
     now = now or utcnow()
     if get_setting(session, "ads:last_realloc", "") == now.strftime("%Y-%m-%d"):
         return
-    active = [e for e in session.execute(
-        select(AdEntry).where(AdEntry.status == "active")).scalars().all()
-        if e.spent_cents >= MIN_SPEND_BEFORE_JUDGING]
-    if len(active) < 2:
-        return  # vēl nav ar ko salīdzināt — dienas slotu netērējam
-    if active:
+    by_platform = _clients_map(client)
+    touched = False
+    for platform, c in by_platform.items():
+        active = [e for e in session.execute(
+            select(AdEntry).where(AdEntry.status == "active",
+                                  AdEntry.platform == platform,
+                                  AdEntry.objective == "traffic")).scalars().all()
+            if e.spent_cents >= MIN_SPEND_BEFORE_JUDGING]
+        if len(active) < 2:
+            continue  # vēl nav ar ko salīdzināt — dienas slotu netērējam
+        touched = True
         scores = [_score(e) for e in active]
         benchmark = sum(scores) / len(scores)
         for entry in active:
             score = _score(entry)
             if benchmark > 0 and score < benchmark * PAUSE_BELOW_FACTOR:
                 try:
-                    client.set_status(entry.adset_id, "PAUSED")
+                    c.set_status(entry.adset_id, "PAUSED")
                     entry.status = "paused"
                     entry.reason = (f"auto-pauze: {score:.1f} rezultāti/€ pret "
                                     f"vidējo {benchmark:.1f}")
@@ -412,11 +701,12 @@ def reallocate(session, client, now=None) -> None:
                              int(entry.budget_cents * factor))
             if new_budget != entry.budget_cents:
                 try:
-                    client.set_daily_budget(entry.adset_id, new_budget)
+                    c.set_daily_budget(entry.adset_id, new_budget)
                     entry.budget_cents = new_budget
                 except Exception as e:  # noqa: BLE001
                     log.warning("budget update failed for entry %s: %s", entry.id, e)
             entry.updated_at = now
+    if touched:
         # dienu atzīmējam tikai pēc reālas pārdales — pirmajos tikšos bez
         # iztērēta budžeta slots paliek pieejams vēlākam stundas ciklam
         set_setting(session, "ads:last_realloc", now.strftime("%Y-%m-%d"))
@@ -425,10 +715,9 @@ def reallocate(session, client, now=None) -> None:
 
 def tick(session) -> None:
     """Hourly scheduler step. Off = nothing; dry = plan only; approve = plan
-    + queue for the human; auto = the full loop (launch, measure, reallocate).
-    Ads must never take publishing down, so everything is caught."""
-    from adapters.meta_ads import MetaAdsClient
-
+    + queue for the human; auto = the full loop (launch, measure, reallocate)
+    on every connected platform. Ads must never take publishing down, so
+    everything is caught."""
     cfg = settings(session)
     if cfg["mode"] == "off":
         return
@@ -436,12 +725,12 @@ def tick(session) -> None:
         sync_entries(session)
         if cfg["mode"] == "dry":
             return
-        client = MetaAdsClient(session)
-        if not client.configured():
+        live = clients(session)
+        if not live:
             return
-        execute(session, client)
-        collect_metrics(session, client)
+        execute(session, live)
+        collect_metrics(session, live)
         if cfg["mode"] == "auto":
-            reallocate(session, client)
+            reallocate(session, live)
     except Exception as e:  # noqa: BLE001 — ads nekad nedrīkst gāzt publicēšanu
         log.warning("ads tick failed: %s", e)

@@ -823,6 +823,8 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "pixel_id": credentials.get("meta_pixel_id", session),
             "ads_issues": ads_issues,
             "x_ads_account_id": credentials.get("x_ads_account_id", session),
+            "google_ads_status": status.get("google_ads") or {},
+            "google_ads": _google_ads_context(session),
             "error": error, "connected": connected,
         })
     finally:
@@ -1403,9 +1405,29 @@ def overview_ai_report():
         session.close()
 
 
+def _ads_platforms(session) -> list[dict]:
+    """Katras reklāmu platformas gatavība lapai Reklāmas."""
+    from app import ads
+
+    hints = {"facebook_page": "Konti → Meta reklāmas",
+             "google_ads": "Konti → Google reklāmas"}
+    out = []
+    for key, label in ads.PLATFORM_LABELS.items():
+        client = ads.client_for(key, session)
+        if client.configured():
+            try:
+                ready, issues = client.readiness()
+            except Exception as e:  # noqa: BLE001
+                ready, issues = False, [f"pārbaude neizdevās: {e}"]
+        else:
+            ready, issues = False, [f"konts nav pieslēgts ({hints[key]})"]
+        out.append({"key": key, "label": label, "ready": ready, "issues": issues,
+                    "configured": client.configured()})
+    return out
+
+
 @app.get("/ads", response_class=HTMLResponse)
 def ads_page(request: Request, saved: str = "", error: str = ""):
-    from adapters.meta_ads import MetaAdsClient
     from app import ads
 
     from app.models import AdEntry
@@ -1413,12 +1435,9 @@ def ads_page(request: Request, saved: str = "", error: str = ""):
     session = get_session()
     try:
         plan = ads.build_plan(session)
-        client = MetaAdsClient(session)
-        if client.configured():
-            ads_ready, ads_issues = client.readiness()
-        else:
-            ads_ready, ads_issues = False, [
-                "reklāmu konts nav pieslēgts (Konti → Meta reklāmas)"]
+        platforms = _ads_platforms(session)
+        ads_ready = any(p["ready"] for p in platforms)
+        ads_issues = [f"{p['label']}: {i}" for p in platforms for i in p["issues"]]
         live = session.execute(
             select(AdEntry).where(AdEntry.status.in_(
                 ("awaiting_approval", "active", "paused")))
@@ -1426,8 +1445,10 @@ def ads_page(request: Request, saved: str = "", error: str = ""):
         ).scalars().all()
         return templates.TemplateResponse(request, "ads.html", {
             "s": plan["settings"], "plan": plan, "saved": saved,
-            "error": error, "live": live,
+            "error": error, "live": live, "platforms": platforms,
             "ads_ready": ads_ready, "ads_issues": ads_issues,
+            "platform_labels": ads.PLATFORM_LABELS,
+            "objective_labels": ads.OBJECTIVE_LABELS,
         })
     finally:
         session.close()
@@ -1435,17 +1456,20 @@ def ads_page(request: Request, saved: str = "", error: str = ""):
 
 @app.post("/ads/settings")
 def ads_settings_save(mode: str = Form("off"), daily_budget: float = Form(0.0),
-                      brand_share: int = Form(20)):
+                      brand_share: int = Form(20), google_share: int = Form(50),
+                      brand_search_daily: float = Form(3.0),
+                      brand_keywords: str = Form("")):
     from app import ads
-
-    from adapters.meta_ads import MetaAdsClient
 
     session = get_session()
     try:
-        # live režīmi prasa pieslēgtu reklāmu kontu; bez tā paliekam dry
-        if mode in ("approve", "auto") and not MetaAdsClient(session).configured():
+        # live režīmi prasa vismaz vienu pieslēgtu reklāmu kontu; bez tā paliekam dry
+        if mode in ("approve", "auto") and not ads.clients(session):
             mode = "dry"
-        ads.save_settings(session, mode, daily_budget, brand_share)
+        ads.save_settings(session, mode, daily_budget, brand_share,
+                          google_share=google_share,
+                          brand_search_daily=brand_search_daily,
+                          brand_keywords=brand_keywords)
         if mode != "off":
             ads.sync_entries(session)
         return RedirectResponse("/ads?saved=1", status_code=303)
@@ -1457,7 +1481,6 @@ def ads_settings_save(mode: str = Form("off"), daily_budget: float = Form(0.0),
 def ads_approve(entry_id: int):
     from urllib.parse import quote
 
-    from adapters.meta_ads import MetaAdsClient
     from app import ads
     from app.models import AdEntry
 
@@ -1466,7 +1489,7 @@ def ads_approve(entry_id: int):
         entry = session.get(AdEntry, entry_id)
         if entry is None or entry.status not in ("awaiting_approval", "planned"):
             return RedirectResponse("/ads", status_code=303)
-        client = MetaAdsClient(session)
+        client = ads.client_for(entry.platform, session)
         if not client.configured():
             return RedirectResponse("/ads?error=konts+nav+pieslēgts", status_code=303)
         try:
@@ -1483,7 +1506,7 @@ def ads_approve(entry_id: int):
 
 @app.post("/ads/{entry_id}/pause")
 def ads_pause(entry_id: int):
-    from adapters.meta_ads import MetaAdsClient
+    from app import ads
     from app.models import AdEntry
 
     session = get_session()
@@ -1492,7 +1515,7 @@ def ads_pause(entry_id: int):
         if entry and entry.status in ("active", "awaiting_approval"):
             if entry.adset_id:
                 try:
-                    MetaAdsClient(session).set_status(entry.adset_id, "PAUSED")
+                    ads.client_for(entry.platform, session).set_status(entry.adset_id, "PAUSED")
                 except Exception as e:  # noqa: BLE001
                     log.warning("manual pause failed: %s", e)
             entry.status = "paused" if entry.adset_id else "rejected"
@@ -1505,7 +1528,7 @@ def ads_pause(entry_id: int):
 
 @app.post("/ads/{entry_id}/resume")
 def ads_resume(entry_id: int):
-    from adapters.meta_ads import MetaAdsClient
+    from app import ads
     from app.models import AdEntry
 
     session = get_session()
@@ -1513,7 +1536,7 @@ def ads_resume(entry_id: int):
         entry = session.get(AdEntry, entry_id)
         if entry and entry.status == "paused" and entry.adset_id:
             try:
-                MetaAdsClient(session).set_status(entry.adset_id, "ACTIVE")
+                ads.client_for(entry.platform, session).set_status(entry.adset_id, "ACTIVE")
                 entry.status = "active"
                 entry.reason = "manuāli atsākts"
                 session.commit()
@@ -1595,6 +1618,67 @@ def connect_meta_ads(ad_account_id: str = Form(""), pixel_id: str = Form("")):
         return RedirectResponse("/connect?connected=meta_ads", status_code=303)
     except Exception as e:  # noqa: BLE001
         return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
+    finally:
+        session.close()
+
+
+GOOGLE_ADS_KEYS = ("google_ads_customer_id", "google_ads_developer_token",
+                   "google_ads_client_id", "google_ads_client_secret",
+                   "google_ads_refresh_token", "google_ads_login_customer_id")
+
+
+def _google_ads_context(session) -> dict:
+    """Konti lapai: ID rādām, noslēpumus tikai kā «saglabāts»."""
+    from adapters.google_ads import GoogleAdsClient
+
+    values = {k: credentials.get(k, session) for k in GOOGLE_ADS_KEYS}
+    issues: list[str] = []
+    client = GoogleAdsClient(session)
+    if client.configured():
+        try:
+            _, issues = client.readiness()
+        except Exception as e:  # noqa: BLE001
+            issues = [f"pārbaude neizdevās: {e}"]
+    return {"customer_id": values["google_ads_customer_id"],
+            "login_customer_id": values["google_ads_login_customer_id"],
+            "client_id": values["google_ads_client_id"],
+            "has_developer_token": bool(values["google_ads_developer_token"]),
+            "has_client_secret": bool(values["google_ads_client_secret"]),
+            "has_refresh_token": bool(values["google_ads_refresh_token"]),
+            "issues": issues}
+
+
+@app.post("/connect/google-ads")
+def connect_google_ads(customer_id: str = Form(""), developer_token: str = Form(""),
+                       client_id: str = Form(""), client_secret: str = Form(""),
+                       refresh_token: str = Form(""), login_customer_id: str = Form("")):
+    """Tukšs lauks nozīmē «atstāt, kā ir» — noslēpumus formā atkārtoti nerādām."""
+    session = get_session()
+    try:
+        given = {"google_ads_customer_id": customer_id,
+                 "google_ads_developer_token": developer_token,
+                 "google_ads_client_id": client_id,
+                 "google_ads_client_secret": client_secret,
+                 "google_ads_refresh_token": refresh_token,
+                 "google_ads_login_customer_id": login_customer_id}
+        for key, value in given.items():
+            value = value.strip()
+            if value or key in ("google_ads_login_customer_id",):
+                credentials.put(session, key, value,
+                                label=value if key == "google_ads_customer_id" else "")
+        return RedirectResponse("/connect?connected=google_ads", status_code=303)
+    finally:
+        session.close()
+
+
+@app.post("/connect/google-ads/disconnect")
+def disconnect_google_ads():
+    session = get_session()
+    try:
+        for key in GOOGLE_ADS_KEYS:
+            credentials.put(session, key, "", label="")
+        return RedirectResponse("/connect?connected=Google+reklāmas+atvienotas",
+                                status_code=303)
     finally:
         session.close()
 

@@ -313,3 +313,218 @@ def test_new_candidates_share_only_the_remaining_budget(session, graph, monkeypa
     plan = ads.build_plan(session)
     assert len(plan["planned"]) == 1
     assert plan["planned"][0]["budget_eur"] == 10.0
+
+
+# --- Google + Meta vienā ciklā --------------------------------------------
+
+class FakeGoogleApi:
+    """Google Ads REST: reģistrē mutate operācijas, atbild ar resursu vārdiem."""
+
+    def __init__(self):
+        self.campaigns: list[dict] = []
+        self.status: dict[str, str] = {}
+        self.budgets: dict[str, int] = {}
+        self.insights_rows: list[dict] = []
+        self.seq = 0
+
+    def post(self, url, json=None, data=None, headers=None, timeout=None):
+        import adapters.google_ads as gmod
+
+        if url == gmod.OAUTH_TOKEN_URL:
+            return _resp({"access_token": "acc"})
+        if url.endswith(":search"):
+            q = json["query"]
+            if "FROM customer" in q:
+                return _resp({"results": [{"customer": {"status": "ENABLED",
+                                                        "currencyCode": "EUR"}}]})
+            if "FROM campaign " in q or "FROM campaign\n" in q:
+                camp = q.split("campaign.resource_name = '")[1].split("'")[0]
+                return _resp({"results": [{"campaign": {"campaignBudget": f"{camp}/budget"}}]})
+            return _resp({"results": self.insights_rows})
+        ops = json["mutateOperations"]
+        out = []
+        for op in ops:
+            key, body = next(iter(op.items()))
+            kind = key.replace("Operation", "")
+            if "update" in body:
+                rn = body["update"]["resourceName"]
+                if "status" in body["update"]:
+                    self.status[rn] = body["update"]["status"]
+                if "amountMicros" in body["update"]:
+                    self.budgets[rn] = int(body["update"]["amountMicros"])
+                out.append({f"{kind}Result": {"resourceName": rn}})
+                continue
+            self.seq += 1
+            rn = f"customers/1/{kind}s/{self.seq}"
+            if kind == "campaign":
+                self.campaigns.append({**body["create"], "resourceName": rn})
+            out.append({f"{kind}Result": {"resourceName": rn}})
+        return _resp({"mutateOperationResponses": out})
+
+
+@pytest.fixture()
+def both(graph, monkeypatch):
+    """Meta (graph) + Google viltojumi un abu kontu atslēgas."""
+    import adapters.google_ads as gmod
+    from app import adcreative
+
+    g = FakeGoogleApi()
+
+    # httpx ir viens modulis visiem adapteriem — sadalām pēc adreses
+    def route(url, *a, **kw):
+        if "googleapis.com" in url:
+            return g.post(url, *a, **kw)
+        return graph.post(url, *a, **kw)
+
+    monkeypatch.setattr(httpx, "post", route)
+    monkeypatch.setattr(gmod.httpx, "post", route)
+    creds = {"google_ads_customer_id": "1", "google_ads_developer_token": "d",
+             "google_ads_client_id": "c", "google_ads_client_secret": "s",
+             "google_ads_refresh_token": "r", "google_ads_login_customer_id": ""}
+    prev = credentials.get
+    monkeypatch.setattr(credentials, "get",
+                        lambda key, session=None: (creds[key] if key in creds
+                                                   else prev(key, session)))
+    # attēlu griešana prasa Chromium — te pietiek ar baitiem
+    monkeypatch.setattr(adcreative, "image_variants",
+                        lambda image, need_portrait=True: {"landscape": b"l", "square": b"s"})
+    monkeypatch.setattr(adcreative, "logo_square", lambda: b"logo")
+    return g
+
+
+def _franchise(session, guid="top3"):
+    a = Article(guid=guid, url="https://tv3.lv/", canonical_url="https://tv3.lv/",
+                title="Dienas TOP 3", section="news", raw_json={"_digest": True},
+                images=["https://cdn/top.jpg"])
+    session.add(a)
+    session.flush()
+    p = Post(article_id=a.id, channel="fb_tv3lv", format="card_carousel", copy="TOP 3",
+             link_url=a.canonical_url, state="published", hook_type="dailystory",
+             media=["data/cards/top1.png"], platform_post_id="520_777",
+             published_at=utcnow() - timedelta(hours=5))
+    session.add(p)
+    session.commit()
+    return a, p
+
+
+def test_plan_splits_clicks_between_platforms_and_funds_brand_layers(session, both):
+    ads.save_settings(session, "dry", 40.0, 25, google_share=50,
+                      brand_search_daily=3.0)
+    _published(session, "g-1", "Uzvara basketbolā", 0.9, "520_111")
+    _published(session, "g-2", "Hokeja fināls", 0.8, "520_222")
+    _franchise(session)
+    plan = ads.build_plan(session)
+    assert plan["platforms"] == ["facebook_page", "google_ads"]
+    traffic = [r for r in plan["planned"] if r["objective"] == "traffic"]
+    # 40 € - 25 % zīmolam = 30 € klikšķiem -> 15 € Meta + 15 € Google, 2 raksti katrā
+    assert sorted((r["platform"], r["budget_eur"]) for r in traffic) == [
+        ("facebook_page", 7.5), ("facebook_page", 7.5), ("google_ads", 7.5), ("google_ads", 7.5)]
+    brand = [r for r in plan["planned"] if r["objective"] == "brand_search"]
+    assert len(brand) == 1 and brand[0]["platform"] == "google_ads" and brand[0]["budget_eur"] == 3.0
+    aware = [r for r in plan["planned"] if r["objective"] == "awareness"]
+    # 10 € zīmolam - 3 € meklēšanai = 7 €, dalīts 50/50 -> 3,5 € zem 5 € minimuma:
+    # sasniedzamības kampaņa nesākas, kamēr zīmola daļa nav lielāka
+    assert aware == []
+    ads.save_settings(session, "dry", 60.0, 30, google_share=50, brand_search_daily=3.0)
+    aware = [r for r in ads.build_plan(session)["planned"] if r["objective"] == "awareness"]
+    assert sorted((r["platform"], r["budget_eur"], r["article"].title) for r in aware) == [
+        ("facebook_page", 7.5, "Dienas TOP 3"), ("google_ads", 7.5, "Dienas TOP 3")]
+
+
+def test_full_auto_cycle_on_both_platforms(session, both, graph, monkeypatch):
+    monkeypatch.setattr(ga4, "paid_sessions", lambda s, days=7: {})
+    ads.save_settings(session, "auto", 60.0, 30, google_share=50, brand_search_daily=5.0)
+    _published(session, "g-3", "Uzvara basketbolā", 0.9, "520_111")
+    _published(session, "g-4", "Hokeja fināls", 0.8, "520_222")
+    _franchise(session, "top3-b")
+
+    ads.tick(session)
+
+    entries = session.execute(select(AdEntry).order_by(AdEntry.id)).scalars().all()
+    by = {(e.platform, e.objective, e.article.title): e for e in entries}
+    assert all(e.status == "active" for e in entries), [(e.platform, e.objective, e.status, e.reason) for e in entries]
+    # Google: 2 Demand Gen kampaņas, 1 zīmola meklēšana, 1 Display franšīzei
+    kinds = sorted(c["advertisingChannelType"] for c in both.campaigns)
+    assert kinds == ["DEMAND_GEN", "DEMAND_GEN", "DISPLAY", "SEARCH"]
+    for c in both.campaigns:
+        assert both.status[c["resourceName"]] == "ENABLED"
+    google_traffic = by[("google_ads", "traffic", "Uzvara basketbolā")]
+    assert google_traffic.campaign_id == google_traffic.adset_id
+    assert google_traffic.ad_id.startswith("customers/1/adGroupAds/")
+    # Meta: konversiju kampaņa + zīmola (REACH) kampaņa
+    objectives = sorted(d["objective"] for _, d in graph.created["campaigns"])
+    assert objectives == ["OUTCOME_AWARENESS", "OUTCOME_TRAFFIC"]
+    reach_sets = [d for _, d in graph.created["adsets"] if d["optimization_goal"] == "REACH"]
+    assert len(reach_sets) == 1
+    brand = by[("google_ads", "brand_search", "TV3.lv — zīmola meklēšana")]
+    assert brand.budget_cents == 500
+
+    # --- metrikas no abām platformām + pārdale katrā atsevišķi ---------------
+    gt1 = by[("google_ads", "traffic", "Uzvara basketbolā")]
+    gt2 = by[("google_ads", "traffic", "Hokeja fināls")]
+    both.insights_rows = [
+        {"adGroupAd": {"resourceName": gt1.ad_id}, "campaign": {"resourceName": gt1.campaign_id},
+         "metrics": {"costMicros": "7000000", "impressions": "5000", "clicks": "70"}},
+        {"adGroupAd": {"resourceName": gt2.ad_id}, "campaign": {"resourceName": gt2.campaign_id},
+         "metrics": {"costMicros": "7000000", "impressions": "6000", "clicks": "2"}},
+    ]
+    mt1 = by[("facebook_page", "traffic", "Uzvara basketbolā")]
+    graph.insights_rows = [{"ad_id": mt1.ad_id, "spend": "6.00", "impressions": "9000",
+                            "clicks": "60", "inline_link_clicks": "50"}]
+    live = ads.clients(session)
+    ads.collect_metrics(session, live)
+    for e in (gt1, gt2, mt1, brand):
+        session.refresh(e)
+    assert gt1.spent_cents == 700 and gt1.clicks == 70
+    assert mt1.spent_cents == 600 and mt1.clicks == 50
+    assert brand.spent_cents == 0
+
+    ads.reallocate(session, live)
+    session.refresh(gt1); session.refresh(gt2); session.refresh(brand)
+    assert gt2.status == "paused" and both.status[gt2.adset_id] == "PAUSED"
+    assert gt1.budget_cents == int(gt1.budget_cents) and both.budgets[f"{gt1.adset_id}/budget"] == gt1.budget_cents * 10_000
+    assert brand.status == "active"          # zīmolu ar klikšķiem nesoda
+
+
+def test_ui_pause_uses_the_entrys_own_platform(session, both, graph, client, monkeypatch):
+    monkeypatch.setattr(ga4, "paid_sessions", lambda s, days=7: {})
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    ads.save_settings(session, "auto", 20.0, 0, google_share=100)
+    _published(session, "g-5", "Uzvara basketbolā", 0.9, "520_111")
+    ads.tick(session)
+    entry = session.execute(select(AdEntry).where(AdEntry.platform == "google_ads")).scalars().one()
+    assert entry.status == "active"
+    r = client.post(f"/ads/{entry.id}/pause", follow_redirects=False)
+    assert r.status_code == 303
+    session.expire_all()
+    entry = session.get(AdEntry, entry.id)
+    assert entry.status == "paused" and both.status[entry.adset_id] == "PAUSED"
+    assert graph.status.get(entry.adset_id) is None       # Meta nav aiztikta
+
+    page = client.get("/ads")
+    assert page.status_code == 200
+    assert "Google" in page.text and "Zīmola meklēšana" in page.text
+    connect = client.get("/connect")
+    assert connect.status_code == 200 and "Google reklāmas" in connect.text
+
+
+def test_google_connect_form_keeps_secrets_when_left_blank(session, client, monkeypatch):
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    store: dict[str, str] = {}
+    monkeypatch.setattr(credentials, "put",
+                        lambda s, key, value, label="", expires_at=None: store.__setitem__(key, value))
+    r = client.post("/connect/google-ads", data={
+        "customer_id": "123-456-7890", "developer_token": "dev", "client_id": "cid",
+        "client_secret": "sec", "refresh_token": "ref", "login_customer_id": ""},
+        follow_redirects=False)
+    assert r.status_code == 303
+    assert store["google_ads_customer_id"] == "123-456-7890"
+    assert store["google_ads_refresh_token"] == "ref"
+    store.clear()
+    client.post("/connect/google-ads", data={"customer_id": "123-456-7890",
+                                             "developer_token": "", "client_id": "cid",
+                                             "client_secret": "", "refresh_token": "",
+                                             "login_customer_id": "9"},
+                follow_redirects=False)
+    assert "google_ads_refresh_token" not in store          # tukšs = neaiztikt
+    assert store["google_ads_login_customer_id"] == "9"

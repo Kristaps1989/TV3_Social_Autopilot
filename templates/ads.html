@@ -1,9 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Reklāmas</h1>
-<p class="muted">Maksas pastiprināšana Meta platformās. Režīmā <b>dry-run</b>
-sistēma tikai rāda, ko tā boostotu un par cik — neviens eiro netiek tērēts,
-kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
+<p class="muted">Maksas pastiprināšana Meta un Google platformās. Režīmā
+<b>dry-run</b> sistēma tikai rāda, ko tā reklamētu un par cik — neviens eiro
+netiek tērēts, kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.
+Stratēģija un budžeta loģika: <code>docs/ads-strategy.md</code>.</p>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Platformas</h2>
+  <table>
+    <tr><th>Platforma</th><th>Loma</th><th>Statuss</th></tr>
+    {% for p in platforms %}
+    <tr>
+      <td><strong>{{ p.label }}</strong></td>
+      <td class="muted">{% if p.key == 'facebook_page' %}ierakstu boost + variantu reklāmas; zīmols — sasniedzamības kampaņa franšīzēm
+        {% else %}Demand Gen (Discover, YouTube, Gmail) klikšķiem; Display CPM franšīzēm; Search zīmola vaicājumiem{% endif %}</td>
+      <td>{% if p.ready %}<span class="badge live">gatava</span>
+          {% elif p.configured %}<span class="badge paused">pieslēgta, bet:</span> <span class="muted">{{ p.issues | join(' · ') }}</span>
+          {% else %}<span class="muted">{{ p.issues | join(' · ') }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
 
 {% if saved %}<div class="notice ok">Saglabāts</div>{% endif %}
 {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
@@ -14,8 +32,8 @@ kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
   <ul style="margin:.3rem 0 0">
   {% for issue in ads_issues %}<li>{{ issue }}</li>{% endfor %}
   </ul>
-  Konta pieslēgšana notiek sadaļā <a href="/connect">Konti → Meta reklāmas</a>.
-  Dry-run plāns strādā arī bez tā.
+  Kontus pieslēdz sadaļā <a href="/connect">Konti</a> (Meta reklāmas, Google
+  reklāmas). Dry-run plāns strādā arī bez tiem.
 </div>
 {% endif %}
 
@@ -37,6 +55,14 @@ kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
       Zīmola daļa: <b id="bsv">{{ s.brand_share }}</b>% (pārējais — konversijām)</label>
     <input type="range" name="brand_share" min="0" max="50" step="5"
            value="{{ s.brand_share }}" oninput="document.getElementById('bsv').textContent=this.value">
+    <label class="muted" style="display:block;margin-top:.5rem">
+      Google daļa: <b id="gsv">{{ s.google_share }}</b>% (pārējais — Meta; darbojas, kad pieslēgtas abas)</label>
+    <input type="range" name="google_share" min="0" max="100" step="10"
+           value="{{ s.google_share }}" oninput="document.getElementById('gsv').textContent=this.value">
+    <label class="muted" style="display:block;margin-top:.5rem">Zīmola meklēšana Google (€/dienā, vienmēr ieslēgta; 0 = izslēgta)</label>
+    <input type="number" name="brand_search_daily" min="0" step="0.5" value="{{ '%g' % s.brand_search_daily }}">
+    <label class="muted" style="display:block;margin-top:.5rem">Zīmola atslēgvārdi (ar komatu)</label>
+    <input type="text" name="brand_keywords" value="{{ s.brand_keywords }}" style="width:100%">
     <div style="margin-top:.6rem"><button class="primary">Saglabāt</button></div>
   </form>
 </div>
@@ -48,10 +74,12 @@ kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
     </span></h2>
   {% if plan.planned %}
   <table>
-    <tr><th>Ieraksts</th><th>Formāts</th><th>AI score</th><th>Budžets/dienā</th><th>Iemesls</th></tr>
+    <tr><th>Ieraksts</th><th>Platforma</th><th>Mērķis</th><th>Formāts</th><th>AI score</th><th>Budžets/dienā</th><th>Iemesls</th></tr>
     {% for r in plan.planned %}
     <tr>
-      <td><a href="/post/{{ r.post.id }}/preview">{{ r.article.title[:70] }}</a></td>
+      <td>{% if r.objective == 'brand_search' %}{{ r.article.title[:70] }}{% else %}<a href="/post/{{ r.post.id }}/preview">{{ r.article.title[:70] }}</a>{% endif %}</td>
+      <td>{{ platform_labels.get(r.platform, r.platform) }}</td>
+      <td>{{ objective_labels.get(r.objective, r.objective) }}</td>
       <td>{{ r.post.format }}</td>
       <td>{{ '%.2f' % r.score }}</td>
       <td>{{ '%.2f' % r.budget_eur }} €</td>
@@ -72,11 +100,13 @@ kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
 <div class="card" style="margin-bottom:1rem">
   <h2>Aktīvās un gaidošās reklāmas</h2>
   <table>
-    <tr><th>Ieraksts</th><th>Statuss</th><th>Budžets/d</th><th>Tērēts</th>
+    <tr><th>Ieraksts</th><th>Platforma</th><th>Mērķis</th><th>Statuss</th><th>Budžets/d</th><th>Tērēts</th>
         <th>Klikšķi</th><th>Sesijas</th><th>€/rez.</th><th></th></tr>
     {% for e in live %}
     <tr>
-      <td><a href="/post/{{ e.post_id }}/preview">{{ (e.article.title if e.article else '')[:55] }}</a></td>
+      <td>{% if e.objective == 'brand_search' %}{{ (e.article.title if e.article else '')[:55] }}{% else %}<a href="/post/{{ e.post_id }}/preview">{{ (e.article.title if e.article else '')[:55] }}</a>{% endif %}</td>
+      <td>{{ platform_labels.get(e.platform, e.platform) }}</td>
+      <td>{{ objective_labels.get(e.objective, e.objective) }}</td>
       <td><span class="state {{ 'published' if e.status == 'active' else 'scheduled' }}">{{
         {'awaiting_approval':'gaida apstiprinājumu','active':'aktīva','paused':'pauzē'}.get(e.status, e.status) }}</span></td>
       <td class="n">{{ '%.2f' % (e.budget_cents / 100) }} €</td>
@@ -100,10 +130,14 @@ kamēr nav pieslēgts reklāmu konts un ieslēgts asāks režīms.</p>
     </tr>
     {% endfor %}
   </table>
-  <p class="muted">Katra reklāma = viens ad set ar diviem kreatīviem: organiskā
-  ieraksta boost (sociālais pierādījums) + vairāku variantu reklāma
-  (asset_feed_spec — Meta pati izvēlas labāko virsrakstu/attēlu kombināciju).
-  Budžetu reizi dienā pārdala pēc rezultātiem; vājākās tiek apturētas.</p>
+  <p class="muted">Meta: katra reklāma = viens ad set ar diviem kreatīviem —
+  organiskā ieraksta boost (sociālais pierādījums) + vairāku variantu reklāma
+  (Meta pati izvēlas labāko virsrakstu/attēlu kombināciju). Google: katra
+  reklāma = sava kampaņa ar budžetu — Demand Gen plūsmās (Discover, YouTube,
+  Gmail) klikšķiem, Display ar CPM un biežuma griestiem zīmolam, Search
+  zīmola vaicājumiem. Klikšķu reklāmu budžetu reizi dienā pārdala pēc
+  rezultātiem katras platformas ietvaros; vājākās tiek apturētas. Zīmola
+  kampaņas ar klikšķiem nemēra un nesoda.</p>
 </div>
 {% endif %}
 

@@ -36,6 +36,30 @@ story that reused the reel falls back to its static image, and every
 re-render pays ElevenLabs again. The app logs a warning at startup when queued
 posts point at files that are gone.
 
+## Google Ads (optional — the paid Discover / brand layer)
+
+The ads autopilot can run Google campaigns next to Meta boosts: Demand Gen
+(the paid feed on Discover, YouTube and Gmail) for article clicks, Display
+with a CPM target for brand-franchise reach, and a small always-on Search
+campaign on brand queries. Strategy and budget rules: `docs/ads-strategy.md`.
+
+1. Google Ads → Tools → **API Center**: apply for a developer token (Basic
+   access is enough for one account; approval can take a few days).
+2. Google Cloud console → **OAuth client** (Desktop app). Consent screen with
+   the `https://www.googleapis.com/auth/adwords` scope; obtain a **refresh
+   token** for the Google account that manages the ads account (OAuth
+   Playground or `oauth2l` both work).
+3. Konti → **Google reklāmas**: customer ID (`123-456-7890`), developer
+   token, OAuth client ID + secret, refresh token; the manager (MCC) ID only
+   when you access the client account through a manager.
+4. Env fallbacks: `GOOGLE_ADS_CUSTOMER_ID`, `GOOGLE_ADS_DEVELOPER_TOKEN`,
+   `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`,
+   `GOOGLE_ADS_REFRESH_TOKEN`, `GOOGLE_ADS_LOGIN_CUSTOMER_ID`.
+
+Every campaign the autopilot creates is named `TV3 Autopilots · …`, targets
+Latvia in Latvian and declares that it contains no EU political advertising
+(the politics/tragedy vetoes that guard Meta apply to Google as well).
+
 ## Facebook Page (one-time, ~30 min, needs the Business Manager admin)
 
 1. The person who administers TV3's Business Manager creates an app at

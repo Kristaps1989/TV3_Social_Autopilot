@@ -1071,3 +1071,40 @@ def render_number_card(number: str, context: str, section: str,
     finally:
         tmp.unlink(missing_ok=True)
     return str(out)
+
+
+def render_crop(image: str, width: int, height: int, out_dir: Path | None = None,
+                contain: bool = False, background: str = "#ffffff") -> str:
+    """Attēls, iegriezts (cover) vai ievietots (contain) precīzā izmērā.
+
+    Google reklāmām vajag vienu un to pašu attēlu vairākās proporcijās
+    (1.91:1, 1:1, 4:5) un kvadrātisku logo; PIL projektā nav, bet Chromium
+    ir — tas pats renderētājs, kas zīmē kartītes, te dara vienkāršu griezumu.
+    """
+    from playwright.sync_api import sync_playwright
+
+    out_dir = Path(out_dir or CARDS_DIR).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    src = image if image.startswith("http") else Path(image).resolve().as_uri()
+    fit = "contain" if contain else "cover"
+    token = secrets.token_hex(6)
+    tmp = out_dir / f"_c{token}.html"
+    tmp.write_text(
+        f'<!doctype html><html><body style="margin:0;background:{background}">'
+        f'<div class="crop" style="width:{width}px;height:{height}px;'
+        f'background:{background} url(\'{src}\') center/{fit} no-repeat"></div>'
+        f'</body></html>', encoding="utf-8")
+    chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
+    try:
+        with sync_playwright() as p:
+            browser = (p.chromium.launch(executable_path=chromium) if chromium
+                       else p.chromium.launch())
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.goto(tmp.as_uri(), timeout=30000)
+            _settle(page, 500)
+            out = out_dir / f"crop_{width}x{height}_{token}.png"
+            page.locator(".crop").screenshot(path=str(out), timeout=15000)
+            browser.close()
+    finally:
+        tmp.unlink(missing_ok=True)
+    return str(out)

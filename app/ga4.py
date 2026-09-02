@@ -95,6 +95,10 @@ def channel_economics(days: int = 30) -> list[dict]:
     return out
 
 
+# utm_source vērtības, ar ko iezīmējam SAVAS maksas reklāmas (pa platformām)
+PAID_SOURCES = ("facebook_paid", "google_paid")
+
+
 def paid_sessions(session, days: int = 7) -> dict[str, int]:
     """GA4 sessions from paid social by utm_content (dark ads carry
     utm_content=a<entry_id>). {} on any failure — ads metrics then rest on
@@ -113,7 +117,7 @@ def paid_sessions(session, days: int = 7) -> dict[str, int]:
                 "metrics": [{"name": "sessions"}],
                 "dimensionFilter": {"filter": {
                     "fieldName": "sessionSource",
-                    "stringFilter": {"value": "facebook_paid"},
+                    "inListFilter": {"values": list(PAID_SOURCES)},
                 }},
                 "limit": 10000,
             },

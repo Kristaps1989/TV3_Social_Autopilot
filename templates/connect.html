@@ -475,6 +475,57 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
   </div>
 
   <div class="card">
+    <h2>Google reklāmas
+      {% if google_ads_status.connected %}<span class="badge live">savienots</span>
+      {% else %}<span class="badge paused">nav savienots</span>{% endif %}
+    </h2>
+    <div class="muted" style="margin-bottom:.6rem">
+      {% if google_ads_status.connected %}
+        Klienta konts {{ google_ads.customer_id }}{% if google_ads.login_customer_id %} · pārvaldnieks {{ google_ads.login_customer_id }}{% endif %}
+        {% if google_ads.issues %}
+        <div class="notice err" style="margin-top:.4rem;background:#fef3c7;color:#92400e">
+          {% for i in google_ads.issues %}{{ i }}{% if not loop.last %} · {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+      {% else %}
+        Demand Gen (Discover, YouTube, Gmail plūsmas) klikšķiem uz rakstiem,
+        Display sasniedzamībai zīmola franšīzēm un Search zīmola vaicājumiem.
+        Vajag Google Ads API developer token, OAuth klientu ar refresh tokenu
+        un klienta konta ID — sk. <code>docs/connect-accounts.md</code>.
+      {% endif %}
+    </div>
+    <form method="post" action="/connect/google-ads">
+      <label class="muted" style="display:block">Klienta konta ID (Customer ID, 123-456-7890)</label>
+      <input type="text" name="customer_id" value="{{ google_ads.customer_id }}" placeholder="123-456-7890">
+      <label class="muted" style="display:block;margin-top:.4rem">Pārvaldnieka konta ID (login-customer-id, nav obligāti)</label>
+      <input type="text" name="login_customer_id" value="{{ google_ads.login_customer_id }}" placeholder="ja piekļūsti caur MCC">
+      <label class="muted" style="display:block;margin-top:.4rem">Developer token
+        {% if google_ads.has_developer_token %}<span class="badge live">saglabāts</span>{% endif %}</label>
+      <input type="password" name="developer_token" placeholder="{{ 'atstāj tukšu, lai nemainītu' if google_ads.has_developer_token else 'no Google Ads API Center' }}">
+      <label class="muted" style="display:block;margin-top:.4rem">OAuth client ID</label>
+      <input type="text" name="client_id" value="{{ google_ads.client_id }}" placeholder="....apps.googleusercontent.com">
+      <label class="muted" style="display:block;margin-top:.4rem">OAuth client secret
+        {% if google_ads.has_client_secret %}<span class="badge live">saglabāts</span>{% endif %}</label>
+      <input type="password" name="client_secret" placeholder="{{ 'atstāj tukšu, lai nemainītu' if google_ads.has_client_secret else '' }}">
+      <label class="muted" style="display:block;margin-top:.4rem">OAuth refresh token
+        {% if google_ads.has_refresh_token %}<span class="badge live">saglabāts</span>{% endif %}</label>
+      <input type="password" name="refresh_token" placeholder="{{ 'atstāj tukšu, lai nemainītu' if google_ads.has_refresh_token else 'no OAuth playground vai oauth2l' }}">
+      <div style="margin-top:.5rem"><button class="primary">Saglabāt</button></div>
+    </form>
+    {% if google_ads_status.connected %}
+    <form method="post" action="/connect/google-ads/disconnect" style="margin-top:.4rem"
+          onsubmit="return confirm('Atvienot Google reklāmas?')">
+      <button class="danger">Atvienot</button>
+    </form>
+    {% endif %}
+    <p class="muted">Google Ads → Rīki → API Center: developer token (Basic
+    access pietiek). Google Cloud → OAuth klients (Desktop) → ar
+    <code>https://www.googleapis.com/auth/adwords</code> tvērumu iegūsti
+    refresh tokenu. Kampaņas pirmajā palaišanā top apturētas un tiek
+    ieslēgtas tikai ārpus dry-run režīma.</p>
+  </div>
+
+  <div class="card">
     <h2>Google Analytics 4
       {% if ga4_connected %}<span class="badge live">savienots</span>
       {% else %}<span class="badge paused">nav savienots</span>{% endif %}
