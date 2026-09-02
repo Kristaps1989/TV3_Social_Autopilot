@@ -29,7 +29,7 @@ CARDS_DIR = Path(os.environ.get("CARDS_DIR", "data/cards")).resolve()
 # dizainu vēl ilgi pēc labojuma. Paceļot šo skaitli, publicēšanas solis
 # pārrenderē katru rindā gaidošo foto/stāsta grafiku (app.pipeline
 # .refresh_missing_media). Paceļ to KATRU reizi, kad mainās izkārtojums.
-RENDER_VERSION = 2
+RENDER_VERSION = 3
 
 SECTION_STYLE = {
     "news": {"label": "ZIŅAS", "color": "#a5495a", "kicker": "SKAIDROJUMS"},
@@ -162,6 +162,27 @@ def _settle(page, ms: int = 600) -> None:
     page.wait_for_timeout(ms)
 
 
+# Kur enkurot foto, kad kadrs to griež pa vertikāli. Ziņu fotogrāfijā galvas
+# ir augšējā trešdaļā: centrēts griezums (50 %) tās nogriež pirmās, enkurs
+# pie 22 % tās patur. Platam foto (kadrs griež tikai sānus) tas neko nemaina.
+PHOTO_FOCUS = "center 22%"
+
+
+def framed_graphic(image_url: str) -> str:
+    """Gatava (photopost) grafika VESELA uz sava izpludinātā fona.
+
+    Grafika ir pabeigta kompozīcija — virsraksta plāksne apakšā, cilvēks
+    augšā; jebkurš griezums no tās kaut ko atņem (kvadrāts 1080×906 laukā
+    zaudēja 174 px augšas, t. i. galvas). Tāpēc to nevis griežam, bet
+    ievietojam pilnu (contain), un tukšās malas aizpilda tās pašas grafikas
+    izpludināta kopija — tas pats paņēmiens, ko lieto IG un TV grafikā.
+    """
+    src = html.escape(image_url, quote=True)
+    return (f'<div class="blurbg" style="background-image:url({src})"></div>'
+            f'<div class="veil"></div>'
+            f'<div class="fill" style="background:url({src}) center/contain no-repeat"></div>')
+
+
 def build_cards_html(title: str, section: str, tag: str, points: list[str],
                      image_url: str, end_question: str,
                      show_sponsor: bool | None = None,
@@ -171,7 +192,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
                      cover_blur: str = "",
                      point_dates: list[str] | None = None,
                      include_cover: bool = True, include_end: bool = True,
-                     label: str = "", ai_note: bool = False) -> str:
+                     label: str = "", ai_note: bool = False,
+                     cover_fit: str = "cover") -> str:
     """cover_title=False: the cover image is a pre-branded graphic that
     already carries the headline — show it full-bleed without our plate.
     point_bg: photo used as a dimmed background on the content cards so the
@@ -228,8 +250,12 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
     cards = []
     if include_cover:
         cover_blur_layer = ""
-        if image_url:
-            cover_bg = f'background:url({attr(image_url)}) center/cover, {color};'
+        if image_url and not cover_title and cover_fit == "contain":
+            # gatava grafika vesela, nevis nogriezta (sk. framed_graphic)
+            cover_bg = f"background:{_shade(color, -0.55)};"
+            cover_blur_layer = framed_graphic(image_url)
+        elif image_url:
+            cover_bg = f'background:url({attr(image_url)}) {PHOTO_FOCUS}/cover, {color};'
         elif cover_blur:
             cover_bg = (f"background:linear-gradient(160deg,"
                         f"{_shade(color, .06)},{_shade(color, -.2)});")
@@ -265,7 +291,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
             point_cls = "point low"
             num_color = "rgba(255,255,255,.55)"
             if photo:
-                art_style = f'background:url({attr(photo)}) center/cover, {color};'
+                art_style = f'background:url({attr(photo)}) {PHOTO_FOCUS}/cover, {color};'
                 point_shade = '<div class="gshade"></div>'
             elif blur:   # tikai photopost grafika — der vienīgi kā faktūra
                 art_style = (f"background:linear-gradient(160deg,"
@@ -280,7 +306,7 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
         elif point_bg:
             point_cls = "point"
             num_color = "rgba(255,255,255,.45)"
-            art_style = f'background:url({attr(point_bg)}) center/cover, {color};'
+            art_style = f'background:url({attr(point_bg)}) {PHOTO_FOCUS}/cover, {color};'
             point_shade = '<div class="pshade"></div>'
         else:
             # bez foto: sadaļas gradients, nevis plakans krāsas laukums —
@@ -337,6 +363,8 @@ def build_cards_html(title: str, section: str, tag: str, points: list[str],
 .card {{ width:1080px; height:1080px; overflow:hidden; display:flex;
         flex-direction:column; background:#fff; }}
 .art {{ position:relative; height:940px; overflow:hidden; flex:none; }}
+.fill {{ position:absolute; inset:0; }}
+.veil {{ position:absolute; inset:0; background:rgba(10,8,14,.28); }}
 .pshade {{ position:absolute; inset:0;
   background:linear-gradient(160deg, rgba(12,6,16,.82) 0%, rgba(12,6,16,.6) 100%); }}
 .blurbg {{ position:absolute; inset:-60px; background-size:cover;
@@ -422,7 +450,8 @@ def build_section_cards_html(title: str, section: str, tag: str,
                              sections: list[dict], images: list[str],
                              end_question: str, cover_image: str = "",
                              cover_title: bool = True, blur_image: str = "",
-                             date_txt: str = "", ai_note: bool = False) -> str:
+                             date_txt: str = "", ai_note: bool = False,
+                             cover_fit: str = "cover") -> str:
     """Karuselis, kur katra kartīte ir stāsta SADAĻA: trekns virsraksts un
     2-4 teikumi ar faktiem — nevis viens punkts lielā fontā.
 
@@ -478,10 +507,15 @@ def build_section_cards_html(title: str, section: str, tag: str,
         # kadru nogriež no APAKŠAS, lai tā paliktu vesela.
         cover_bg = f"background:{_shade(color, -0.55)};"
         blur_layer = ""
-        whole = (f'<div class="fill" style="background:url({attr(cover_image)}) '
-                 f'center bottom/cover"></div>')
+        if cover_fit == "contain":
+            # kvadrātiska vai augsta grafika: griezums no apakšas ņēma
+            # nost galvas — rādām visu, malas aizpilda izpludinātā kopija
+            whole = framed_graphic(cover_image)
+        else:
+            whole = (f'<div class="fill" style="background:url({attr(cover_image)}) '
+                     f'center bottom/cover"></div>')
     elif cover_image:
-        cover_bg = f'background:url({attr(cover_image)}) center/cover, {color};'
+        cover_bg = f'background:url({attr(cover_image)}) {PHOTO_FOCUS}/cover, {color};'
         blur_layer = ""
     elif blur_image:
         cover_bg = gradient
@@ -512,7 +546,7 @@ def build_section_cards_html(title: str, section: str, tag: str,
         body = str(sec.get("body") or "").strip()
         photo = pool[(n - 1) % len(pool)] if pool else ""
         if photo:
-            art_style = f'background:url({attr(photo)}) center/cover, {color};'
+            art_style = f'background:url({attr(photo)}) {PHOTO_FOCUS}/cover, {color};'
             blur_layer = ""
         elif blur_image:
             art_style = (f"background:linear-gradient(160deg,"
@@ -640,7 +674,7 @@ def build_share_html(title: str, section: str, image_url: str,
     blur_layer = ""
     if image_url:
         bg = (f'background:url({html.escape(image_url, quote=True)}) '
-              f'center/cover, {color};')
+              f'{PHOTO_FOCUS}/cover, {color};')
     else:
         bg = f"background:{color};"
         if blur_image:
@@ -746,7 +780,7 @@ def build_story_html(title: str, section: str, image_url: str,
         # our own layout: full-bleed photo, gradient, white title plate
         blur = html.escape(blur_image, quote=True) if blur_image else ""
         if img:
-            bg = f'background:url({img}) center/cover, {color};'
+            bg = f'background:url({img}) {PHOTO_FOCUS}/cover, {color};'
             layers = '<div class="shade"></div>'
         elif blur:
             bg = f"background:{color};"
@@ -825,7 +859,7 @@ def build_mosaic_story_html(title: str, section: str, images: list[str],
         pics.append(pics[len(pics) % max(1, len(images))])
     cells = "".join(
         f'<div class="cell" style="background:url({html.escape(u, quote=True)}) '
-        f'center/cover, {color}"></div>' for u in pics)
+        f'{PHOTO_FOCUS}/cover, {color}"></div>' for u in pics)
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .story {{ width:1080px; height:1920px; position:relative; overflow:hidden;
@@ -922,7 +956,7 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
                  point_blur: list[str] | None = None, cover_blur: str = "",
                  point_dates: list[str] | None = None,
                  include_cover: bool = True, include_end: bool = True,
-                 label: str = "") -> list[str]:
+                 label: str = "", cover_fit: str = "cover") -> list[str]:
     """Render carousel cards to PNG files; returns local file paths."""
     from playwright.sync_api import sync_playwright
 
@@ -935,7 +969,8 @@ def render_cards(title: str, section: str, tag: str, points: list[str],
                                 point_blur=point_blur, cover_blur=cover_blur,
                                 point_dates=point_dates,
                                 include_cover=include_cover,
-                                include_end=include_end, label=label)
+                                include_end=include_end, label=label,
+                                cover_fit=cover_fit)
     return _screenshot_cards(html_doc, out_dir)
 
 
@@ -970,14 +1005,16 @@ def render_section_cards(title: str, section: str, tag: str,
                          end_question: str, cover_image: str = "",
                          cover_title: bool = True, blur_image: str = "",
                          date_txt: str = "", ai_note: bool = False,
-                         out_dir: Path | None = None) -> list[str]:
+                         out_dir: Path | None = None,
+                         cover_fit: str = "cover") -> list[str]:
     """Sadaļu karuseļa kartītes kā PNG faili (vāks + sadaļas + CTA)."""
     out_dir = Path(out_dir or CARDS_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     html_doc = build_section_cards_html(
         title, section, tag, sections, images, end_question,
         cover_image=cover_image, cover_title=cover_title,
-        blur_image=blur_image, date_txt=date_txt, ai_note=ai_note)
+        blur_image=blur_image, date_txt=date_txt, ai_note=ai_note,
+        cover_fit=cover_fit)
     return _screenshot_cards(html_doc, out_dir)
 
 
@@ -1001,7 +1038,7 @@ def build_number_html(number: str, context: str, section: str,
     blur_layer = ""
     if image_url:
         bg = (f'background:url({html.escape(image_url, quote=True)}) '
-              f'center/cover, {color};')
+              f'{PHOTO_FOCUS}/cover, {color};')
     else:
         bg = (f"background:linear-gradient(160deg,{_shade(color, .06)},"
               f"{_shade(color, -.16)});")

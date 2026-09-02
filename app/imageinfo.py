@@ -102,6 +102,29 @@ def is_portrait(article, url: str) -> bool:
     return bool(size and size[1] > size[0] * 1.05)
 
 
+# Cik plats attēls ir «plats»: 1080×940 vāka laukā (1.15:1) tikai šāds foto
+# tiek griezts vienīgi sānos — kvadrātu vai 4:5 griež pa vertikāli, un tad
+# pazūd galvas
+WIDE_ASPECT = 1.2
+
+
+def is_wide(article, url: str) -> bool | None:
+    """True/False pēc izmērītās proporcijas, None — ja izmēru nolasīt neizdodas."""
+    size = image_size(article, url)
+    if not size or not size[1]:
+        return None
+    return size[0] / size[1] >= WIDE_ASPECT
+
+
+def wide_image(article, limit: int = 6) -> str:
+    """Pirmais PLATAIS raksta attēls ('' ja nav) — vākam un foto ierakstam
+    tāds nekad nezaudē augšu."""
+    for url in (article.images or [])[:limit]:
+        if is_wide(article, url):
+            return url
+    return ""
+
+
 def landscape_image(article, limit: int = 6) -> str:
     """First non-portrait image among the article's images ('' if none).
     tv3.lv lead images are often vertical 'photopost' graphics with a

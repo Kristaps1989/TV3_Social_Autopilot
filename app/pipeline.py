@@ -275,11 +275,26 @@ def photo_base_image(article, idx: int = 0) -> str:
         return chosen
     from app import imageinfo
 
-    if imageinfo.is_portrait(article, chosen):
-        alt = imageinfo.landscape_image(article)
+    # ne tikai portrets: arī kvadrātiska photopost grafika 1.15:1 laukā tiek
+    # griezta pa vertikāli, un tad pirmās pazūd galvas — plats tīrs foto ar
+    # mūsu plāksni ir labāks vāks
+    if imageinfo.is_wide(article, chosen) is False:
+        alt = imageinfo.wide_image(article)
         if alt:
             return alt
     return chosen
+
+
+def cover_fit_for(article, image: str) -> str:
+    """Kā gatavu (photopost) grafiku likt vākā: 'cover' tikai tad, ja tā ir
+    plata un kadrs griež vienīgi sānus; kvadrātisku, augstu vai nezināma
+    izmēra grafiku rāda veselu ('contain') uz izpludināta fona. Tīram foto
+    ar mūsu plāksni vienmēr 'cover' (enkurs augšējā trešdaļā ir šablonā)."""
+    if not image or not prebranded(image):
+        return "cover"
+    from app import imageinfo
+
+    return "cover" if imageinfo.is_wide(article, image) else "contain"
 
 
 def unbranded_image(article, idx: int = 0) -> str:
@@ -689,15 +704,17 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
             question = (ch_dec.get("card_end_question")
                         or "Uzzini visu stāstu tv3.lv").strip()
             try:
+                fit = cover_fit_for(article, image)
                 media = cards.render_section_cards(
                     article.title, article.section, tag, sections, bgs,
                     question, cover_image=image, cover_title=cover_title,
                     blur_image=blur, date_txt=article_date(article),
-                    ai_note=disclosure.applies("card_carousel"))
+                    ai_note=disclosure.applies("card_carousel"), cover_fit=fit)
                 return "card_carousel", media, {
                     "kind": "article_cards", "article": article.id,
                     "tag": tag, "sections": sections, "question": question,
-                    "section": article.section, "date": article_date(article)}
+                    "section": article.section, "date": article_date(article),
+                    "cover_fit": fit}
             except Exception as e:  # noqa: BLE001 — never lose the post over a render
                 log.warning("section cards failed for article %s: %s",
                             article.id, e)
@@ -721,7 +738,8 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
                                            points, image, question,
                                            cover_title=cover_title,
                                            point_bg=point_bg,
-                                           date_txt=article_date(article))
+                                           date_txt=article_date(article),
+                                           cover_fit=cover_fit_for(article, image))
                 # recepte, lai redaktors grafiku var pārzīmēt vēlāk: AI
                 # kartīšu punkti pēc lēmuma citur nekur nepaliek
                 return "card_carousel", media, {
