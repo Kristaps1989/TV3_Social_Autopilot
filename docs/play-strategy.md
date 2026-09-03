@@ -32,6 +32,17 @@ svari (tāpat kā `ad_multipliers` rakstiem).
 Kamēr feed nav, izlases var kurēt ar roku `rules/play.yaml` (nosaukums,
 saite, žanrs, cenzs, klips). Sistēma ar to strādā tāpat.
 
+**Atklāts ar Diagnostikas zondi (03.09.2026):** play.tv3.lv ir WordPress
+vietne ar servera pusē zīmētu HTML, un `robots.txt` norāda uz
+`/sitemaps/sitemap.xml` (mēneša indekss) un `/sitemaps/sitemap-latest.xml`.
+Mēneša sitemapi izmanto Google video paplašinājumu: katram ierakstam
+`video:title`, `video:description`, `video:thumbnail_loc`, `video:duration`
+(sekundes), `video:publication_date`, `video:player_loc` (`/goTo/<id>`) un
+lapas adrese (`/filmas/<slug>-<id>/`, `/video/<raidījums>-<id>/<sērija>-<id>/`,
+`/tiesraides/...`). Tas ir kataloga feed bez API: P0 no Play komandas
+paliek tikai žanrs un vecuma cenzs (ja nosaukuma lapa tos nedod), treileru
+tiesības un GA4.
+
 ## 3. Formāti, kas AVOD saturam strādā
 
 | Formāts | Kad | Piezīme |

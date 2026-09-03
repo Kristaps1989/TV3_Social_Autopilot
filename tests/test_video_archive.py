@@ -397,19 +397,27 @@ def test_play_investigation_reads_inline_data_sitemap_and_apis(session, monkeypa
 <script type="application/ld+json">{"@type":"WebSite","name":"TV3 Play"}</script>
 <script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"titles":[{"id":7,"title":"Seriāls"}]}}}</script>
 <script src="/_next/static/chunks/main-abc.js"></script></head>
-<body><a href="/seriali/x/">S</a><a href="/seriali/y/">S2</a><a href="/filmas/z/">F</a>
+<body><a href="/meklet/">M</a><a href="/seriali/x-5/">S</a><a href="/seriali/y-9/">S2</a><a href="/seriali/x-5/1-serija-6/">E</a>
 <a href="https://tv3.lv/zinas/">ārējs</a></body></html>"""
     pages = {
         "https://play.tv3.lv/": shell,
         "https://play.tv3.lv/_next/static/chunks/main-abc.js":
             'fetch("https://play.tv3.lv/api/v1/catalog?type=movie");x="https://api.play.tv3.lv/graphql"',
         "https://play.tv3.lv/robots.txt": "User-agent: *\nSitemap: https://play.tv3.lv/sitemaps/sitemap.xml\n",
-        "https://play.tv3.lv/sitemaps/sitemap.xml": "<urlset><url><loc>https://play.tv3.lv/filmas/z/</loc></url></urlset>",
-        "https://play.tv3.lv/seriali/x/": """<html><head><meta property="og:type" content="video.tv_show">
+        "https://play.tv3.lv/sitemaps/sitemap.xml": """<urlset xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+<url><loc>https://play.tv3.lv/filmas/zvaigzne-77/</loc><lastmod>2026-08-31T22:01:15+03:00</lastmod>
+<video:video><video:thumbnail_loc>https://tv3cdn.lv/t/1.jpg</video:thumbnail_loc><video:title>Zvaigzne</video:title>
+<video:player_loc>https://play.tv3.lv/goTo/77</video:player_loc><video:publication_date>2026-08-31T21:49:04+03:00</video:publication_date>
+<video:duration>5400</video:duration><video:description>Filma par zvaigzni.</video:description></video:video></url></urlset>""",
+        "https://play.tv3.lv/filmas/zvaigzne-77/": """<html><head><meta property="og:type" content="video.movie">
+<meta property="og:title" content="Zvaigzne"><meta property="video:tag" content="Drāma"><meta property="video:tag" content="Romantika">
+<script type="application/ld+json">{"@type":"Movie","name":"Zvaigzne","genre":["Drāma"],"contentRating":"12+"}</script></head>
+<body></body></html>""",
+        "https://play.tv3.lv/seriali/x-5/": """<html><head><meta property="og:type" content="video.tv_show">
 <meta property="og:title" content="Seriāls X"><script type="application/ld+json">
 {"@type":"TVSeries","name":"Seriāls X","genre":["Drāma"],"numberOfSeasons":2}</script></head>
-<body><a href="/seriali/x/1-serija-5/">1. sērija</a></body></html>""",
-        "https://play.tv3.lv/seriali/x/1-serija-5/": """<html><head><script type="application/ld+json">
+<body><a href="/seriali/x-5/1-serija-6/">1. sērija</a></body></html>""",
+        "https://play.tv3.lv/seriali/x-5/1-serija-6/": """<html><head><script type="application/ld+json">
 {"@type":"VideoObject","name":"1. sērija","contentUrl":"https://cdn.play/1.m3u8","duration":"PT42M"}</script></head><body></body></html>""",
         "https://play.tv3.lv/api/v1/catalog?type=movie": '{"items":[{"id":1,"title":"Filma"}]}',
     }
@@ -418,20 +426,31 @@ def test_play_investigation_reads_inline_data_sitemap_and_apis(session, monkeypa
     assert out["listing"] == "https://play.tv3.lv/"
     assert out["content"]["inline_data"][0]["name"] == "__NEXT_DATA__"
     assert out["content"]["json_ld_types"] == ["WebSite"]
-    assert out["content"]["internal_paths"][0] == {"prefix": "/seriali/", "count": 2,
-                                                   "example": "https://play.tv3.lv/seriali/x/"}
+    assert out["content"]["internal_paths"][0] == {"prefix": "/seriali/", "count": 3,
+                                                   "example": "https://play.tv3.lv/seriali/x-5/"}
     assert any("rss+xml" in a for a in out["content"]["alternate_links"])
     robots = next(f for f in out["site_files"] if f["url"].endswith("robots.txt"))
     assert robots["sitemaps"] == ["https://play.tv3.lv/sitemaps/sitemap.xml"]
     # robots «Sitemap:» rindai seko līdzi, arī ja tā nav saknē
     sitemap = next(f for f in out["site_files"] if f["url"].endswith("/sitemaps/sitemap.xml"))
-    assert sitemap["urls"] == ["https://play.tv3.lv/filmas/z/"] and sitemap["loc_count"] == 1
-    # nosaukuma un sērijas lapu paraugi
-    kinds = {p["url"]: p for p in out["sample_pages"]}
-    show = kinds["https://play.tv3.lv/seriali/x/"]
+    assert sitemap["urls"] == ["https://play.tv3.lv/filmas/zvaigzne-77/"] and sitemap["loc_count"] == 1
+    # video sitemap ieraksti strukturēti: katalogs bez API
+    assert sitemap["video_entry_count"] == 1
+    assert sitemap["video_entries"][0] == {
+        "loc": "https://play.tv3.lv/filmas/zvaigzne-77/", "lastmod": "2026-08-31T22:01:15+03:00",
+        "thumbnail_loc": "https://tv3cdn.lv/t/1.jpg", "title": "Zvaigzne",
+        "player_loc": "https://play.tv3.lv/goTo/77", "publication_date": "2026-08-31T21:49:04+03:00",
+        "duration": "5400", "description": "Filma par zvaigzni."}
+    # paraugi pēc satura veida: filma (no sitemap), raidījums, sērija — ne /meklet/
+    kinds = {p["kind"]: p for p in out["sample_pages"]}
+    assert set(kinds) == {"movie", "show", "episode"}
+    assert kinds["movie"]["url"] == "https://play.tv3.lv/filmas/zvaigzne-77/"
+    assert kinds["movie"]["meta_all"]["video:tag"] == ["Drāma", "Romantika"]
+    assert kinds["movie"]["json_ld"][0]["contentRating"] == "12+"
+    show = kinds["show"]
     assert show["og"]["type"] == "video.tv_show"
     assert show["json_ld"][0]["@type"] == "TVSeries" and show["json_ld"][0]["name"] == "Seriāls X"
-    assert "https://play.tv3.lv/filmas/z/" in kinds
+    assert kinds["episode"]["video_page_parse"]["clip"] == "https://cdn.play/1.m3u8"
     assert "https://play.tv3.lv/api/v1/catalog?type=movie" in out["bundles"][0]["api"]
     sample = next(s for s in out["api_samples"] if "catalog" in s["url"])
     assert sample["json_shape"]["items"][0] == "list[1]"

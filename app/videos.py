@@ -956,12 +956,15 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8,
                 entry["sitemaps"] = find_in(body, r"https?://[^\s<\"']+sitemap[^\s<\"']*", limit=20)
                 entry["urls"] = find_in(body, r"(?<=<loc>)https?://[^<\s]+", limit=30)
                 entry["loc_count"] = len(re.findall(r"<loc>", body))
+                entry["video_entries"] = sitemap_video_entries(body)[:5]
+                entry["video_entry_count"] = len(re.findall(r"<video:video>", body))
                 # robots «Sitemap:» rindas un sitemap indeksa apakšsitemapi
                 queue.extend(u for u in entry["sitemaps"] if u not in seen_files)
             extras.append(entry)
         out["site_files"] = extras
         out["steps"].append(f"nolasīti robots.txt un {max(0, len(extras) - 1)} sitemap faili")
-        out["sample_pages"] = sample_pages(full_html, listing, fetch)
+        sitemap_urls = [u for f in extras for u in (f.get("urls") or [])]
+        out["sample_pages"] = sample_pages(full_html, listing, fetch, extra_urls=sitemap_urls)
         if out["sample_pages"]:
             out["steps"].append(f"nolasītas {len(out['sample_pages'])} nosaukumu lapas paraugam")
     out["steps"].append("meklējam API skriptos")
@@ -1028,6 +1031,42 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8,
     return out
 
 
+_SM_URL_RE = re.compile(r"<url>(.*?)</url>", re.S)
+_SM_FIELDS = ("loc", "lastmod", "video:thumbnail_loc", "video:title", "video:player_loc",
+              "video:publication_date", "video:duration", "video:description",
+              "video:content_loc", "video:family_friendly", "video:rating", "video:tag",
+              "video:category", "video:expiration_date")
+
+
+def sitemap_video_entries(xml: str) -> list[dict]:
+    """Video sitemap (Google video paplašinājums) -> ieraksti ar laukiem.
+    play.tv3.lv mēneša sitemapi ir tieši šādi: katram nosaukumam vai sērijai
+    virsraksts, apraksts, sīktēls, ilgums, datums — kataloga feed bez API."""
+    out = []
+    for m in _SM_URL_RE.finditer(xml or ""):
+        block = m.group(1)
+        entry: dict = {}
+        for field in _SM_FIELDS:
+            fm = re.search(rf"<{re.escape(field)}>\s*(.*?)\s*</{re.escape(field)}>", block, re.S)
+            if fm:
+                val = re.sub(r"^<!\[CDATA\[(.*)\]\]>$", r"\1", fm.group(1).strip(), flags=re.S)
+                entry[field.replace("video:", "")] = val[:600]
+        tags = re.findall(r"<video:tag>\s*(.*?)\s*</video:tag>", block, re.S)
+        if tags:
+            entry["tags"] = [t[:60] for t in tags[:10]]
+        if entry:
+            out.append(entry)
+    return out
+
+
+# Satura lapu adrešu paraugi (pēc prioritātes): filma, raidījums/seriāls, sērija
+_CONTENT_PATTERNS = (
+    ("movie", re.compile(r"^/filmas/[^/]+-\d+/$")),
+    ("show", re.compile(r"^/(?:video|seriali|sovi-un-raidijumi)/[^/]+-\d+/$")),
+    ("episode", re.compile(r"^/(?:video|seriali)/[^/]+-\d+/[^/]+-\d+/$")),
+)
+
+
 def page_summary(html: str, url: str) -> dict:
     """Nosaukuma/sērijas lapas kopsavilkums: og tagi, JSON-LD mezgli
     (TVSeries/Movie/VideoObject/BreadcrumbList), dlEvent, klipu kandidāti."""
@@ -1056,6 +1095,9 @@ def page_summary(html: str, url: str) -> dict:
         "meta": {k: pagemeta._meta_one(html, k) for k in
                  ("description", "keywords", "article:section", "video:duration",
                   "video:release_date", "video:tag")},
+        # visi og/twitter/video/article/itemprop meta tagi — te parādās žanrs,
+        # cenzs, sērija, ja lapa tos vispār dod
+        "meta_all": all_meta(html),
         "json_ld": nodes,
         "dl_event": {k: meta.get(k) for k in ("post_id", "categories", "tags", "post_types",
                                               "publish_date", "page_type")},
@@ -1066,34 +1108,56 @@ def page_summary(html: str, url: str) -> dict:
     }
 
 
-def sample_pages(html: str, base: str, fetch, limit: int = 3) -> list[dict]:
-    """Pāris nosaukumu lapu paraugi: viena ar vienu ceļa segmentu (raidījums/
-    seriāls), viena ar diviem (sērija), un pirmā cita veida saite."""
-    picked: list[str] = []
-    kinds: set[str] = set()
+_META_ANY_RE = re.compile(
+    r"<meta\b[^>]*(?:property|name|itemprop)=[\"']([^\"']+)[\"'][^>]*content=[\"']([^\"']*)[\"']", re.I)
+
+
+def all_meta(html: str, limit: int = 80) -> dict:
+    out: dict = {}
+    for m in _META_ANY_RE.finditer(html or ""):
+        key, val = m.group(1), m.group(2).strip()
+        if not val or key.lower() in ("viewport", "charset", "robots", "generator"):
+            continue
+        if key in out:
+            if isinstance(out[key], list):
+                out[key].append(val[:200])
+            elif out[key] != val:
+                out[key] = [out[key], val[:200]]
+        else:
+            out[key] = val[:200]
+        if len(out) >= limit:
+            break
+    return out
+
+
+def sample_pages(html: str, base: str, fetch, limit: int = 3,
+                 extra_urls: list[str] | None = None) -> list[dict]:
+    """Satura lapu paraugi: filma, raidījums/seriāls, sērija — pēc adreses
+    parauga ar id beigās, ne pēc pirmā ceļa segmenta (tas deva meklēšanas un
+    profila lapas). Kandidāti nāk no HTML un no sitemap."""
+    candidates: list[str] = []
     for m in _HREF_RE.finditer(html or ""):
         href = m.group(1)
-        url = _absolute(href, base) if href.startswith("/") else href
-        if not _same_site(url, base) or not probe_allowed(url):
+        candidates.append(_absolute(href, base) if href.startswith("/") else href)
+    candidates.extend(extra_urls or [])
+    picked: dict[str, str] = {}
+    for url in candidates:
+        if not url or not _same_site(url, base) or not probe_allowed(url):
             continue
-        path = re.sub(r"^https?://[^/]+", "", url).strip("/")
-        segs = path.split("/") if path else []
-        if not segs or segs[0] in ("wp-content", "wp-json", "api", "cdn-cgi", "embed"):
-            continue
-        kind = f"{segs[0]}:{len(segs)}"
-        if kind in kinds or url in picked:
-            continue
-        kinds.add(kind)
-        picked.append(url)
+        path = re.sub(r"^https?://[^/]+", "", url)
+        for kind, rx in _CONTENT_PATTERNS:
+            if kind not in picked and rx.match(path):
+                picked[kind] = url
+                break
         if len(picked) >= limit:
             break
     out = []
-    for url in picked:
+    for kind, url in picked.items():
         body = fetch(url)
         if body:
-            out.append(page_summary(body, url))
+            out.append({"kind": kind, **page_summary(body, url)})
         else:
-            out.append({"url": url, "error": "lapa neatbild"})
+            out.append({"kind": kind, "url": url, "error": "lapa neatbild"})
     return out
 
 
