@@ -310,7 +310,45 @@ def parse(html: str) -> dict:
         # raksta pirmās rindkopas — darba materiāls AI punktiem un ierunai
         "body": body_text(html or ""),
     }
+    # tv3.lv/video klips, kas pie raksta pieder (sk. app.videos): lapa un
+    # klipa adrese — no tiem lente un stāsts top no īstā video, un ieraksta
+    # saite ved uz konkrēto video lapu
+    meta.update(article_video(html or ""))
     return meta if any(meta.values()) else {}
+
+
+def article_video(html: str) -> dict:
+    """{video_page, video_clip} no raksta lapas ('' kur nav).
+
+    Signāli pēc uzticamības: schema.org raksta `video` (VideoObject), og:video,
+    tad /video/<id>/ saite raksta SATURA blokā. Saites ārpus tā (sānjosla
+    «Tevi varētu interesēt», izvēlne) netiek ņemtas — citādi lente taptu no
+    sveša klipa.
+    """
+    from app import videos
+
+    page, clip = "", ""
+    for vo in videos._video_objects(html):
+        page = page or videos.canonical_url(videos._first_str(vo.get("url"))
+                                            or videos._first_str(vo.get("@id")))
+        clip = clip or videos._first_str(vo.get("contentUrl"))
+        if page or clip:
+            break
+    og = _meta_one(html, "og:video:secure_url", "og:video:url", "og:video")
+    if og:
+        page = page or videos.canonical_url(og)
+        if not clip and re.search(r"\.(mp4|m3u8)(\?|$)", og, re.I):
+            clip = og
+    if not page:
+        m = _CONTENT_RE.search(html)
+        scope = _RELATED_RE.sub("", m.group("body")) if m else ""
+        links = videos.video_links(scope)
+        page = links[0] if links else ""
+    if page and not clip:
+        m = _CONTENT_RE.search(html)
+        clips = videos.clip_urls(m.group("body") if m else "")
+        clip = clips[0] if clips else ""
+    return {"video_page": page, "video_clip": clip}
 
 
 # Cik raksta teksta paturam. Kamēr izvilkums bija fragments, 3000 pietika;
@@ -531,6 +569,13 @@ def enrich(article, force: bool = False, rules: dict | None = None) -> dict:
     if found:
         raw["_page_meta"] = found
     article.raw_json = raw
+    if found.get("video_page") or found.get("video_clip"):
+        from app import videos
+
+        try:
+            videos.attach_to_article(article, found)
+        except Exception as e:  # noqa: BLE001 — video ir bonuss, ne prasība
+            log.warning("video piesaiste rakstam %s neizdevās: %s", article.id, e)
     return found or meta(article)
 
 
@@ -682,10 +727,17 @@ def video_hint(article) -> str:
     saites nav, tāpēc reel tad iznāk kā slideshow. Sajaukt tos nozīmētu
     solīt AI klipu, kura nav.
     """
-    from app import reels
+    from app import reels, videos
 
+    if videos.is_video_item(article):
+        secs = (article.raw_json or {}).get("_video_seconds") or 0
+        return (f"šis IR tv3.lv/video arhīva klips ({secs or '?'} s), ne raksts: "
+                "ieraksts būs reel vai story no paša klipa, saite ved uz video lapu; "
+                "copy raksti kā aicinājumu noskatīties")
     if reels.article_video(article):
-        return "ir 9:16 videoklips — reel var būvēt no īstā klipa"
+        page = videos.video_page(article)
+        return ("ir 9:16 videoklips — reel var būvēt no īstā klipa"
+                + (f"; saite tad ved uz {page}" if page else ""))
     if has_video(article):
         return ("rakstā ir video, bet klipa saite feed'ā nav — reel tad "
                 "jāveido kā slideshow")

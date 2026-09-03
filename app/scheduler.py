@@ -86,6 +86,12 @@ def start_scheduler() -> BackgroundScheduler:
 
     scheduler.add_job(lambda: _job(weekend.run), "interval", hours=1,
                       id="weekend", max_instances=1, coalesce=True)
+    from app import videos
+
+    # tv3.lv/video arhīvs: jaunie klipi kļūst par rindām (reel/story)
+    scheduler.add_job(lambda: _job(videos.crawl), "interval",
+                      minutes=int(videos.settings().get("interval_minutes") or 30),
+                      id="video_archive", max_instances=1, coalesce=True)
     from app.pipeline import weekly_report
 
     scheduler.add_job(lambda: _job(weekly_report), "cron",

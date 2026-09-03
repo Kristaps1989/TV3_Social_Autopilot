@@ -120,6 +120,30 @@ short_link_base: ""
 # bez šiem signāliem).
 page_meta: true
 
+# tv3.lv/video arhīvs — portāla vertikālie klipi (iekšējais «TikTok»).
+# Raksts ar piesaistītu klipu: lente/stāsts top no īstā video, saite ved uz
+# konkrēto video lapu tv3.lv/video/<id>/ (link_reels_to_video). Klips bez
+# raksta: kļūst par savu rindu (formāts tikai reel/story), iet cauri AI
+# lēmumam, bet ziņu vietu neaizņem — garš pusperiods, savs dienas limits.
+# Zonde: Diagnostika -> «tv3.lv/video arhīvs» -> «Zonde».
+video_archive:
+  enabled: true
+  listing: "https://tv3.lv/video/"     # arhīva saraksta lapa (jaunākie pirmie)
+  feed: ""                             # ja CMS dod video feed (JSON/RSS), liec šeit
+  interval_minutes: 30
+  max_new_per_run: 6
+  min_seconds: 5
+  max_seconds: 180
+  daily_cap: 3                         # klipi bez raksta uz kanālu dienā
+  half_life_hours: 48                  # rindas prioritātē klips noveco lēni
+  max_age_hours: 72                    # vecāku klipu vairs nepublicē
+  link_reels_to_video: true            # arī raksta lente/stāsts ved uz video lapu
+  section_default: entertainment
+  category_sections:                   # dlEvent kategorija -> mūsu sadaļa
+    Ziņas: news
+    Sports: sport
+    Izklaide: entertainment
+
 # tv3.lv pašu īsā saite (tv3.lv/p/<Post ID>) ierakstu tekstā, kad mūsu
 # /r/ kods nav ieslēgts. Tā strādā jau šodien, bez nginx noteikuma, un ir
 # īsa; toties klikšķus neskaita, un UTM birkas paliek tikai tad, ja novirze

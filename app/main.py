@@ -1811,6 +1811,21 @@ def logs_page(request: Request, channel: str = "", level: str = "",
         session.close()
 
 
+@app.get("/logs/video-probe")
+def video_probe(url: str = ""):
+    """tv3.lv/video zonde: ko parsētājs redz dzīvajā lapā — saraksts, video
+    lapa vai raksts. Tā portāla struktūru pārbauda no Railway, kur tv3.lv ir
+    sasniedzams, un rezultātu var iedot izstrādātājam."""
+    from fastapi.responses import JSONResponse
+
+    from app import videos
+
+    url = (url or "").strip() or str(videos.settings().get("listing") or "")
+    if not url.startswith("http") or "tv3.lv" not in url:
+        return JSONResponse({"error": "dod tv3.lv adresi"}, status_code=400)
+    return JSONResponse(videos.probe(url))
+
+
 @app.get("/logs/export.json")
 def logs_export(channel: str = "", lines: int = 500):
     """Viss vienā JSON failā — to var iedot izstrādātājam vai AI asistentam,

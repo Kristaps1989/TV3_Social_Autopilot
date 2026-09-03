@@ -131,6 +131,15 @@ def simulate(session, name: str, cfg: dict, article: Article) -> list[dict]:
     return out
 
 
+def _video_summary(session) -> dict:
+    from app import videos
+
+    try:
+        return videos.summary(session)
+    except Exception as e:  # noqa: BLE001 — diagnostika nedrīkst krist
+        return {"error": str(e)[:200]}
+
+
 def report(session, channel: str = "", posts: int = 15,
            simulate_article: bool = False) -> dict:
     """Visa diagnostika vienā struktūrā (lapai, eksportam un skriptam)."""
@@ -156,6 +165,7 @@ def report(session, channel: str = "", posts: int = 15,
         "last_render_error": cards.last_render_failure(),
         "ads_mode": get_setting(session, "ads:mode", "off"),
         "published_24h": mix,
+        "video_archive": _video_summary(session),
         "channels": [channel_diagnostics(session, name, cfg or {}, posts)
                      for name, cfg in channels.items()],
         "ads": _ads_summary(session),

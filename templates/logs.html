@@ -140,6 +140,32 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
   <span class="muted">— ko sistēma izvēlētos šobrīd jaunākajam rakstam.</span></p>
 {% endif %}
 
+{% set va = data.video_archive or {} %}
+<div class="card">
+  <h2>tv3.lv/video arhīvs <span class="muted" style="font-weight:400;font-size:.85rem">
+    vertikālie klipi kā reel/story, saite uz konkrēto video lapu</span></h2>
+  {% if va.error %}<p class="notice err">{{ va.error }}</p>{% else %}
+  <table>
+    <tr><td>Stāvoklis</td><td>{{ 'ieslēgts ✓' if va.enabled else 'izslēgts (video_archive.enabled)' }}
+      · saraksts <code>{{ va.listing }}</code>{% if va.feed %} · feed <code>{{ va.feed }}</code>{% endif %}</td></tr>
+    <tr><td>Klipi bez raksta</td><td>{{ va.items }} (ar klipa adresi {{ va.items_with_clip }}, vēl neizlemti {{ va.items_undecided }})</td></tr>
+    <tr><td>Raksti ar piesaistītu video</td><td>{{ va.linked_articles }}</td></tr>
+    <tr><td>Publicēti 7 dienās</td><td>{{ va.published_7d }}
+      ({% for f, n in (va.published_7d_by_format or {}).items() %}{{ f }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %})
+      · dienas limits kanālā {{ va.daily_cap }}</td></tr>
+    <tr><td>Pēdējais apgājiens</td><td>{% if va.last_crawl %}{{ va.last_crawl.at }} — redzēti {{ va.last_crawl.seen }},
+      jauni {{ va.last_crawl.new }}, jau rakstos {{ va.last_crawl.covered }}, izlaisti {{ va.last_crawl.skipped }}
+      {% else %}vēl nav bijis{% endif %}</td></tr>
+  </table>
+  <form method="get" action="/logs/video-probe" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem">
+    <input type="text" name="url" value="{{ va.listing }}" style="min-width:24rem"
+           placeholder="https://tv3.lv/video/ vai https://tv3.lv/video/<id>/ vai raksta adrese">
+    <button>Zonde: ko parsētājs redz</button>
+    <span class="muted">— atver JSON; ja klipu saraksts vai klipa adrese ir tukša, nokopē to izstrādātājam.</span>
+  </form>
+  {% endif %}
+</div>
+
 <div class="card">
   <h2>Žurnāls <span class="muted" style="font-weight:400;font-size:.85rem">
     pēdējie ieraksti procesa atmiņā; konteinera pārstarts tos notīra</span></h2>

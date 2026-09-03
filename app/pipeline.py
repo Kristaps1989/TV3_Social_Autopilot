@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from adapters import get_adapter
 from adapters.base import PublishError
-from app import config, credentials, disclosure, pagemeta, shortlinks, tts
+from app import config, credentials, disclosure, pagemeta, shortlinks, tts, videos
 from app.best_practices import (PLATFORM_SPECS, add_utm, alt_text, assemble_post_text,
                                 sanitize_copy)
 from app.decide import decide
@@ -103,6 +103,19 @@ def run_decisions(session, limit: int = 20) -> int:
             if existing and repost_at is None:
                 continue
 
+            if videos.is_video_item(article):
+                # arhīva klips: kanālam vajag reel/story, un klipi nedrīkst
+                # aizņemt ziņu vietu — savs dienas limits
+                if not videos.channel_formats(cfg):
+                    session.add(Evaluation(article_id=article.id, channel=channel,
+                                           outcome="blocked",
+                                           reason="video arhīvs: kanālā nav reel/story formāta"))
+                    continue
+                if videos.over_daily_cap(session, channel):
+                    session.add(Evaluation(article_id=article.id, channel=channel,
+                                           outcome="blocked",
+                                           reason="video arhīvs: dienas limits kanālā"))
+                    continue
             format_notes: list[str] = []
             format_trace: dict = {}
             fmt, card_media, recipe = resolve_format(session, channel, cfg,
@@ -185,7 +198,8 @@ def run_decisions(session, limit: int = 20) -> int:
                 article_id=article.id, channel=channel, format=fmt,
                 copy=copy, hashtags=hashtags, media=media,
                 hook_type=str(ch_dec.get("hook_type") or ""),
-                link_url=article.canonical_url or article.url,
+                # lente/stāsts no tv3.lv/video klipa ved uz konkrēto video lapu
+                link_url=videos.link_for(article, fmt),
                 scheduled_at=slot, state="scheduled", dry_run=runtime.is_dry_run(session),
                 # ar kādu grafiku izkārtojumu šis attēls uzzīmēts: ieraksts var
                 # nostāvēt rindā stundas, un dizaina labojums citādi to vairs
@@ -718,6 +732,8 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
 
     if notes is None:
         notes = []
+    if videos.is_video_item(article):
+        return resolve_video_format(session, channel, cfg, article, notes, trace)
     ai_fmt = ch_dec.get("format")
     if ai_fmt in RICH_FORMATS and ai_fmt in (cfg.get("formats") or []) and enforce:
         why = rich_format_gate(session, channel, cfg, article, ai_fmt)
@@ -882,6 +898,40 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
     if fmt == "link" and link_card_hurts(session, channel, cfg, article)[0]:
         fmt = "photo"
     return fmt, [], {}
+
+
+def resolve_video_format(session, channel: str, cfg: dict, article,
+                         notes: list[str], trace: dict | None = None):
+    """Arhīva klipa formāts: reel no paša klipa, kur kanāls to nes; citādi
+    story (arī no klipa — sk. story_media). Kvotu un AI izvēles te nav: klips
+    ir viens formāts pēc būtības, un tā vietu plūsmā ierobežo
+    `video_archive.daily_cap`, ne formātu mikss."""
+    from app import cards, reels
+
+    allowed = videos.channel_formats(cfg)
+    video = reels.article_video(article)
+    picked = {"allowed": allowed, "chosen": "", "decision": ""}
+    if "reel" in allowed and video and reels.available():
+        try:
+            media = [reels.build_video_reel(video)]
+            picked.update(chosen="reel", decision="tv3.lv/video klips -> reel no paša klipa")
+            if trace is not None:
+                trace.update(picked)
+            return "reel", media, {"kind": "video_clip", "video": videos.video_page(article)}
+        except Exception as e:  # noqa: BLE001
+            log.warning("video reel failed for article %s: %s", article.id, e)
+            cards.record_render_failure("video_reel", e)
+            notes.append(f"reel → story: klipa lente neizdevās ({str(e)[:80]})")
+    if "story" in allowed:
+        picked.update(chosen="story", decision="tv3.lv/video klips -> story no klipa")
+        if trace is not None:
+            trace.update(picked)
+        return "story", [], {"kind": "video_clip", "video": videos.video_page(article)}
+    picked.update(chosen=allowed[0] if allowed else "reel",
+                  decision="kanāls klipam nav piemērots")
+    if trace is not None:
+        trace.update(picked)
+    return picked["chosen"], [], {}
 
 
 def link_card_hurts(session, channel: str, cfg: dict, article,

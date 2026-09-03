@@ -173,7 +173,14 @@ def priority(post: Post, now: datetime, rules: dict | None = None) -> float:
         return base
     ref = article.published_at or article.first_seen_at or now
     age = max(0.0, (now - ref).total_seconds() / 3600)
-    return base * 0.5 ** (age / half_life_hours(article.section or "news", rules))
+    if (article.raw_json or {}).get("_video"):
+        # arhīva klips nav ziņa: tas aizpilda tukšumus, nevis cīnās par vietu
+        from app import videos
+
+        hl = float(videos.settings(rules).get("half_life_hours") or 48)
+    else:
+        hl = half_life_hours(article.section or "news", rules)
+    return base * 0.5 ** (age / hl)
 
 
 def _quiet_exempt(section: str, score: float, age_hours: float | None,

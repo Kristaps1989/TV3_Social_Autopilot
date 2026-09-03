@@ -284,6 +284,13 @@ Tad kartītes attēlu izvēlamies mēs (`link_card_custom_picture`):
 Kamēr domēns nav verificēts, viss iepriekšējais (sliekšņi, pārslēgšana uz
 photo, sargs) darbojas kā līdz šim.
 
+## tv3.lv/video arhīvs
+
+Īsts vertikāls klips sit slideshow; tāpēc raksta lente un stāsts top no
+piesaistītā tv3.lv/video klipa, un klipi bez raksta kļūst par reel/story ar
+savu dienas limitu. Saite šādos ierakstos ved uz konkrēto video lapu, ne uz
+rakstu — tā skatītājs paliek portāla video plūsmā. Sīkāk: `docs/video-archive.md`.
+
 ## Format → clicks
 
 - Link post = best CTR to site → default for news/politics/sport.
