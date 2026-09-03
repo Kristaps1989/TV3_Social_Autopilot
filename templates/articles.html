@@ -22,7 +22,8 @@ virsrakstu.</p>
   <tr>
     <td>{{ a.first_seen_at | local }}</td>
     <td><a href="/why?url={{ a.canonical_url | urlencode }}">{{ a.title[:90] }}</a>
-      {%- if (a.raw_json or {}).get('_video') %} <span title="tv3.lv/video arhīva klips">🎬</span>
+      {%- if (a.raw_json or {}).get('_play') %} <span title="TV3 Play nosaukums">▶️</span>
+      {%- elif (a.raw_json or {}).get('_video') %} <span title="tv3.lv/video arhīva klips">🎬</span>
       {%- elif (a.raw_json or {}).get('_video_page') %} <span title="rakstam piesaistīts tv3.lv/video klips">🎞️</span>{% endif %}</td>
     <td>{{ a.section }}
       <span class="muted" style="font-size:.75rem">

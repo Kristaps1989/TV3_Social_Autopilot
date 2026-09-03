@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from adapters import get_adapter
 from adapters.base import PublishError
-from app import config, credentials, disclosure, pagemeta, shortlinks, tts, videos
+from app import config, credentials, disclosure, pagemeta, play, shortlinks, tts, videos
 from app.best_practices import (PLATFORM_SPECS, add_utm, alt_text, assemble_post_text,
                                 sanitize_copy)
 from app.decide import decide
@@ -103,6 +103,14 @@ def run_decisions(session, limit: int = 20) -> int:
             if existing and repost_at is None:
                 continue
 
+            if play.is_play_item(article):
+                # TV3 Play promo: ētikas sargi un kvotas (docs/play-strategy.md)
+                ok, why_not = play.allowed_now(session, article, channel,
+                                               ch_dec.get("format") or "")
+                if not ok:
+                    session.add(Evaluation(article_id=article.id, channel=channel,
+                                           outcome="blocked", reason=f"Play: {why_not}"))
+                    continue
             if videos.is_video_item(article):
                 # arhīva klips: kanālam vajag reel/story, un klipi nedrīkst
                 # aizņemt ziņu vietu — savs dienas limits
@@ -163,7 +171,7 @@ def run_decisions(session, limit: int = 20) -> int:
             slot, why = plan_slot(session, channel, cfg, verdict,
                                   article.section, fmt, article.title, now, preferred,
                                   score=score, allow_similar=bool(existing),
-                                  age_hours=age_hours)
+                                  age_hours=age_hours, promo=play.is_play_item(article))
             late = False
             if slot is None and verdict.latest is not None:
                 # Pilna rinda statusa logā: vēlāks slots ir labāks par
@@ -934,6 +942,14 @@ def resolve_video_format(session, channel: str, cfg: dict, article,
     return picked["chosen"], [], {}
 
 
+def utm_campaign(post) -> str:
+    """GA4 kampaņa saitei: TV3 Play promo iet ar savu (`play`), viss cits ar
+    «autopilot» — tā Play sesijas un skatīšanās sākumi neplūst kopā ar rakstiem."""
+    if post is not None and play.is_play_item(getattr(post, "article", None)):
+        return str(play.settings().get("campaign") or "play")
+    return "autopilot"
+
+
 def link_card_hurts(session, channel: str, cfg: dict, article,
                     rules: dict | None = None) -> tuple[bool, float]:
     """(vai pārslēgt uz photo TAGAD, cik daudz kartīte nogrieztu).
@@ -1190,7 +1206,8 @@ def reading_list(post, platform: str, rules: dict | None = None,
         lines.append(f"{i}. {it['title']}")
         if links and it.get("url"):
             full = add_utm(it["url"], platform, post.id,
-                           hook=f"{hook}-{i}" if hook else str(i))
+                           hook=f"{hook}-{i}" if hook else str(i),
+                           campaign=utm_campaign(post))
             lines.append(full)
     return "\n".join(lines)
 
@@ -1388,7 +1405,8 @@ def publish_due(session) -> int:
         session.commit()
         try:
             rules = config.load_rules()
-            link = (add_utm(post.link_url, platform, post.id, hook=post.hook_type or "")
+            link = (add_utm(post.link_url, platform, post.id, hook=post.hook_type or "",
+                            campaign=utm_campaign(post))
                     if post.link_url else "")
             # what a reader sees: the tv3.lv short link when one is configured
             # (the full tracked URL still goes to the API as the link target,
@@ -1408,7 +1426,7 @@ def publish_due(session) -> int:
             card_links = [
                 add_utm(u, platform, post.id,
                         hook=f"{hook_base}-karte{i + 1}" if hook_base
-                        else f"karte{i + 1}")
+                        else f"karte{i + 1}", campaign=utm_campaign(post))
                 if u else "" for i, u in enumerate(raw_card_links)]
             card_titles = (post.extra or {}).get("card_titles") or []
             if (not card_titles and post.format == "card_carousel"

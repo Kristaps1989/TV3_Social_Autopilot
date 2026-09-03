@@ -107,6 +107,10 @@ def evaluate(article: Article, channel_name: str, channel_cfg: dict,
         from app import videos
 
         max_age = videos.settings(rules).get("max_age_hours", 72)
+    if (article.raw_json or {}).get("_play"):
+        from app import play
+
+        max_age = play.settings(rules).get("max_age_hours", 240)
     fresh_until = None
     if max_age is not None and article.editor_timeframe != "evergreen":
         if article_age_hours(article, now) > float(max_age):
@@ -127,6 +131,12 @@ def evaluate(article: Article, channel_name: str, channel_cfg: dict,
             if status in (rule.get("unless_status") or []):
                 continue
             windows.extend(parse_window(w) for w in rule.get("allow") or [])
+
+    if (article.raw_json or {}).get("_play"):
+        # TV3 Play promo tikai vakara logā; 16+/18+ vēl vēlāk
+        from app import play
+
+        windows.extend(parse_window(w) for w in play.windows_for(article, rules))
 
     # 6. Deadline for 'must'
     latest = None

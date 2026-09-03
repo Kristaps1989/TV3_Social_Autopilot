@@ -212,6 +212,7 @@ Ievads: {article.lead[:600]}
 Sadaļa (no feed, var būt kļūdaina — klasificē pats laukā section): {article.section}
 Attēli: {len(article.images or [])}
 Video: {pagemeta.video_hint(article)}
+{("TV3 Play: " + _play_hint(article)) if _play_hint(article) else ""}
 Redaktora statuss: {article.editor_status}
 Publicēts: {article.published_at}
 {cms}
@@ -414,6 +415,12 @@ def fallback_decision(article: Article, verdicts: dict[str, Verdict]) -> dict:
             for name in eligible
         ] if publish else [],
     }
+
+
+def _play_hint(article) -> str:
+    from app import play
+
+    return play.hint(article) if play.is_play_item(article) else ""
 
 
 def decide(article: Article, verdicts: dict[str, Verdict], session) -> dict:

@@ -138,6 +138,26 @@ labākie formāti, drūmās dienas pauzes.
 | P2 | izlašu franšīze ar apstiprināšanu, entītiju tilti, drūmās dienas režīms ar automātiku | P1 + 2 nedēļu dati |
 | P3 | maksas boost, Demand Gen, nosaukumu prioritātes no skatīšanās sākumiem | GA4 Play notikumi |
 
+## Ieviešanas stāvoklis (03.09.2026)
+
+P1 ir kodā (`app/play.py`), bet **izslēgts** (`play.enabled: false`), līdz
+redakcija to ieslēdz Noteikumos:
+
+- katalogs no `sitemap-latest.xml` un tekošā mēneša sitemapa reizi stundā;
+  ziņu raidījumi (TV3 Ziņas, Degpunktā, 900 sekundes, Bez Tabu, Nekā
+  personīga) un tiešraides izslēgtas, klipi zem 5 min izslēgti;
+- žanrs, cenzs un plakāts no nosaukuma lapas (`video:tag`, JSON-LD `genre`,
+  `contentRating`); sērijas manto raidījuma datus; `genre_overrides` ar roku;
+- formāti link / photo / story, saite uz Play lapu ar `utm_campaign=play`;
+- sargi kodā: vakara logs 19:00–22:30 (16+/18+ no 21:00), 90 min attālums no
+  traģēdijas vai nozieguma ieraksta tajā pašā kanālā, drūmas dienas režīms
+  (≥ 40 % traģēdiju/noziegumu pēdējās 6 h → tikai mierīgi žanri; nezināms
+  žanrs = bloķēts), viena raidījuma atkārtojums ne biežāk kā reizi 14 dienās,
+  1 dienā (nedēļas nogalē 2) un 1 stāsts, ne vairāk kā 10 % nedēļas plūsmas;
+- Diagnostikā bloks «TV3 Play» ar stāvokli, drūmās dienas rādītāju, katalogu
+  un pogu «Pauzēt Play promo»;
+- vēl nav (P2/P3): izlašu karuseļi, entītiju tilti no rakstiem, maksas boost.
+
 ## 11. Atklātie jautājumi
 
 1. Vai Play ir kataloga API, un vai tajā ir vecuma cenzs un pieejamības logs?

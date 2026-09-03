@@ -68,15 +68,17 @@ EMOJI_RE = re.compile(
 SOBER_SENSITIVITIES = {"tragedy", "crime"}
 
 
-def add_utm(url: str, platform: str, post_id: int | str, hook: str = "") -> str:
+def add_utm(url: str, platform: str, post_id: int | str, hook: str = "",
+            campaign: str = "autopilot") -> str:
     """Every outbound link is measurable: utm_content carries the post id,
-    utm_term the hook style (the cross-platform A/B dimension)."""
+    utm_term the hook style (the cross-platform A/B dimension). `campaign`
+    šķir plūsmas GA4: rakstiem «autopilot», TV3 Play promo «play»."""
     parsed = urlparse(url)
     query = dict(parse_qsl(parsed.query))
     query.update({
         "utm_source": platform,
         "utm_medium": "social",
-        "utm_campaign": "autopilot",
+        "utm_campaign": campaign or "autopilot",
         "utm_content": str(post_id),
     })
     if hook:

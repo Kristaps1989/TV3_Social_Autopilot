@@ -177,13 +177,28 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
   {% endif %}
 </div>
 
+{% set pl = data.play or {} %}
 <div class="card">
   <h2>TV3 Play (play.tv3.lv) <span class="muted" style="font-weight:400;font-size:.85rem">
-    seriāli un filmas — izpēte pirms pieslēgšanas (sk. docs/play-strategy.md)</span></h2>
-  <p class="muted" style="margin:.2rem 0 .6rem">Poga ielādē play.tv3.lv sākumlapu, tās iebūvētos datus,
-    sitemap un robots.txt, skriptus un no tiem izraksta API adreses ar atbilžu paraugiem —
-    viss, kas vajadzīgs kataloga pieslēgšanai. Rezultātu nokopē un ielīmē sarunā ar izstrādātāju.</p>
-  <p><a class="button primary" href="/logs/site-probe/auto?site=play" target="_blank">Izpētīt TV3 Play automātiski</a></p>
+    seriāli un filmas kā promo ar ētikas sargiem (docs/play-strategy.md)</span></h2>
+  {% if pl.error %}<p class="notice err">{{ pl.error }}</p>{% else %}
+  <table>
+    <tr><td>Stāvoklis</td><td>{{ 'ieslēgts ✓' if pl.enabled else 'IZSLĒGTS — ieslēdz ar play.enabled: true Noteikumos' }}
+      {% if pl.paused %} · <strong>pauzēts ar roku</strong>{% endif %}</td></tr>
+    <tr><td>Drūma diena</td><td>{% if pl.somber %}<strong>JĀ</strong> — traģēdiju/noziegumu daļa {{ (pl.grim_share * 100) | round | int }}%,
+      Play tikai mierīgos žanros{% else %}nē (traģēdiju daļa {{ (pl.grim_share * 100) | round | int }}%){% endif %}</td></tr>
+    <tr><td>Katalogs</td><td>{{ pl['items'] }} nosaukumi (ar žanru {{ pl.items_with_genre }}, vēl neizlemti {{ pl.items_undecided }})</td></tr>
+    <tr><td>Publicēti 7 dienās</td><td>{{ pl.published_7d }} · logs {{ pl.windows }} · dienā {{ pl.daily_cap }} · plūsmas daļa līdz {{ (pl.feed_share * 100) | round | int }}%</td></tr>
+    <tr><td>Pēdējais apgājiens</td><td>{% if pl.last_crawl %}{{ pl.last_crawl.at }} — redzēti {{ pl.last_crawl.seen }},
+      jauni {{ pl.last_crawl.new }}, izslēgti {{ pl.last_crawl.excluded }}{% else %}vēl nav bijis{% endif %}</td></tr>
+  </table>
+  <p style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.6rem">
+    <form method="post" action="/toggle/play-pause" class="inline">
+      <button>{{ 'Atsākt Play promo' if pl.paused else 'Pauzēt Play promo (sēru diena)' }}</button>
+    </form>
+    <a class="button" href="/logs/site-probe/auto?site=play" target="_blank">Izpētīt play.tv3.lv (JSON)</a>
+  </p>
+  {% endif %}
 </div>
 
 <div class="card">

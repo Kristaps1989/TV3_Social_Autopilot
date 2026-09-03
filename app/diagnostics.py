@@ -140,6 +140,15 @@ def _video_summary(session) -> dict:
         return {"error": str(e)[:200]}
 
 
+def _play_summary(session) -> dict:
+    from app import play
+
+    try:
+        return play.summary(session)
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:200]}
+
+
 def report(session, channel: str = "", posts: int = 15,
            simulate_article: bool = False) -> dict:
     """Visa diagnostika vienā struktūrā (lapai, eksportam un skriptam)."""
@@ -166,6 +175,7 @@ def report(session, channel: str = "", posts: int = 15,
         "ads_mode": get_setting(session, "ads:mode", "off"),
         "published_24h": mix,
         "video_archive": _video_summary(session),
+        "play": _play_summary(session),
         "channels": [channel_diagnostics(session, name, cfg or {}, posts)
                      for name, cfg in channels.items()],
         "ads": _ads_summary(session),

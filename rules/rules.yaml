@@ -120,6 +120,30 @@ short_link_base: ""
 # bez šiem signāliem).
 page_meta: true
 
+# TV3 Play (play.tv3.lv) promo — seriāli, filmas, raidījumi no Play
+# sitemapiem (docs/play-strategy.md). IZSLĒGTS pēc noklusējuma: ieslēdz
+# enabled: true, kad esi gatavs. Ētikas sargi: nekad blakus traģēdijai vai
+# noziegumam, drūmas dienas režīms, vakara logs, viena nosaukuma atkārtojums
+# ne biežāk kā reizi 14 dienās, ne vairāk kā desmitā daļa plūsmas.
+play:
+  enabled: false
+  sitemaps: ["/sitemaps/sitemap-latest.xml", "/sitemaps/sitemap-{month}.xml"]
+  exclude_slugs: [tv3-zinas, tv3-zinas-isuma, degpunkta, 900-sekundes, bez-tabu, neka-personiga, tiesraides]
+  min_seconds: 300
+  daily_cap: 1
+  weekend_daily_cap: 2
+  story_daily_cap: 1
+  feed_share: 0.10
+  windows: ["19:00-22:30"]
+  adult_window: "21:00-23:59"
+  adjacency_minutes: 90
+  somber:
+    window_hours: 6
+    threshold: 0.4
+    allowed_genres: [ģimenes, komēdija, drāma, dokumentāl, kulinār, ceļojum, daba, bērn]
+  title_cooldown_days: 14
+  genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
+
 # tv3.lv/video arhīvs — portāla vertikālie klipi (iekšējais «TikTok»).
 # Raksts ar piesaistītu klipu: lente/stāsts top no īstā video, saite ved uz
 # konkrēto video lapu tv3.lv/video/<id>/ (link_reels_to_video). Klips bez

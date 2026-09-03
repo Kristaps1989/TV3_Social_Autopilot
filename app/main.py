@@ -318,6 +318,18 @@ def toggle_kill():
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/toggle/play-pause")
+def toggle_play_pause():
+    """TV3 Play promo pauze ar roku (sēru diena, liela katastrofa)."""
+    session = get_session()
+    try:
+        current = get_setting(session, "play:pause")
+        set_setting(session, "play:pause", "" if current == "on" else "on")
+    finally:
+        session.close()
+    return RedirectResponse("/logs", status_code=303)
+
+
 @app.post("/toggle/pause/{channel}")
 def toggle_pause(channel: str):
     session = get_session()
@@ -432,8 +444,11 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
         platform = cfg.get("platform", "")
         from app.best_practices import add_utm, assemble_post_text
 
+        from app.pipeline import utm_campaign
+
         link = add_utm(post.link_url, platform, post.id,
-                       hook=post.hook_type or "") if post.link_url else ""
+                       hook=post.hook_type or "",
+                       campaign=utm_campaign(post)) if post.link_url else ""
         shown = shortlinks.display_link(post.id, link, None, post.article)
         # kura īsā saite tika izvēlēta: mūsu /r/ kods (skaita klikšķus) vai
         # CMS /p/<id> (īsa, bet klikšķus neskaita)
@@ -611,7 +626,10 @@ def short_link(request: Request, code: str):
         if post is None or not post.link_url:
             return RedirectResponse(home, status_code=302)
         platform = (config.load_channels().get(post.channel) or {}).get("platform", "")
-        target = add_utm(post.link_url, platform, post.id, hook=post.hook_type or "")
+        from app.pipeline import utm_campaign
+
+        target = add_utm(post.link_url, platform, post.id, hook=post.hook_type or "",
+                         campaign=utm_campaign(post))
         # carry through whatever the platform appended (fbclid & co)
         extra = str(request.url.query or "")
         if extra:

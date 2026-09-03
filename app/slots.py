@@ -173,7 +173,11 @@ def priority(post: Post, now: datetime, rules: dict | None = None) -> float:
         return base
     ref = article.published_at or article.first_seen_at or now
     age = max(0.0, (now - ref).total_seconds() / 3600)
-    if (article.raw_json or {}).get("_video"):
+    if (article.raw_json or {}).get("_play"):
+        from app import play as _play
+
+        hl = float(_play.settings(rules).get("half_life_hours") or 72)
+    elif (article.raw_json or {}).get("_video"):
         # arhīva klips nav ziņa: tas aizpilda tukšumus, nevis cīnās par vietu
         from app import videos
 
@@ -212,7 +216,8 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
               score: float = 0.0,
               allow_similar: bool = False,
               pending: int = 0,
-              age_hours: float | None = None) -> tuple[datetime | None, str]:
+              age_hours: float | None = None,
+              promo: bool = False) -> tuple[datetime | None, str]:
     """(slot, reason) — earliest valid slot honouring all constraints, and
     when nothing fits, which guard actually blocked it.
 
@@ -273,7 +278,14 @@ def plan_slot(session, channel: str, channel_cfg: dict, verdict: Verdict,
                 and not _quiet_exempt(section, score, age_hours, rules)):
             return no("klusās stundas")
         if not _window_ok(local_dt, verdict.allowed_windows):
-            return no("jutīga satura laika logs")
+            return no("jutīga satura laika logs" if not promo else "Play vakara logs")
+        if promo:
+            # izklaides promo nekad blakus traģēdijai vai noziegumam
+            from app import play as _play
+
+            why_close = _play.too_close_to_grim(queue, candidate, rules)
+            if why_close:
+                return no(why_close)
         for p in queue:
             if p.scheduled_at and abs(p.scheduled_at - candidate) < min_gap:
                 return no("minimālā atstarpe — rinda pilna")

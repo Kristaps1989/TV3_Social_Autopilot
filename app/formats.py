@@ -74,6 +74,10 @@ DEFAULT_FORMAT_MIX: dict[str, float] = {}
 
 def suitable_formats(article: Article, allowed: list[str]) -> list[str]:
     images = article.images or []
+    if (article.raw_json or {}).get("_play"):
+        # TV3 Play nosaukums: saite, foto (plakāts ar plāksni) vai stāsts —
+        # klipu straumes nav, tāpēc ne lente, ne karuselis
+        return [f for f in allowed if f in ("link", "photo", "story")]
     if (article.raw_json or {}).get("_video"):
         # tv3.lv/video arhīva klips: tikai lente vai stāsts no paša klipa —
         # saites kartīte vai foto no sīktēla būtu tikai vājāka klipa versija
