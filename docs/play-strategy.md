@@ -155,8 +155,30 @@ redakcija to ieslēdz Noteikumos:
   žanrs = bloķēts), viena raidījuma atkārtojums ne biežāk kā reizi 14 dienās,
   1 dienā (nedēļas nogalē 2) un 1 stāsts, ne vairāk kā 10 % nedēļas plūsmas;
 - Diagnostikā bloks «TV3 Play» ar stāvokli, drūmās dienas rādītāju, katalogu
-  un pogu «Pauzēt Play promo»;
-- vēl nav (P2/P3): izlašu karuseļi, entītiju tilti no rakstiem, maksas boost.
+  un pogu «Pauzēt Play promo».
+
+P2 un P3 arī ir kodā (tie paši slēdži):
+
+- **izlašu karuselis** (`build_selection`): piektdienās, sestdienās un
+  svētdienās no 17:00 tiek uzbūvēts 3–5 nosaukumu karuselis vakara logam
+  (19:30 Rīgā), pa vienam uz raidījumu, bez 14 dienās rādītajiem, bez 16+,
+  drūmā dienā tikai mierīgi žanri, ne vairāk kā 2 viena žanra; katra kartīte
+  ved uz savu Play lapu ar savu `utm_term`, saraksts pirmajā komentārā;
+  slots atkāpjas no traģēdijas ieraksta; `selection_requires_approval`
+  atstāj ierakstu stāvoklī «proposed», līdz redaktors apstiprina;
+- **entītiju tilti** (`bridge_for_article`): izklaides vai sporta raksts, kura
+  virsrakstā vai tagos ir Play raidījuma nosaukums, saņem rindu «Skaties …
+  bez maksas TV3 Play» pirmajā komentārā (FB/IG) vai aprakstā saites
+  ierakstam; nekad no traģēdijas/nozieguma vai ar jutīgumu, nekad drūmā
+  dienā, ne biežāk kā reizi 3 dienās uz raidījumu, X/Threads tekstā nē;
+- **maksas boost** (`ads.candidates`): Play ieraksti nonāk reklāmu kandidātos
+  tikai tad, kad organiski sasnieguši slieksni (1000 sasniegti vai 10
+  klikšķi), saņem ne vairāk kā `ads:play_share` (15 %) no konversiju
+  budžeta, drūmā dienā tiek apturēti; Google trafiks tiem iet caur to pašu
+  Demand Gen;
+- **nosaukumu prioritātes** (`title_scores`): sesijas (vai klikšķi) uz 1000
+  sasniegtajiem pa raidījumiem no Play ierakstu metrikām — kārto izlases un
+  reklāmu kandidātus; tiklīdz GA4 dod Play `video_start`, te maina avotu.
 
 ## 11. Atklātie jautājumi
 

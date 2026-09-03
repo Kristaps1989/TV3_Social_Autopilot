@@ -59,6 +59,20 @@ DEFAULTS = {
     "max_age_hours": 240,
     "genre_overrides": {},            # slug -> [žanri]
     "campaign": "play",
+    # P2: izlašu karuselis (3–5 nosaukumi, katra kartīte ar savu saiti)
+    "selection_channel": "fb_tv3lv",
+    "selection_days": [4, 5, 6],      # piektdiena, sestdiena, svētdiena
+    "selection_build_hour": 17,       # būvē no 17:00, publicē vakara logā
+    "selection_hour": 19,
+    "selection_size": 5,
+    "selection_requires_approval": True,   # pirmajā mēnesī redaktors apstiprina
+    # P2: entītiju tilti — raksts par raidījumu/personu ved uz Play nosaukumu
+    "bridges": True,
+    "bridge_sections": ["entertainment", "sport"],
+    "bridge_cooldown_days": 3,
+    # P3: maksas pastiprināšana tikai organiski strādājošiem ierakstiem
+    "boost_min_impressions": 1000,
+    "boost_min_clicks": 10,
 }
 
 _LOC_RE = re.compile(
@@ -461,7 +475,18 @@ def summary(session, rules: dict | None = None, now: datetime | None = None) -> 
         last = json.loads(raw) if raw else {}
     except ValueError:
         last = {}
+    bridged = [a for a in session.execute(
+        select(Article).where(Article.raw_json["_play_bridge"].as_string() != "")).scalars().all()
+        if (a.raw_json or {}).get("_play_bridge")]
+    selections = session.execute(
+        select(Post).where(Post.hook_type == SELECTION_MARKER,
+                           Post.state.in_(("proposed", "scheduled", "published")))).scalars().all()
+    scores = title_scores(session)
     return {
+        "bridged_articles": len(bridged),
+        "selections": len(selections),
+        "selections_pending": sum(1 for p in selections if p.state == "proposed"),
+        "top_titles": sorted(scores.items(), key=lambda kv: -kv[1])[:5],
         "enabled": bool(cfg.get("enabled")), "paused": paused(session),
         "somber": is_somber, "grim_share": share,
         "items": len(items),
@@ -471,3 +496,275 @@ def summary(session, rules: dict | None = None, now: datetime | None = None) -> 
         "windows": cfg.get("windows"), "daily_cap": cfg.get("daily_cap"),
         "feed_share": cfg.get("feed_share"), "last_crawl": last,
     }
+
+
+# --- P3: nosaukumu prioritātes no mērījumiem -----------------------------------
+
+def title_scores(session, days: int = 60) -> dict[str, float]:
+    """show_id -> sesijas uz 1000 sasniegtajiem (GA4 + platformu insights) no
+    Play ierakstiem. Bez GA4 Play notikumiem tas ir tuvākais «skatīšanās
+    sākumam», kas mums ir; tiklīdz GA4 dod video_start, te maina avotu."""
+    from sqlalchemy import func
+
+    from app.models import PostMetrics
+
+    since = utcnow() - timedelta(days=days)
+    rows = session.execute(
+        select(Post, func.max(PostMetrics.impressions), func.max(PostMetrics.clicks),
+               func.max(PostMetrics.ga_sessions))
+        .join(PostMetrics, PostMetrics.post_id == Post.id)
+        .where(Post.state == "published", Post.published_at >= since)
+        .group_by(Post.id)).all()
+    agg: dict[str, list[float]] = {}
+    for post, imp, clicks, sess in rows:
+        if not is_play_item(post.article):
+            continue
+        sid = str(play_data(post.article).get("show_id") or "")
+        if not sid:
+            continue
+        a = agg.setdefault(sid, [0.0, 0.0])
+        a[0] += float(imp or 0)
+        a[1] += float(max(sess or 0, clicks or 0))
+    return {sid: round(1000.0 * v[1] / v[0], 2) for sid, v in agg.items() if v[0] >= 200}
+
+
+# --- P2: izlašu karuselis ------------------------------------------------------
+
+SELECTION_MARKER = "playselection"
+THEMES = {4: "Piektdienas vakaram", 5: "Sestdienas izlase", 6: "Svētdienas izlase"}
+
+
+def _norm(text: str) -> str:
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", str(text or "").lower())
+    t = "".join(ch for ch in t if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+def _first_genre(article) -> str:
+    g = play_data(article).get("genres") or []
+    return _norm(g[0]) if g else ""
+
+
+def selection_candidates(session, cfg: dict, now: datetime, channel: str) -> list[Article]:
+    """Nosaukumi izlasei: pa vienam uz raidījumu, bez nesen rādītiem, bez
+    16+/18+ (vakars sākas 19:00), drūmā dienā tikai mierīgi žanri, žanru
+    dažādība, priekšroka ar plakātu un labāku mērīto rezultātu."""
+    rows = session.execute(
+        select(Article).where(Article.feed_name == FEED_NAME)
+        .order_by(Article.published_at.desc())).scalars().all()
+    is_somber, _ = somber(session, now)
+    cooldown = now - timedelta(days=int(cfg.get("title_cooldown_days") or 14))
+    recent_shows = {str(play_data(p.article).get("show_id") or "")
+                    for p in channel_posts(session, channel, cooldown) if is_play_item(p.article)}
+    for p in channel_posts(session, channel, cooldown):
+        for it in ((p.extra or {}).get("items") or []):
+            if isinstance(it, dict) and it.get("show_id"):
+                recent_shows.add(str(it["show_id"]))
+    scores = title_scores(session)
+    seen_shows: set[str] = set()
+    picked: list[Article] = []
+    per_genre: dict[str, int] = {}
+    ordered = sorted(rows, key=lambda a: (-(1 if a.images else 0),
+                                          -scores.get(str(play_data(a).get("show_id")), 0.0),
+                                          -(a.published_at or utcnow()).timestamp()))
+    for a in ordered:
+        d = play_data(a)
+        if d.get("kind") not in ("movie", "show", "episode"):
+            continue
+        sid = str(d.get("show_id") or "")
+        if not sid or sid in seen_shows or sid in recent_shows or is_adult(d):
+            continue
+        if is_somber and not genre_ok_on_somber_day(a):
+            continue
+        g = _first_genre(a)
+        if g and per_genre.get(g, 0) >= 2:
+            continue
+        seen_shows.add(sid)
+        per_genre[g] = per_genre.get(g, 0) + 1
+        picked.append(a)
+        if len(picked) >= int(cfg.get("selection_size") or 5):
+            break
+    return picked
+
+
+def _show_page(article) -> str:
+    d = play_data(article)
+    if d.get("kind") == "episode" and d.get("show") and d.get("show_id"):
+        return f"{PLAY_HOST}/video/{d['show']}-{d['show_id']}/"
+    return article.canonical_url or article.url
+
+
+def _display_title(article) -> str:
+    t = article.title or ""
+    return t.split(":")[0].strip() if play_data(article).get("kind") == "episode" and ":" in t else t
+
+
+def build_selection(session, day, now: datetime | None = None, rules: dict | None = None) -> Post | None:
+    """Izlases karuselis: 3–5 Play nosaukumi, katra kartīte ar savu saiti un
+    savu utm_term, saraksts pirmajā komentārā. Bloķējošie apstākļi: Play
+    izslēgts/pauzēts, par maz nosaukumu, renderētājs, drūma diena bez
+    mierīgiem žanriem, traģēdija plūsmā blakus slotam."""
+    from app import cards, weekend
+
+    cfg = settings(rules)
+    now = now or utcnow()
+    if not cfg.get("enabled") or paused(session):
+        return None
+    channel = str(cfg.get("selection_channel") or "fb_tv3lv")
+    picked = selection_candidates(session, cfg, now, channel)
+    if len(picked) < 3:
+        log.info("Play izlase %s: par maz nosaukumu (%d)", day, len(picked))
+        return None
+    if not cards.renderer_available():
+        return None
+    theme = THEMES.get(day.weekday(), "Vakara izlase")
+    title = f"{theme}: TV3 Play"
+    points = [_display_title(a) for a in picked]
+    images = [(a.images or [""])[0] for a in picked]
+    subtitles = []
+    for a in picked:
+        d = play_data(a)
+        mins = int(d.get("seconds") or 0) // 60
+        g = (d.get("genres") or [""])[0]
+        subtitles.append(" · ".join(x for x in (g, f"{mins} min" if mins else "") if x))
+    try:
+        media = cards.render_cards(
+            title, "entertainment", "#TV3PLAY", points, "", "",
+            date_txt=day.strftime("%d.%m.%Y"), point_images=images,
+            point_blur=["" for _ in picked], point_dates=subtitles,
+            include_cover=False, include_end=False, label="TV3 PLAY · BEZ MAKSAS")
+    except Exception as e:  # noqa: BLE001
+        log.warning("Play izlases renders neizdevās: %s", e)
+        cards.record_render_failure("play_selection", e)
+        return None
+    if not media:
+        return None
+    used = picked[:len(media)]
+    slot = weekend._local_slot(day, int(cfg.get("selection_hour") or 19)) + timedelta(minutes=30)
+    from app import slots as _slots
+
+    queue = _slots._channel_queue(session, channel, slot)
+    for _ in range(4):
+        if not too_close_to_grim(queue, slot, rules):
+            break
+        slot += timedelta(minutes=45)
+    else:
+        log.info("Play izlase %s: plūsmā ap vakaru ir traģēdijas — šodien nē", day)
+        return None
+    items = [{"title": _display_title(a), "url": _show_page(a),
+              "show_id": play_data(a).get("show_id"), "article": a.id} for a in used]
+    copy = (f"{theme} — {len(used)} filmas un seriāli, ko skatīties bez maksas TV3 Play. "
+            f"Saites komentārā.")
+    guid = f"play-selection-{day.isoformat()}"
+    art = weekend._digest_article(session, guid, title, "entertainment", items[0]["url"])
+    art.raw_json = {**(art.raw_json or {}), "_play": {"kind": "selection", "show_id": "",
+                                                       "genres": ["izlase"]}}
+    post = weekend._schedule(session, art, "card_carousel", copy, media, items[0]["url"],
+                             SELECTION_MARKER, slot, channel=channel,
+                             card_links=[it["url"] for it in items],
+                             card_titles=[it["title"] for it in items], items=items,
+                             recipe={"kind": "play_selection", "theme": theme,
+                                     "articles": [a.id for a in used]})
+    if cfg.get("selection_requires_approval", True):
+        post.state = "proposed"
+    session.commit()
+    set_setting(session, f"play:selection:{day.isoformat()}", str(post.id))
+    log.info("Play izlase %s: %d nosaukumi, ieraksts %s (%s)", day, len(used), post.id, post.state)
+    return post
+
+
+def tick(session, now: datetime | None = None) -> dict:
+    """Stundas solis: katalogs + izlase izvēlētajās dienās (vienreiz dienā)."""
+    now = now or utcnow()
+    out = {"crawl": crawl(session, now=now), "selection": None}
+    cfg = settings()
+    if not cfg.get("enabled"):
+        return out
+    local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(config.TIMEZONE))
+    day = local.date()
+    if (local.weekday() in (cfg.get("selection_days") or [])
+            and local.hour >= int(cfg.get("selection_build_hour") or 17)
+            and not get_setting(session, f"play:selection:{day.isoformat()}", "")):
+        post = build_selection(session, day, now)
+        if post is None:
+            set_setting(session, f"play:selection:{day.isoformat()}", "skip")
+        out["selection"] = post.id if post is not None else "skip"
+    return out
+
+
+# --- P2: entītiju tilti ----------------------------------------------------------
+
+def show_index(session) -> list[dict]:
+    """Raidījumu/filmu nosaukumi tiltiem: {show_id, name, norm, url}."""
+    rows = session.execute(select(Article).where(Article.feed_name == FEED_NAME)).scalars().all()
+    out: dict[str, dict] = {}
+    for a in rows:
+        d = play_data(a)
+        sid = str(d.get("show_id") or "")
+        if not sid or d.get("kind") not in ("movie", "show", "episode"):
+            continue
+        name = _display_title(a)
+        norm = _norm(name)
+        if len(norm) < 6 or (len(norm.split()) < 2 and len(norm) < 8):
+            continue   # «Leila», «Bruno» — par īsu, lai droši sakristu
+        if sid not in out:
+            out[sid] = {"show_id": sid, "name": name, "norm": norm, "url": _show_page(a),
+                        "genres": d.get("genres") or []}
+    return list(out.values())
+
+
+def bridge_for_article(session, article, now: datetime | None = None,
+                       rules: dict | None = None) -> dict | None:
+    """Tilts no raksta uz Play nosaukumu — tikai pēc entītijas sakritības un
+    tikai pozitīvā/neitrālā kontekstā. Nekad no traģēdijas vai nozieguma,
+    nekad drūmā dienā, ne biežāk kā reizi 3 dienās uz raidījumu."""
+    cfg = settings(rules)
+    now = now or utcnow()
+    if not (cfg.get("enabled") and cfg.get("bridges")) or paused(session):
+        return None
+    if article is None or is_play_item(article) or (article.raw_json or {}).get("_digest"):
+        return None
+    if article.section not in (cfg.get("bridge_sections") or []):
+        return None
+    if is_grim(article) or (article.sensitivity or []):
+        return None
+    if somber(session, now, rules)[0]:
+        return None
+    hay = _norm(article.title) + " " + _norm(" ".join(pagemeta.tags(article, 10)))
+    best = None
+    for show in show_index(session):
+        if f" {show['norm']} " in f" {hay} " and (best is None or len(show["norm"]) > len(best["norm"])):
+            best = show
+    if best is None:
+        return None
+    key = f"play:bridge:{best['show_id']}"
+    last = get_setting(session, key, "")
+    if last:
+        try:
+            if now - datetime.fromisoformat(last) < timedelta(days=int(cfg.get("bridge_cooldown_days") or 3)):
+                return None
+        except ValueError:
+            pass
+    bridge = {"show_id": best["show_id"], "title": best["name"], "url": best["url"]}
+    article.raw_json = {**(article.raw_json or {}), "_play_bridge": bridge}
+    set_setting(session, key, now.isoformat(timespec="seconds"))
+    log.info("Play tilts: raksts %s -> «%s»", article.id, best["name"])
+    return bridge
+
+
+def bridge_line(post, platform: str) -> str:
+    """Rinda ieraksta komentārā/aprakstā: «Skaties … bez maksas TV3 Play»."""
+    from app.best_practices import add_utm
+
+    article = getattr(post, "article", None)
+    if article is None or is_play_item(article):
+        return ""
+    bridge = (article.raw_json or {}).get("_play_bridge") or {}
+    if not bridge.get("url"):
+        return ""
+    url = add_utm(bridge["url"], platform, post.id, hook="bridge",
+                  campaign=str(settings().get("campaign") or "play"))
+    return f"▶ Skaties «{bridge.get('title', '')}» bez maksas TV3 Play: {url}"
+

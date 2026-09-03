@@ -95,7 +95,7 @@ def start_scheduler() -> BackgroundScheduler:
     from app import play
 
     # TV3 Play katalogs no sitemapiem (izslēgts, kamēr play.enabled nav true)
-    scheduler.add_job(lambda: _job(play.crawl), "interval",
+    scheduler.add_job(lambda: _job(play.tick), "interval",
                       minutes=int(play.settings().get("interval_minutes") or 60),
                       id="play_catalog", max_instances=1, coalesce=True)
     from app.pipeline import weekly_report

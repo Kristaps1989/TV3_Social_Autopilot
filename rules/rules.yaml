@@ -143,6 +143,19 @@ play:
     allowed_genres: [ģimenes, komēdija, drāma, dokumentāl, kulinār, ceļojum, daba, bērn]
   title_cooldown_days: 14
   genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
+  # P2: izlašu karuselis (pk/se/sv vakarā, redaktors apstiprina) un tilti no
+  # rakstiem par raidījumu/personu (tikai izklaide/sports, tikai bez traģēdijas)
+  selection_channel: fb_tv3lv
+  selection_days: [4, 5, 6]
+  selection_hour: 19
+  selection_requires_approval: true
+  bridges: true
+  bridge_sections: [entertainment, sport]
+  bridge_cooldown_days: 3
+  # P3: reklāmā tikai organiski strādājoši Play ieraksti; budžeta daļu
+  # (ads:play_share, 15 %) maina Reklāmu lapā vai iestatījumos
+  boost_min_impressions: 1000
+  boost_min_clicks: 10
 
 # tv3.lv/video arhīvs — portāla vertikālie klipi (iekšējais «TikTok»).
 # Raksts ar piesaistītu klipu: lente/stāsts top no īstā video, saite ved uz

@@ -106,6 +106,8 @@ def settings(session) -> dict:
         "brand_share": int(get_setting(session, "ads:brand_share", "20") or 20),
         # cik % no konversiju budžeta iet Google (Demand Gen), pārējais Meta
         "google_share": int(get_setting(session, "ads:google_share", "50") or 0),
+        # TV3 Play promo daļa konversiju budžetā (docs/play-strategy.md: ≤ 15 %)
+        "play_share": int(get_setting(session, "ads:play_share", "15") or 0),
         # vienmēr ieslēgtā zīmola meklēšana; 0 = izslēgta
         "brand_search_daily": float(get_setting(session, "ads:brand_search_daily", "3") or 0),
         "brand_keywords": get_setting(session, "ads:brand_keywords", DEFAULT_BRAND_KEYWORDS),
@@ -143,6 +145,8 @@ def politics_hit(article: Article) -> str:
 
 def boostable(article: Article) -> tuple[bool, str]:
     """(drīkst boostot, iemesls). Veto slāņi pirms AI viedokļa."""
+    if (article.raw_json or {}).get("_play"):
+        return True, "TV3 Play promo — trafiks uz play.tv3.lv"
     if any(s in ("tragedy", "crime") for s in (article.sensitivity or [])):
         return False, "sensitīvs saturs (traģēdija/noziegums) — nereklamējam"
     hit = politics_hit(article)
@@ -204,15 +208,41 @@ def candidates(session, now=None, platform: str = "facebook_page") -> tuple[list
         art = post.article
         if art is None or not post.link_url:
             continue
-        if art.id in seen_articles or (art.raw_json or {}).get("_digest"):
+        is_play = bool((art.raw_json or {}).get("_play"))
+        if art.id in seen_articles or ((art.raw_json or {}).get("_digest") and not is_play):
             continue
         seen_articles.add(art.id)
         ok, reason = boostable(art)
+        score = float(art.ai_score or 0)
+        if ok and is_play:
+            # Play boostojam tikai to, kas organiski jau strādā (P3)
+            ok, reason, score = _play_threshold(session, post)
         entry = {"post": post, "article": art, "reason": reason,
-                 "score": float(art.ai_score or 0), "platform": platform}
+                 "score": score, "platform": platform, "play": is_play}
         (picked if ok else rejected).append(entry)
     picked.sort(key=lambda e: -e["score"])
     return picked[:MAX_ACTIVE_ADS], rejected
+
+
+def _play_threshold(session, post: Post) -> tuple[bool, str, float]:
+    """Play ieraksts drīkst reklāmā, ja organiski sasniedzis slieksni."""
+    from sqlalchemy import func
+
+    from app import play
+    from app.models import PostMetrics
+
+    cfg = play.settings()
+    imp, clicks = session.execute(
+        select(func.max(PostMetrics.impressions), func.max(PostMetrics.clicks))
+        .where(PostMetrics.post_id == post.id)).one()
+    imp, clicks = int(imp or 0), int(clicks or 0)
+    if play.somber(session)[0]:
+        return False, "drūma diena — Play reklāmas pauzētas", 0.0
+    if imp < int(cfg.get("boost_min_impressions") or 0) and clicks < int(cfg.get("boost_min_clicks") or 0):
+        return False, (f"Play: organiski vēl {imp} sasniegti / {clicks} klikšķi — "
+                       f"slieksnis {cfg.get('boost_min_impressions')} / {cfg.get('boost_min_clicks')}"), 0.0
+    score = play.title_scores(session).get(str(play.play_data(post.article).get("show_id")), 0.0)
+    return True, f"Play organiski strādā ({imp} sasniegti, {clicks} klikšķi)", score
 
 
 def franchise_candidates(session, now=None, platform: str = "facebook_page") -> list[dict]:
@@ -309,7 +339,18 @@ def build_plan(session, now=None) -> dict:
             if r["article"].id not in seen_rejects:
                 seen_rejects.add(r["article"].id)
                 rejected.append(r)
-        shares = _split(perf_by_platform.get(platform, 0.0), len(picked))
+        avail = perf_by_platform.get(platform, 0.0)
+        # Play promo saņem ne vairāk kā play_share no konversiju budžeta
+        play_picked = [e for e in picked if e.get("play")]
+        news_picked = [e for e in picked if not e.get("play")]
+        play_eur = round(avail * cfg.get("play_share", 0) / 100, 2) if play_picked else 0.0
+        play_shares = _split(play_eur, len(play_picked))
+        for e, share in zip(play_picked, play_shares):
+            rows.append({**e, "budget_eur": share, "objective": "traffic"})
+        for e in play_picked[len(play_shares):]:
+            rejected.append({**e, "reason": f"{PLATFORM_LABELS[platform]}: Play daļa ({cfg.get('play_share')} %) šodien pilna"})
+        shares = _split(round(avail - sum(play_shares), 2), len(news_picked))
+        picked = news_picked
         for e, share in zip(picked, shares):
             rows.append({**e, "budget_eur": share, "objective": "traffic"})
         if picked and not shares:

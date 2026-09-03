@@ -242,3 +242,181 @@ def test_diagnostics_shows_play_block_and_pause_toggle(session, monkeypatch):
     client.post("/toggle/play-pause")
     assert play.paused(session) is True
     assert "pauzēts ar roku" in client.get("/logs").text
+
+
+def _third_show(session):
+    a = Article(guid="play:8888", url="https://play.tv3.lv/video/mana-ferma-8888/",
+                canonical_url="https://play.tv3.lv/video/mana-ferma-8888/", title="Mana ferma",
+                section="entertainment", feed_name="play", images=["https://tv3cdn.lv/p/mf.jpg"],
+                published_at=NOW - timedelta(days=2),
+                raw_json={"_play": {"kind": "show", "show": "mana-ferma", "show_id": "8888",
+                                    "genres": ["Realitātes šovs"], "seconds": 2400}})
+    session.add(a)
+    session.flush()
+    return a
+
+
+def test_selection_carousel_is_built_on_selection_days_and_waits_for_approval(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    from app import cards
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    rendered = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kw):
+        rendered.update(title=title, points=points, subtitles=kw.get("point_dates"),
+                        images=kw.get("point_images"), label=kw.get("label"))
+        return [f"data/cards/p{i}.png" for i in range(len(points))]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    friday = datetime(2026, 9, 4).date()
+    # divi raidījumi ir par maz
+    assert play.build_selection(session, friday, NOW) is None
+    _third_show(session)
+    session.commit()
+    post = play.build_selection(session, friday, NOW)
+    assert post is not None and post.state == "proposed" and post.hook_type == "playselection"
+    assert post.channel == "fb_tv3lv" and post.format == "card_carousel"
+    assert rendered["title"] == "Piektdienas vakaram: TV3 Play"
+    assert rendered["label"] == "TV3 PLAY · BEZ MAKSAS"
+    assert set(rendered["points"]) == {"Tosts par mīlestību", "Klārksona ferma", "Mana ferma"}
+    assert any("Romantiskā komēdija · 93 min" == s for s in rendered["subtitles"])
+    # sērija ved uz raidījuma lapu, katra kartīte ar savu saiti
+    links = post.extra["card_links"]
+    assert "https://play.tv3.lv/video/klarksona-ferma-7426847/" in links
+    assert len(links) == 3 and len(post.extra["items"]) == 3
+    assert post.extra["items"][0]["show_id"]
+    assert post.extra["timeless"] is True
+    # slots vakara logā Rīgā (19:30 = 16:30 UTC)
+    assert post.scheduled_at == datetime(2026, 9, 4, 16, 30)
+    # pirmais komentārs ar Play saitēm un utm_campaign=play
+    from app import pipeline
+
+    comment = pipeline.first_comment_text(post, "facebook_page", "https://x")
+    assert "utm_campaign=play" in comment and "klarksona-ferma" in comment
+    # tick to nebūvē otrreiz, un atzīmē dienu
+    from app.models import get_setting
+
+    assert get_setting(session, "play:selection:2026-09-04") == str(post.id)
+    monkeypatch.setattr(play, "crawl", lambda s, now=None: {"new": 0})
+    assert play.tick(session, datetime(2026, 9, 4, 15, 0))["selection"] is None
+
+
+def test_selection_moves_away_from_a_tragedy_and_skips_on_somber_days(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    _third_show(session)
+    from app import cards
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards",
+                        lambda *a, **k: [f"data/cards/p{i}.png" for i in range(len(a[3]))])
+    friday = datetime(2026, 9, 4).date()
+    slot = datetime(2026, 9, 4, 16, 30)
+    _news(session, "g1", "Traģēdija Rīgā: gājis bojā bērns", sensitivity=["tragedy"], at=slot,
+          channel="fb_tv3lv")
+    _news(session, "g2", "Saeima lemj par budžetu", at=slot - timedelta(hours=3), channel="fb_tv3lv")
+    _news(session, "g3", "Jauna skola Mārupē", at=slot - timedelta(hours=2), channel="fb_tv3lv")
+    session.commit()
+    post = play.build_selection(session, friday, datetime(2026, 9, 4, 14, 0))
+    assert post is not None and post.scheduled_at - slot >= timedelta(minutes=90)
+
+
+def test_bridge_links_positive_entertainment_articles_to_play_titles(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    from app import pipeline
+
+    art = Article(guid="br-1", url="https://tv3.lv/izklaide/klarksona-ferma-jauna-sezona/",
+                  canonical_url="https://tv3.lv/izklaide/klarksona-ferma-jauna-sezona/",
+                  title="Klārksona ferma atgriežas ar jaunu sezonu", section="entertainment",
+                  images=["https://cdn/k.jpg"], raw_json={})
+    grim = Article(guid="br-2", url="https://tv3.lv/zinas/x/", canonical_url="https://tv3.lv/zinas/x/",
+                   title="Klārksona ferma: traģēdija uzņemšanas laukumā, gājis bojā operators",
+                   section="entertainment", sensitivity=["tragedy"], raw_json={})
+    session.add_all([art, grim])
+    session.flush()
+    assert play.bridge_for_article(session, grim, NOW) is None
+    bridge = play.bridge_for_article(session, art, NOW)
+    assert bridge and bridge["title"] == "Klārksona ferma"
+    assert bridge["url"] == "https://play.tv3.lv/video/klarksona-ferma-7426847/"
+    post = Post(article_id=art.id, channel="fb_tv3lv", format="link", copy="Jauna sezona!",
+                hashtags=[], link_url=art.url, state="scheduled", extra={})
+    session.add(post)
+    session.flush()
+    text, in_comment = pipeline.compose_text(post, "facebook_page", "https://tv3.lv/izklaide/x/")
+    assert "Skaties «Klārksona ferma» bez maksas TV3 Play" in text and "utm_campaign=play" in text
+    # X: tilta rindas tekstā nav (otra saite 280 zīmēs)
+    text_x, _ = pipeline.compose_text(post, "x", "https://tv3.lv/izklaide/x/")
+    assert "TV3 Play" not in text_x
+    # foto ierakstam tilts iet pirmajā komentārā
+    photo = Post(article_id=art.id, channel="fb_tv3lv", format="photo", copy="c", hashtags=[],
+                 link_url=art.url, state="scheduled", extra={})
+    session.add(photo)
+    session.flush()
+    assert "TV3 Play" in pipeline.first_comment_text(photo, "facebook_page", "https://tv3.lv/izklaide/x/")
+    # atdzišana: tas pats raidījums 3 dienas netiek tiltots atkārtoti
+    again = Article(guid="br-3", url="https://tv3.lv/izklaide/y/", canonical_url="https://tv3.lv/izklaide/y/",
+                    title="Klārksona ferma: Džeremijs pērk jaunu traktoru", section="entertainment", raw_json={})
+    session.add(again)
+    session.flush()
+    assert play.bridge_for_article(session, again, NOW + timedelta(days=1)) is None
+    assert play.bridge_for_article(session, again, NOW + timedelta(days=4)) is not None
+    # ziņu sadaļa netiek tiltota
+    news = Article(guid="br-4", url="https://tv3.lv/zinas/z/", canonical_url="https://tv3.lv/zinas/z/",
+                   title="Klārksona ferma un lauksaimniecības politika", section="news", raw_json={})
+    session.add(news)
+    session.flush()
+    assert play.bridge_for_article(session, news, NOW + timedelta(days=9)) is None
+
+
+def test_paid_boost_takes_only_organically_working_play_posts_within_its_share(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    from app import ads
+    from app.models import PostMetrics
+
+    movie = play.existing_item(session, "6205267")
+    ep = play.existing_item(session, "7426850")
+    strong = Post(article_id=movie.id, channel="fb_tv3lv", format="photo", copy="c",
+                  link_url=movie.url, state="published", published_at=NOW - timedelta(hours=5),
+                  media=["data/cards/m.png"], extra={})
+    weak = Post(article_id=ep.id, channel="fb_tv3lv", format="link", copy="c",
+                link_url=ep.url, state="published", published_at=NOW - timedelta(hours=6), extra={})
+    session.add_all([strong, weak])
+    session.flush()
+    session.add(PostMetrics(post_id=strong.id, impressions=2500, clicks=40, ga_sessions=30))
+    session.add(PostMetrics(post_id=weak.id, impressions=120, clicks=1, ga_sessions=1))
+    # parasts raksts konkurencei
+    news = Article(guid="ad-n", url="https://tv3.lv/sports/n/", canonical_url="https://tv3.lv/sports/n/",
+                   title="Sporta ziņa", section="sport", ai_score=0.8, raw_json={"_boostable": True})
+    session.add(news)
+    session.flush()
+    session.add(Post(article_id=news.id, channel="fb_tv3lv", format="link", copy="c",
+                     link_url=news.url, state="published", published_at=NOW - timedelta(hours=2), extra={}))
+    session.commit()
+    ads.save_settings(session, "approve", 100.0, 0, 0)
+    picked, rejected = ads.candidates(session, NOW)
+    by_post = {e["post"].id: e for e in picked}
+    assert strong.id in by_post and by_post[strong.id]["play"] is True
+    assert by_post[strong.id]["score"] == 16.0                      # max(30 sesijas, 40 klikšķi) / 2500 * 1000
+    assert weak.id not in by_post
+    assert any(e["post"].id == weak.id and "slieksnis" in e["reason"] for e in rejected)
+    plan = ads.build_plan(session, NOW)
+    play_rows = [r for r in plan["planned"] if r.get("play")]
+    news_rows = [r for r in plan["planned"] if not r.get("play") and r["objective"] == "traffic"]
+    assert len(play_rows) == 1 and play_rows[0]["budget_eur"] == 15.0   # 15 % no 100 €
+    assert news_rows and news_rows[0]["budget_eur"] == 85.0
+    # drūma diena aptur arī reklāmu
+    for i in range(3):
+        _news(session, f"s{i}", "Slepkavība un traģēdija", sensitivity=["tragedy"],
+              at=NOW - timedelta(minutes=10 * i), channel="fb_tv3lv")
+    session.commit()
+    monkeypatch.setattr(play, "somber", lambda s, now=None, rules=None: (True, 0.6))
+    picked, rejected = ads.candidates(session, NOW)
+    assert all(not e.get("play") for e in picked)

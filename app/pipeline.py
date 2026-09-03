@@ -73,6 +73,11 @@ def run_decisions(session, limit: int = 20) -> int:
         decision = decide(article, verdicts, session)
         maybe_correct_section(article, decision)
         scheduled_here = 0
+        try:
+            # entītijas tilts uz TV3 Play (tikai pozitīvā kontekstā, sk. app.play)
+            play.bridge_for_article(session, article, now)
+        except Exception as e:  # noqa: BLE001 — tilts ir bonuss, ne prasība
+            log.warning("Play tilts rakstam %s neizdevās: %s", article.id, e)
 
         if not decision.get("publish"):
             for channel, verdict in verdicts.items():
@@ -1216,7 +1221,9 @@ def first_comment_text(post, platform: str, shown_link: str,
                        rules: dict | None = None) -> str:
     """Kas iet pirmajā komentārā: digest ierakstam — lasāmais saraksts ar
     saitēm, parastam — tā pati saite, kas aprakstā."""
-    return reading_list(post, platform, rules, links=True) or shown_link
+    text = reading_list(post, platform, rules, links=True) or shown_link
+    bridge = play.bridge_line(post, platform)
+    return f"{text}\n\n{bridge}" if bridge and text else (bridge or text)
 
 
 def compose_text(post, platform: str, shown_link: str,
@@ -1251,6 +1258,11 @@ def compose_text(post, platform: str, shown_link: str,
         if titles:
             copy = f"{copy}\n\n{titles}" if copy else titles
             in_comment = in_comment or bool(digest_items(post))
+    # TV3 Play tilts: FB/IG aprakstā, ja pirmā komentāra nav (saites ierakstam)
+    if platform in ("facebook_page", "instagram") and not in_comment:
+        bridge = play.bridge_line(post, platform)
+        if bridge:
+            copy = f"{copy}\n\n{bridge}" if copy else bridge
     spec = PLATFORM_SPECS.get(platform)
     reader_sees_link = in_caption and (spec.link_in_copy if spec else True)
     if in_comment and not reader_sees_link:
