@@ -27,12 +27,10 @@ restricted), so the ingestor (`app/ingest.py`) is deliberately tolerant:
    can cancel scheduled posts), or does it vanish? If it vanishes, we need the
    planned `/all/` endpoint (Phase 4) or a per-article status check.
 6. Full term-ID → section mapping for `rules/feeds.yaml` (`term_sections`).
-7. **Video:** tv3.lv/video turētie 9:16 klipi — vai rakstiem feed'ā var dot līdzi
-   video URL (tiešs mp4 vai HLS .m3u8)? Ingestors jau saprot laukus
-   `video | video_url | videoUrl | video_src | video_file | mp4` (string vai
-   objekts ar `url`/`src`); tiklīdz lauks parādās, autopilots no klipa
-   automātiski būvē īstus Reels (apgriež līdz 45 s, normalizē 1080×1920,
-   pieliek CTA beigu kadru "lasi tv3.lv").
+7. **Video:** vairs nav jāprasa — klipi nāk no `https://tv3.lv/api/1/video/feed/`
+   (sk. `docs/video-archive.md`), un `related_url` tur pasaka, kuram rakstam
+   klips pieder. Raksta feed'a lauks `video_url` joprojām tiek saprasts, ja
+   CMS to kādreiz dod.
 
 Once confirmed, record the real schema here and tighten the parser.
 

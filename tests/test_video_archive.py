@@ -333,3 +333,57 @@ def test_investigation_samples_portal_apis_and_lists_url_constants(session, monk
     assert feed_sample["json_shape"]["items"][0] == "list[1]"
     assert "LA = https://player.skaties.lv/api" in out["url_constants"]
     assert any("/tv3/video/" in c for c in out["context"])
+
+
+def test_real_feed_schema_links_articles_and_creates_items_for_the_rest(session, monkeypatch):
+    """Īstais https://tv3.lv/api/1/video/feed/ paraugs: video_url ir HLS,
+    duration_ms, related_url norāda rakstu, content_source avotu."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    feed = (FIX / "video_feed.json").read_text(encoding="utf-8")
+    # raksts, kas mums jau ir (ar www un bez noslēdzošā / — jānormalizē)
+    nepal = Article(guid="np-1", url="https://www.tv3.lv/zinas/arvalstis/glabeji-cinas-ar-laiku-un-nogruvumiem-katastrofas-apmers-nepala-klust-arvien-tragiskaks",
+                    canonical_url="https://www.tv3.lv/zinas/arvalstis/glabeji-cinas-ar-laiku-un-nogruvumiem-katastrofas-apmers-nepala-klust-arvien-tragiskaks",
+                    title="Nepāla", section="news", images=["https://cdn/n.jpg"], raw_json={})
+    session.add(nepal)
+    session.commit()
+    calls = []
+
+    def fetch(url, timeout=10):
+        calls.append(url)
+        if url == "https://tv3.lv/api/1/video/feed/":
+            return feed
+        if url == "https://tv3.lv/api/1/video/feed/?page=2":
+            return '{"meta":{"has_more":false},"items":[]}'
+        return ""
+
+    out = videos.crawl(session, fetch=fetch)
+    assert out["source"] == "api" and out["seen"] == 4
+    assert "https://tv3.lv/api/1/video/feed/?page=2" in calls          # lapo, kamēr has_more
+    # raksts saņem savu klipu no feed puses
+    assert nepal.raw_json["_video_page"] == "https://tv3.lv/video/196425621/"
+    assert nepal.raw_json["_video_url"].endswith("70274191.m3u8")
+    assert nepal.raw_json["_video_seconds"] == 32
+    assert out["linked"] == 1 and out["covered"] == 1
+    assert videos.link_for(nepal, "reel") == "https://tv3.lv/video/196425621/"
+    # pārējie trīs kļūst par rindām ar pareizu sadaļu
+    assert out["new"] == 3
+    bt = videos.existing_item(session, "https://tv3.lv/video/196776462/")
+    assert bt.section == "entertainment" and bt.raw_json["_video_source"] == "Bez Tabu"
+    assert bt.raw_json["_video_share_image"].endswith("share.jpg")
+    assert bt.images == ["https://tv3cdn.lv/video/thumb/196776462/70592056/poster.jpg"]
+    rtu = videos.existing_item(session, "https://tv3.lv/video/193066443/")
+    assert rtu.section == "news"                                       # /zinas/ raksta ceļš
+    assert rtu.raw_json["_video_article"].startswith("https://tv3.lv/zinas/latvija/")
+    smiltene = videos.existing_item(session, "https://tv3.lv/video/184688698/")
+    assert smiltene.section == "entertainment" and smiltene.raw_json["_video_seconds"] == 48
+    assert smiltene.published_at == datetime(2026, 8, 10, 8, 8, 4)
+
+    # raksts ienāk vēlāk: nākamais apgājiens to piesaista un pārņem atsevišķo rindu
+    art = Article(guid="rtu-1", url="https://tv3.lv/zinas/latvija/rtu-studenti-uzbuvejusi-formulu-un-startes-starptautiskas-sacensibas/",
+                  canonical_url="https://tv3.lv/zinas/latvija/rtu-studenti-uzbuvejusi-formulu-un-startes-starptautiskas-sacensibas/",
+                  title="RTU formula", section="news", raw_json={})
+    session.add(art)
+    session.commit()
+    videos.crawl(session, fetch=fetch)
+    assert art.raw_json["_video_page"] == "https://tv3.lv/video/193066443/"
+    assert rtu.decided_at is not None and rtu.raw_json["_video_superseded"] == art.id

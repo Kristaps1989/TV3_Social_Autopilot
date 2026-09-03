@@ -129,8 +129,12 @@ page_meta: true
 video_archive:
   enabled: true
   listing: "https://tv3.lv/video/"     # arhīva lapa (JS čaula; tikai rezerve)
-  feed: "https://tv3.lv/api/1/video/feed/"   # klipu API (atrasts portāla JS pakotnē)
-  player_api: ""                       # atskaņotāja API ar {id}, ja feed nedod straumi
+  feed: "https://tv3.lv/api/1/video/feed/"   # klipu API: items[{id,title,image,video_url(m3u8),duration_ms,related_url,created_at,content_source}]
+  feed_pages: 2                        # lapas pa 20 klipiem katrā apgājienā (?page=N)
+  player_api: "https://tv3.lv/api/5/tv3/video/{id}"   # rezerve straumei, ja feed to nedod
+  source_sections:                     # content_source.name -> sadaļa, ja related_url nedod
+    Bez Tabu: entertainment
+    900 sekundes: news
   interval_minutes: 30
   max_new_per_run: 6
   min_seconds: 5

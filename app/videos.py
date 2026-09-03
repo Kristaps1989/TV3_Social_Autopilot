@@ -49,9 +49,13 @@ DEFAULTS = {
     "listing": "https://tv3.lv/video/",
     # klipu API (atrasts JS pakotnē): JSON ar klipu sarakstu
     "feed": "https://tv3.lv/api/1/video/feed/",
-    # atskaņotāja API ar {id}: atbildē ir straumes (m3u8/mp4) adrese, ja
-    # feed to nedod; tukšs = nav zināms
-    "player_api": "",
+    # atskaņotāja API ar {id} (video lietotnes backend /api/5): straumes
+    # adrese, ja feed to nedotu — feed to dod, tāpēc tikai rezerve
+    "player_api": "https://tv3.lv/api/5/tv3/video/{id}",
+    "feed_pages": 2,              # cik feed lapas (pa 20) skatām katrā apgājienā
+    # content_source.name -> sadaļa, kad related_url nav vai nav sadaļas
+    "source_sections": {"Bez Tabu": "entertainment", "900 sekundes": "news",
+                        "Ziņas": "news", "TV3 Ziņas": "news", "Sports": "sport"},
     "interval_minutes": 30,
     "max_new_per_run": 6,
     "min_seconds": 5,
@@ -79,6 +83,8 @@ def settings(rules: dict | None = None) -> dict:
     merged = {**DEFAULTS, **(cfg if isinstance(cfg, dict) else {})}
     merged["category_sections"] = {**DEFAULTS["category_sections"],
                                    **((cfg or {}).get("category_sections") or {})}
+    merged["source_sections"] = {**DEFAULTS["source_sections"],
+                                 **((cfg or {}).get("source_sections") or {})}
     return merged
 
 
@@ -243,6 +249,17 @@ def parse_listing(html: str) -> list[str]:
 
 
 def section_for(info: dict, cfg: dict) -> str:
+    """Sadaļa klipam: raksta adreses ceļš (/zinas/, /sports/) ir CMS signāls
+    un uzvar; tad klipa avots (Bez Tabu, 900 sekundes); tad kategorijas."""
+    if info.get("article"):
+        from app.ingest import url_section
+
+        sec = url_section(info["article"], config.url_sections())
+        if sec:
+            return sec
+    src = str(info.get("source") or "")
+    if src and src in (cfg.get("source_sections") or {}):
+        return cfg["source_sections"][src]
     table = cfg.get("category_sections") or {}
     for cat in info.get("categories") or []:
         if cat in table:
@@ -348,12 +365,66 @@ def upsert_item(session, info: dict, cfg: dict) -> Article | None:
         raw_json={"_video": True, "_video_id": info["id"], "_video_url": info["clip"],
                   "_video_page": info["url"], "_video_seconds": secs,
                   "_video_article": info.get("article", ""),
+                  "_video_source": info.get("source", ""),
+                  "_video_share_image": info.get("share_image", ""),
                   "_section_src": "video", "_page_meta": page_meta,
                   "_page_meta_at": utcnow().isoformat(timespec="seconds")},
     )
     session.add(row)
     session.flush()
     return row
+
+
+def find_article(session, url: str):
+    """Raksts pēc adreses (ar/bez www, ar/bez noslēdzošā /)."""
+    norm = normalize_article_url(url)
+    if not norm:
+        return None
+    variants = {norm, norm.rstrip("/"), norm.replace("https://", "https://www."),
+                norm.replace("https://", "https://www.").rstrip("/")}
+    rows = session.execute(
+        select(Article).where((Article.canonical_url.in_(variants))
+                              | (Article.url.in_(variants)))).scalars().all()
+    for a in rows:
+        if not is_video_item(a):
+            return a
+    return None
+
+
+def link_feed_articles(session, infos: list[dict]) -> int:
+    """Feed klipi ar related_url -> piesaiste rakstiem (`_video_page`,
+    `_video_url`). Atsevišķa arhīva rinda, kas tam pašam rakstam jau bija
+    izveidota, tiek atzīmēta kā pārņemta un lēmumu vairs nesaņem."""
+    linked = 0
+    for info in infos:
+        if not info.get("article") or not info.get("url"):
+            continue
+        article = find_article(session, info["article"])
+        if article is None:
+            continue
+        raw = dict(article.raw_json or {})
+        changed = False
+        if raw.get("_video_page") != info["url"]:
+            raw["_video_page"] = info["url"]
+            changed = True
+        if info.get("clip") and raw.get("_video_url") != info["clip"]:
+            raw["_video_url"] = info["clip"]
+            changed = True
+        if info.get("seconds") and raw.get("_video_seconds") != info["seconds"]:
+            raw["_video_seconds"] = info["seconds"]
+            changed = True
+        if changed:
+            article.raw_json = raw
+            linked += 1
+            log.info("raksts %s <- tv3.lv video %s (%s s)", article.id, info["id"],
+                     info.get("seconds") or "?")
+        item = existing_item(session, info["url"])
+        if item is not None and item.decided_at is None:
+            item.raw_json = {**(item.raw_json or {}), "_video_superseded": article.id}
+            item.decided_at = utcnow()
+            log.info("video %s: pārņem raksts %s, atsevišķa rinda netiek lemta",
+                     info["id"], article.id)
+    return linked
 
 
 def attach_to_article(article, found: dict, fetch=None) -> bool:
@@ -450,6 +521,8 @@ def api_item_info(item: dict) -> dict:
     thumb = _image_from(_pick(item, "image", "thumbnail", "thumb", "poster", "cover",
                               "images", "featured_image", "og_image"))
     secs = parse_duration(_pick(item, "duration", "duration_seconds", "length", "seconds"))
+    if not secs and item.get("duration_ms"):
+        secs = int(round(float(item["duration_ms"]) / 1000))
     cats = _pick(item, "categories", "category", "section", "menu", "tags_names")
     if isinstance(cats, str):
         cats = [cats]
@@ -459,10 +532,16 @@ def api_item_info(item: dict) -> dict:
     if isinstance(tags, str):
         tags = [t.strip() for t in re.split(r"[;,]", tags) if t.strip()]
     tags = [str(t.get("name") or t) if isinstance(t, dict) else str(t) for t in (tags or [])]
-    art = str(_pick(item, "article_url", "articleUrl", "article", "post_url", "related_url") or "")
+    art = str(_pick(item, "related_url", "article_url", "articleUrl", "article", "post_url") or "")
     if isinstance(_pick(item, "article"), dict):
         art = str(_pick(item, "article").get("url") or "")
+    art = normalize_article_url(art)
+    src = item.get("content_source")
+    src = str(src.get("name") or "") if isinstance(src, dict) else str(src or "")
+    share = item.get("share")
+    share_img = _image_from(share.get("image")) if isinstance(share, dict) else ""
     return {
+        "source": src, "share_image": share_img,
         "id": vid, "url": canon,
         "title": str(_pick(item, "title", "name", "headline") or "").strip(),
         "description": str(_pick(item, "description", "lead", "excerpt", "summary") or "").strip(),
@@ -474,27 +553,54 @@ def api_item_info(item: dict) -> dict:
     }
 
 
-def api_items(cfg: dict, fetch) -> list[dict]:
-    """Klipu API ieraksti (tukšs saraksts, ja feed nav vai nav JSON)."""
-    feed = str(cfg.get("feed") or "")
-    if not feed:
-        return []
-    body = fetch(feed)
-    if not body:
-        return []
+def normalize_article_url(url: str) -> str:
+    """Raksta adrese salīdzināšanai: https, bez www, ar noslēdzošo /."""
+    url = (url or "").strip()
+    if not url.startswith("http"):
+        return ""
+    url = re.sub(r"^http://", "https://", url)
+    url = re.sub(r"^https://www\.", "https://", url)
+    url = url.split("#")[0].split("?")[0]
+    return url if url.endswith("/") else url + "/"
+
+
+def _feed_page(body: str) -> tuple[list[dict], bool]:
     try:
         data = json.loads(body)
     except ValueError:
-        return []
+        return [], False
+    more = False
     if isinstance(data, dict):
+        meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+        more = bool(meta.get("has_more"))
         for key in ("items", "data", "results", "videos", "posts", "feed"):
             if isinstance(data.get(key), list):
                 data = data[key]
                 break
         else:
-            inner = next((v for v in data.values() if isinstance(v, list)), [])
-            data = inner
-    return [i for i in data if isinstance(i, dict)] if isinstance(data, list) else []
+            data = next((v for v in data.values() if isinstance(v, list)), [])
+    items = [i for i in data if isinstance(i, dict)] if isinstance(data, list) else []
+    return items, more
+
+
+def api_items(cfg: dict, fetch) -> list[dict]:
+    """Klipu API ieraksti, jaunākie pirmie, līdz `feed_pages` lapām
+    (tv3.lv/api/1/video/feed/?page=N, pa 20; meta.has_more saka, vai ir vēl)."""
+    feed = str(cfg.get("feed") or "")
+    if not feed:
+        return []
+    out: list[dict] = []
+    pages = max(1, int(cfg.get("feed_pages") or 1))
+    for page in range(1, pages + 1):
+        url = feed if page == 1 else f"{feed}{'&' if '?' in feed else '?'}page={page}"
+        body = fetch(url)
+        if not body:
+            break
+        items, more = _feed_page(body)
+        out.extend(items)
+        if not more or not items:
+            break
+    return out
 
 
 def player_clip(cfg: dict, vid: str, fetch) -> str:
@@ -561,6 +667,9 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
     urls = list(infos) or _listing_urls(cfg, fetch)
     summary["seen"] = len(urls)
     summary["source"] = "api" if infos else "html"
+    # feed related_url pasaka, kuram rakstam klips pieder: piesaistām no šīs
+    # puses (drošāk par raksta lapas lasīšanu) un lieku atsevišķu rindu netaisām
+    summary["linked"] = link_feed_articles(session, list(infos.values()))
     budget = int(cfg.get("max_new_per_run") or 6)
     for url in urls:
         if budget <= 0:

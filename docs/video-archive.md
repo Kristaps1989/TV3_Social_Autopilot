@@ -40,20 +40,43 @@ Klips, ko kāds raksts jau nes, atsevišķu rindu neveido (`covering_article`).
 - Sadaļa nāk no dlEvent kategorijas (`category_sections`), tāpēc kanālu
   `sections:` maršrutēšana strādā kā rakstiem.
 
-## Lapas struktūra: kas jāpārbauda dzīvajā portālā
+## Portāla API (apstiprināts 03.09.2026 ar Diagnostikas zondi)
 
-Būves vidē tv3.lv nav sasniedzams (tīkla politika), tāpēc parsētājs lasa
-vairākus signālus un Diagnostikas lapā ir **zonde** (`/logs/video-probe?url=…`):
+`tv3.lv/video` ir React aplikācijas čaula (3 KB, vienāda katram maršrutam);
+klipi nāk no API, kura adreses bija JS pakotnē:
 
-1. `https://tv3.lv/video/` — jāredz klipu saraksts (`videos`). Ja tukšs,
-   saraksts tiek zīmēts ar JavaScript, un vajag `video_archive.feed` (CMS
-   JSON/RSS ar video ierakstiem) vai citu saraksta adresi.
-2. `https://tv3.lv/video/<id>/` — jāredz `clip` (mp4 vai m3u8). Ja tukšs,
-   klipu dod atskaņotājs pēc pieprasījuma; tad CMS jāpadod `contentUrl`
-   VideoObject shēmā vai feed laukā `video_url`.
-3. Raksts ar video — `video_page` un `video_clip`.
+| Adrese | Kas |
+|---|---|
+| `https://tv3.lv/api/1/video/feed/?page=N` | klipu saraksts, 20 lapā, `meta.has_more` |
+| `https://tv3.lv/api/1/video/menu/` | kategorijas (atdod HTML bez JSON galvenes; nelietojam) |
+| `https://tv3.lv/api/5/tv3/video/<id>` | video lietotnes backend, viens klips (rezerve) |
 
-Nokopē zondes JSON izstrādātājam, un parsētāju var pielāgot bez minēšanas.
+Feed ieraksts:
+
+```json
+{"id":196425621,"title":"…","description":"…",
+ "image":"https://tv3cdn.lv/video/thumb/196425621/70274191/poster.jpg",
+ "share":{"image":"…/share.jpg"},
+ "video_url":"https://tv3cdn.lv/video/hls/196425621/70274191.m3u8",
+ "tags":[],"duration_ms":31640,
+ "related_url":"https://tv3.lv/zinas/arvalstis/…/",
+ "content_source":{"name":"tv3.lv","link":"https://www.tv3.lv/"},
+ "created_at":"2026-08-29T17:52:35+00:00"}
+```
+
+Ko no tā izmantojam:
+
+- `video_url` (HLS) — ffmpeg to lasa tieši, reel/story top no īstā klipa;
+- `related_url` — raksts, pie kura klips pieder: piesaiste notiek no feed
+  puses (`link_feed_articles`), ne lasot raksta lapu; ja raksts ienāk vēlāk,
+  nākamais apgājiens to piesaista un atsevišķo klipa rindu atzīmē kā pārņemtu;
+- sadaļa: raksta adreses ceļš (`/zinas/`, `/sports/`) → `content_source.name`
+  (`source_sections`: Bez Tabu → izklaide, 900 sekundes → ziņas) → noklusējums;
+- `image` (poster) rindas attēlam, `share.image` paliek `_video_share_image`;
+- `duration_ms` → sekundes; `created_at` → publicēšanas laiks.
+
+Video lapa `tv3.lv/video/<id>/` ir tikai saites mērķis; tās HTML parsēšana
+paliek kā rezerve, ja API pazūd.
 
 ## Kas nav darīts apzināti
 
