@@ -62,10 +62,14 @@ MOVIE_PAGE = """<html><head>
 <meta name="cXenseParse:zfv-playProductImage3x4" content="https://tv3cdn.lv/thumbnails/468x624/go3/vod/6689723/poster.jpg">
 <meta name="cXenseParse:zfv-playProductImage16x9" content="https://tv3cdn.lv/thumbnails/593x336/go3/vod/6689723/wide.jpg">
 <meta name="cXenseParse:zfv-playProductYear" content="2023">
+<meta name="cXenseParse:zfv-playProductLabeloriginalTitle" content="{&quot;text&quot;:&quot;The Movie Star and the Cowboy&quot;}">
 <script type="application/ld+json">{"@type":"VideoObject","name":"Kinozvaigzne un kovbojs",
 "description":"Kad Izabellai rodas iespēja iegūt kovbojmeitenes lomu, viņa ir gatava darīt visu.",
-"duration":"PT1H27M33S"}</script>
-</head><body></body></html>"""
+"duration":"PT1H27M33S","embedUrl":"https://play.tv3.lv/embed-video/kinozvaigzne-un-kovbojs,vod-6689723"}</script>
+</head><body>
+<span class="label label-last">Pēdējā iespēja</span>
+<p class="availability">Pieejams vēl 3 dienas</p>
+</body></html>"""
 
 NOW = datetime(2026, 9, 3, 17, 0)   # trešdiena 20:00 Rīgā
 
@@ -339,7 +343,7 @@ def test_selection_carousel_is_built_on_selection_days_and_waits_for_approval(se
     assert rendered["title"] == "Piektdienas vakaram: TV3 Play"
     assert rendered["label"] == "TV3 PLAY · BEZ MAKSAS"
     assert set(rendered["points"]) == {"Kinozvaigzne un kovbojs", "Klārksona ferma", "Mana ferma"}
-    assert any("Komēdijas · 87 min" == s for s in rendered["subtitles"])
+    assert any("Komēdijas · 87 min · pēdējā iespēja" == s for s in rendered["subtitles"])
     # sērija ved uz raidījuma lapu, katra kartīte ar savu saiti
     links = post.extra["card_links"]
     assert "https://play.tv3.lv/video/klarksona-ferma-7426847/" in links
@@ -508,3 +512,59 @@ def test_adult_titles_are_recognised_by_slug_and_deferred_when_page_budget_runs_
     assert out["new"] == 1 and out["deferred"] >= 1
     # nākamais apgājiens paņem atlikušos
     assert play.crawl(session, fetch=_fetch, now=NOW)["new"] >= 1
+
+
+def test_availability_window_drives_last_chance_and_blocks_removed_titles(session, monkeypatch):
+    """Nosaukuma lapā ir atskaite «Pieejams vēl 3 dienas» un birka «Pēdējā
+    iespēja» — kataloga notikums izlasēm un vienlaikus derīguma termiņš."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    assert play.availability("<p>Pieejams vēl 3 dienas</p>") == {"expires_days": 3,
+                                                                 "last_chance": False}
+    assert play.availability("<span>Pēdējā iespēja</span><p>Pieejams vēl 12 dienas</p>") == {
+        "expires_days": 12, "last_chance": True}
+    assert play.availability("<p>Skaties bez maksas</p>") == {"expires_days": None,
+                                                              "last_chance": False}
+
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    movie = play.existing_item(session, "6689723")
+    data = play.play_data(movie)
+    assert data["last_chance"] is True
+    assert data["original_title"] == "The Movie Star and the Cowboy"
+    assert data["embed"].endswith("vod-6689723")
+    assert play.last_chance(movie) is True
+    assert "PĒDĒJĀ IESPĒJA" in play.hint(movie)
+    ep = play.existing_item(session, "7426850")
+    assert play.last_chance(ep) is False          # raidījumam termiņa nav
+
+    # kad termiņš pagājis, saite vestu uz «nav pieejams» — ierakstu nelaižam
+    assert play.expired(movie) is False
+    ok, _ = play.allowed_now(session, movie, "fb_play", now=NOW)
+    assert ok
+    later = utcnow() + timedelta(days=4)
+    assert play.expired(movie, later) is True
+    assert play.allowed_now(session, movie, "fb_play", now=later) == (
+        False, "nosaukums Play vairs nav pieejams")
+    assert play.summary(session, now=NOW)["items_last_chance"] == 1
+
+
+def test_last_chance_titles_lead_the_selection_and_carry_the_badge(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    _third_show(session)
+    from app import cards
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    rendered = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kw):
+        rendered.update(points=points, subtitles=kw.get("point_dates"))
+        return [f"data/cards/p{i}.png" for i in range(len(points))]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    post = play.build_selection(session, datetime(2026, 9, 4).date(), NOW)
+    assert post is not None
+    # «pēdējā iespēja» ir pirmā kartīte, un tas redzams arī uz tās
+    assert rendered["points"][0] == "Kinozvaigzne un kovbojs"
+    assert rendered["subtitles"][0] == "Komēdijas · 87 min · pēdējā iespēja"

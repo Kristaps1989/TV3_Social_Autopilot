@@ -143,6 +143,7 @@ play:
     threshold: 0.4
     allowed_genres: [ģimenes, komēdija, drāma, dokumentāl, kulinār, ceļojum, daba, bērn]
   title_cooldown_days: 14
+  last_chance_days: 7        # «Pieejams vēl N dienas» -> izceļam un liekam pa priekšu
   genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
   # Katalogs: sadaļu lapas dod nosaukumus, sitemapi — jaunās sērijas
   browse_pages: ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/", "/berniem/", "/sports/", "/vietejais-saturs/"]

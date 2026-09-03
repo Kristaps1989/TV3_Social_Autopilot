@@ -14,6 +14,7 @@ par rakstu rindām ar `raw_json["_play"]`, iet cauri tam pašam AI lēmumam, bet
 """
 from __future__ import annotations
 
+import html as _html
 import logging
 import re
 from datetime import datetime, timedelta
@@ -68,6 +69,9 @@ DEFAULTS = {
                                   "food", "travel", "nature", "kids", "children", "music",
                                   "lifestyle", "reality"]},
     "title_cooldown_days": 14,
+    # «Pēdējā iespēja»: cik dienas pirms nosaukuma izņemšanas to izceļam un
+    # laižam rindas priekšgalā (birka lapā to pasaka arī tieši)
+    "last_chance_days": 7,
     "half_life_hours": 72,
     # Kataloga nosaukums nenoveco kā ziņa: 2023. gada filma vakar vakaram
     # der tāpat. 0 = svaiguma ierobežojuma nav; atkārtošanos tur
@@ -95,6 +99,11 @@ _LOC_RE = re.compile(
     r"^https?://(?:www\.)?play\.tv3\.lv/(?P<kind>filmas|video|seriali|sovi-un-raidijumi)/"
     r"(?P<show>[^/]+?)-(?P<show_id>\d+)/(?:(?P<ep>[^/]+?)-(?P<ep_id>\d+)/)?$")
 _ADULT_RE = re.compile(r"\b(1[68])\s*\+|\bN-?(1[68])\b|\bK-?(1[68])\b", re.I)
+# Pieejamības logs nosaukuma lapā: «Pieejams vēl 3 dienas» + birka «Pēdējā iespēja»
+_AVAIL_RE = re.compile(
+    r"Pieejams\s+(?:vēl\s+)?(\d+)\s*(dien|stund|nedēļ|mēneš)", re.I)
+_LAST_CHANCE_RE = re.compile(r"P[eē]d[eē]j[aā]\s+iesp[eē]ja", re.I)
+_LABEL_TEXT_RE = re.compile(r'"text"\s*:\s*"([^"]{2,120})"')
 # Nosaukuma lapas saite sadaļu lapā: /filmas/<slug>-<id>/ vai /video/<slug>-<id>/
 _TITLE_HREF_RE = re.compile(
     r"href=[\"'](?:https?://(?:www\.)?play\.tv3\.lv)?(/(?:filmas|video|seriali|sovi-un-raidijumi)"
@@ -255,6 +264,22 @@ def _meta_list(meta: dict, *keys: str) -> list[str]:
     return out
 
 
+def availability(html: str) -> dict:
+    """{expires_days, last_chance} no nosaukuma lapas.
+
+    Play lapā ir atskaite «Pieejams vēl 3 dienas» un sarkana birka «Pēdējā
+    iespēja» — tas ir kataloga notikums, ko plāns sauc par «pēdējo iespēju»,
+    un vienlaikus vienīgais veids uzzināt, kad nosaukums no Play pazūd.
+    """
+    text = _html.unescape(re.sub(r"<[^>]+>", " ", html or ""))
+    days = None
+    m = _AVAIL_RE.search(text)
+    if m:
+        n, unit = int(m.group(1)), m.group(2).lower()
+        days = {"dien": n, "stund": 0, "nedēļ": n * 7, "mēneš": n * 30}.get(unit, n)
+    return {"expires_days": days, "last_chance": bool(_LAST_CHANCE_RE.search(text))}
+
+
 def enrich_from_page(item: dict, fetch=None) -> dict:
     """Nosaukuma lapa -> žanri, kategorijas, plakāts, ilgums, sērijas piederība.
 
@@ -322,6 +347,16 @@ def enrich_from_page(item: dict, fetch=None) -> dict:
     year = str(meta.get(px + "ProductYear") or "")
     if year.isdigit():
         out["year"] = int(year)
+    # pieejamības logs un «pēdējā iespēja» — kataloga notikums izlasēm
+    out.update(availability(html))
+    orig = _LABEL_TEXT_RE.search(_html.unescape(
+        str(meta.get(px + "ProductLabeloriginalTitle") or "")))
+    if orig:
+        out["original_title"] = orig.group(1)
+    for node in pagemeta._json_ld_nodes(html):
+        if node.get("embedUrl"):
+            out["embed"] = str(node["embedUrl"])
+            break
     out["published"] = (item.get("published")
                         or str(meta.get("video:release_date") or meta.get("datePublished") or ""))
     out["enriched"] = True
@@ -400,7 +435,16 @@ def upsert_item(session, item: dict, cfg: dict) -> Article | None:
             "genres": genres, "categories": categories,
             "rating": item.get("rating", ""), "seconds": item.get("seconds", 0),
             "year": item.get("year"), "player": item.get("player", ""),
-            "url": item["url"]}
+            "original_title": item.get("original_title", ""),
+            "embed": item.get("embed", ""), "url": item["url"]}
+    # cik ilgi nosaukums Play vēl būs: pēc tam saite ved uz «nav pieejams»
+    days = item.get("expires_days")
+    if days is not None:
+        data["expires_at"] = (utcnow() + timedelta(days=int(days))).isoformat(timespec="seconds")
+        data["last_chance"] = bool(item.get("last_chance")
+                                   or int(days) <= int(cfg.get("last_chance_days") or 7))
+    elif item.get("last_chance"):
+        data["last_chance"] = True
     data["adult"] = is_adult({**data, "url": item["url"]}, cfg)
     row = Article(
         guid=f"play:{item['id']}", url=item["url"], canonical_url=item["url"],
@@ -527,6 +571,22 @@ def genre_ok_on_somber_day(article, rules: dict | None = None) -> bool:
     return bool(genres) and any(any(a in g for a in allowed) for g in genres)
 
 
+def expired(article, now: datetime | None = None) -> bool:
+    """Nosaukums Play vairs nav pieejams (pēc lapas atskaites «Pieejams vēl …»).
+    Bez šī saite pēc dažām dienām vestu uz «nav pieejams» lapu."""
+    stamp = play_data(article).get("expires_at")
+    if not stamp:
+        return False
+    try:
+        return datetime.fromisoformat(str(stamp)) <= (now or utcnow())
+    except ValueError:
+        return False
+
+
+def last_chance(article) -> bool:
+    return bool(play_data(article).get("last_chance")) and not expired(article)
+
+
 def _riga_day(dt: datetime):
     return dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(config.TIMEZONE)).date()
 
@@ -547,6 +607,8 @@ def allowed_now(session, article, channel: str, fmt: str = "",
         return False, "Play izslēgts (play.enabled)"
     if paused(session):
         return False, "Play pauzēts ar roku"
+    if expired(article, now):
+        return False, "nosaukums Play vairs nav pieejams"
     is_somber, share = somber(session, now, rules)
     if is_somber and not genre_ok_on_somber_day(article, rules):
         return False, f"drūma diena ({share:.0%} traģēdiju/noziegumu) — tikai mierīgi žanri"
@@ -604,7 +666,9 @@ def hint(article) -> str:
     genres = ", ".join(d.get("genres") or d.get("categories") or []) or "nav zināmi"
     return (f"šis ir TV3 Play {kind} ({mins} min, žanri: {genres}"
             f"{', ' + str(d['year']) if d.get('year') else ''}"
-            f"{', cenzs ' + d['rating'] if d.get('rating') else ''}): bez maksas Play; "
+            f"{', cenzs ' + d['rating'] if d.get('rating') else ''}"
+            f"{'; PĒDĒJĀ IESPĒJA — drīz pazūd no Play' if d.get('last_chance') else ''}"
+            f"): bez maksas Play; "
             "saite ved uz Play lapu; copy ir aicinājums noskatīties, ne ziņa; nekādu saistību ar aktualitātēm")
 
 
@@ -641,6 +705,8 @@ def summary(session, rules: dict | None = None, now: datetime | None = None) -> 
         "somber": is_somber, "grim_share": share,
         "items": len(items),
         "items_with_genre": sum(1 for a in items if play_data(a).get("genres")),
+        "items_last_chance": sum(1 for a in items if last_chance(a)),
+        "items_expired": sum(1 for a in items if expired(a)),
         "items_undecided": sum(1 for a in items if a.decided_at is None),
         "published_7d": len(posts),
         "windows": cfg.get("windows"), "daily_cap": cfg.get("daily_cap"),
@@ -716,12 +782,14 @@ def selection_candidates(session, cfg: dict, now: datetime, channel: str) -> lis
     seen_shows: set[str] = set()
     picked: list[Article] = []
     per_genre: dict[str, int] = {}
-    ordered = sorted(rows, key=lambda a: (-(1 if a.images else 0),
+    # «Pēdējā iespēja» iet pa priekšu: pēc dažām dienām nosaukuma Play vairs nav
+    ordered = sorted(rows, key=lambda a: (-(1 if last_chance(a) else 0),
+                                          -(1 if a.images else 0),
                                           -scores.get(str(play_data(a).get("show_id")), 0.0),
                                           -(a.published_at or utcnow()).timestamp()))
     for a in ordered:
         d = play_data(a)
-        if d.get("kind") not in ("movie", "show", "episode"):
+        if d.get("kind") not in ("movie", "show", "episode") or expired(a, now):
             continue
         sid = str(d.get("show_id") or "")
         if not sid or sid in seen_shows or sid in recent_shows or is_adult(d, cfg):
@@ -778,7 +846,9 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
         d = play_data(a)
         mins = int(d.get("seconds") or 0) // 60
         g = (d.get("genres") or [""])[0]
-        subtitles.append(" · ".join(x for x in (g, f"{mins} min" if mins else "") if x))
+        subtitles.append(" · ".join(x for x in (
+            g, f"{mins} min" if mins else "",
+            "pēdējā iespēja" if last_chance(a) else "") if x))
     try:
         media = cards.render_cards(
             title, "entertainment", "#TV3PLAY", points, "", "",

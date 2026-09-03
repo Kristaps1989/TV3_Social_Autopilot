@@ -44,6 +44,22 @@ visu vajadzīgo cXense meta tagos, ne og:video vai schema.org `genre`:
 | `cXenseParse:zfv-playSeriesTitle` / `SeriesLink` | FIBA Pasaules kauss | kuram raidījumam sērija pieder |
 | `video:duration`, JSON-LD `duration` | 5253 | ilgums minūtēs kartītē |
 | `cXenseParse:zfv-playProductYear` | 2023 | gads AI kontekstam |
+| `…ProductLabeloriginalTitle` | The Movie Star and the Cowboy | oriģinālnosaukums AI kontekstam |
+| lapas teksts | «Pieejams vēl 3 dienas», «Pēdējā iespēja» | pieejamības logs un derīguma termiņš |
+
+**Pieejamības logs (no nosaukuma lapas ekrāna, 07.09.2026).** Lapā ir atskaite
+«Pieejams vēl 3 dienas» un sarkana birka «Pēdējā iespēja». Tas ir gan kataloga
+notikums (plāna 4.2. ierosinātājs «pēdējā iespēja»), gan derīguma termiņš:
+`expires_at` glabājas pie nosaukuma, pēc tā ieraksts vairs netiek plānots
+(«nosaukums Play vairs nav pieejams»), un līdz tam tas iet izlases priekšgalā
+ar uzrakstu «pēdējā iespēja» uz kartītes. Slieksni maina `last_chance_days`.
+
+**Par atskaņotāja saiti.** Nosaukuma lapā ir arī `embedUrl`
+(`play.tv3.lv/embed-video/<slug>,vod-<id>`) — tas ir atskaņotāja iframe, ne
+fails. To glabājam tikai kā atsauci un NEIZMANTOJAM ierakstiem: aiz tā ir Go3
+atskaņotājs ar TV3 pašu pirmsreklāmām, un straumes izvilkšana nozīmētu izplatīt
+saturu bez tām — tieši pretēji AVOD mērķim. Sociālajos tīklos Play saturu nes
+saite, plakāts un stāsts; treileriem vajadzīgi atsevišķi faili no Play komandas.
 
 **Divi svarīgi secinājumi.** Pirmkārt, **vecuma cenza lapās nav vispār** — nedz
 `contentRating`, nedz cits lauks; tāpēc 16+/18+ šķirošana balstās uz adrešu
@@ -214,6 +230,8 @@ P2 un P3 arī ir kodā (tie paši slēdži):
 
 ## 11. Atklātie jautājumi
 
+0. ~~Pieejamības logs?~~ Atbildēts: lapa to rāda («Pieejams vēl N dienas»), un
+   sistēma to lasa — nosaukums pēc termiņa vairs netiek publicēts.
 1. ~~Vai Play ir kataloga API?~~ Atbildēts: API nav vajadzīgs, katalogs nāk no
    sadaļu lapām un sitemapiem. **Bet vecuma cenza lapās nav** — vai CMS to var
    pievienot (`contentRating` vai meta tags)? Līdz tam 16+/18+ šķiro adrešu
