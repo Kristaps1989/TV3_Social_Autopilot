@@ -636,3 +636,70 @@ def test_events_lead_the_selection_and_show_on_the_card(session, monkeypatch):
     lead = dict(zip(rendered["points"], rendered["subtitles"]))
     assert lead["Nemīlētie"].endswith("10. sezonas fināls")
     assert lead["Kinozvaigzne un kovbojs"].endswith("pēdējā iespēja")
+
+
+def test_metadata_audit_reports_field_coverage_and_guard_consequences(session, monkeypatch):
+    """Audits aizstāj ekrānuzņēmumu sūtīšanu: paraugi no katras sadaļas, lauku
+    pārklājums, žanru vārdnīca un ko tā nozīmē drūmās dienas sargam."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    bare = """<html><head><meta property="og:title" content="Bez žanra | Filmas">
+    <meta name="cXenseParse:zfv-playProductTitle" content="Bez žanra"></head><body></body></html>"""
+    pages = {**PAGES,
+             "https://play.tv3.lv/filmas/": """<html><body>
+                 <a href="/filmas/kinozvaigzne-un-kovbojs-6689723/">A</a>
+                 <a href="/filmas/bez-zanra-777/">B</a></body></html>""",
+             "https://play.tv3.lv/seriali/": """<html><body>
+                 <a href="/video/nemiletie-1915103/">N</a></body></html>""",
+             "https://play.tv3.lv/berniem/": "<html><body>nav nosaukumu</body></html>",
+             "https://play.tv3.lv/filmas/bez-zanra-777/": bare}
+
+    def fetch(url, timeout=10):
+        return pages.get(url, "")
+
+    data = play.audit(fetch=fetch, per_section=2, episodes=1, now=NOW)
+    by_path = {s["path"]: s for s in data["sections"]}
+    assert by_path["/filmas/"]["titles_found"] == 2 and by_path["/filmas/"]["sampled"] == 2
+    assert by_path["/berniem/"]["fetched"] is True and by_path["/berniem/"]["titles_found"] == 0
+    assert by_path["/podkasti/"]["fetched"] is False        # lapa neatbild
+    # sērijas paraugs no sitemap ar savu notikumu
+    eps = by_path["sērijas (no sitemap)"]["samples"]
+    assert eps[0]["event"] == "finale" and eps[0]["kind"] == "episode"
+
+    # lauku pārklājums un žanru vārdnīca
+    assert data["sampled_total"] >= 4
+    assert data["field_coverage"]["genres"]["pct"] < 100      # «Bez žanra» velk uz leju
+    assert data["field_coverage"]["rating"]["count"] == 0     # cenza Play nedod
+    assert data["genres"]["Komēdijas"] >= 1 and "drama" in data["categories"]
+    # viens nosaukums vairākās sadaļās kopskaitā skaitās vienreiz; fināls ir
+    # gan raidījuma lapai, gan pašai fināla sērijai
+    assert data["events"]["finale"] == 2
+    assert len({r for s in data["sections"] for r in
+                [x["url"] for x in s["samples"]]}) == data["sampled_total"]
+
+    # ko tas nozīmē sargiem
+    assert "https://play.tv3.lv/filmas/bez-zanra-777/" in data["titles_without_genre"]
+    assert any("nav žanra" in w for w in data["warnings"])
+    assert any("vecuma cenza" in w for w in data["warnings"])
+    assert any("/berniem/" in w for w in data["warnings"])
+
+    play.save_audit(session, data)
+    saved = play.last_audit(session)
+    assert saved["sampled"] == data["sampled_total"] and saved["warnings"] >= 3
+    assert play.summary(session, now=NOW)["audit"]["sampled"] == data["sampled_total"]
+
+
+def test_audit_route_is_on_the_diagnostics_page(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    from fastapi.testclient import TestClient
+
+    from app import pagemeta
+    from app.main import app
+
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: PAGES.get(url, ""))
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    body = client.get("/logs").text
+    assert "Analizēt visu Play metadatus" in body
+    data = client.get("/logs/play-audit", params={"per_section": 1, "episodes": 1}).json()
+    assert data["sampled_total"] >= 1 and "field_coverage" in data
+    assert "Metadatu audits" in client.get("/logs").text

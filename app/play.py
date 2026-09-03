@@ -40,7 +40,8 @@ DEFAULTS = {
     # Sadaļu lapas: TIEŠI te ir katalogs (sākumlapā vien 426 nosaukumu saites).
     # Sitemapi dod jaunās sērijas, sadaļu lapas — pašus nosaukumus.
     "browse_pages": ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/",
-                     "/berniem/", "/sports/", "/vietejais-saturs/"],
+                     "/berniem/", "/sports/", "/vietejais-saturs/", "/podkasti/",
+                     "/raidijumi/", "/a-z/"],
     "interval_minutes": 60,
     "max_new_per_run": 20,
     "page_fetch_per_run": 6,          # nosaukumu lapas žanram/cenzam
@@ -754,6 +755,7 @@ def summary(session, rules: dict | None = None, now: datetime | None = None) -> 
         "items_expired": sum(1 for a in items if expired(a)),
         "items_undecided": sum(1 for a in items if a.decided_at is None),
         "published_7d": len(posts),
+        "audit": last_audit(session),
         "windows": cfg.get("windows"), "daily_cap": cfg.get("daily_cap"),
         "feed_share": cfg.get("feed_share"), "last_crawl": last,
     }
@@ -1035,4 +1037,169 @@ def bridge_line(post, platform: str) -> str:
     url = add_utm(bridge["url"], platform, post.id, hook="bridge",
                   campaign=str(settings().get("campaign") or "play"))
     return f"▶ Skaties «{bridge.get('title', '')}» bez maksas TV3 Play: {url}"
+
+
+# --- metadatu audits (Diagnostika) ----------------------------------------------
+
+AUDIT_FIELDS = ("title", "genres", "categories", "poster", "seconds", "year",
+                "description", "season", "event", "last_chance", "expires_days",
+                "rating", "show_title")
+
+
+def _sample_urls(html: str, base: str, limit: int) -> list[str]:
+    out: list[str] = []
+    for m in _TITLE_HREF_RE.finditer(html or ""):
+        url = base + m.group(1)
+        loc = parse_loc(url)
+        if loc and loc["kind"] != "episode" and url not in out:
+            out.append(url)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _audit_row(info: dict) -> dict:
+    """Viena parauga īsais kopsavilkums (bez pilnas lapas)."""
+    return {"url": info.get("url", ""), "kind": info.get("kind", ""),
+            "title": info.get("title", ""),
+            "genres": info.get("genres") or [], "categories": info.get("categories") or [],
+            "seconds": info.get("seconds") or 0, "year": info.get("year"),
+            "season": info.get("season"), "event": info.get("event", ""),
+            "last_chance": bool(info.get("last_chance")),
+            "expires_days": info.get("expires_days"),
+            "rating": info.get("rating", ""), "poster": bool(info.get("poster")),
+            "description": bool(info.get("description"))}
+
+
+def audit(fetch=None, rules: dict | None = None, per_section: int = 4,
+          episodes: int = 3, now: datetime | None = None) -> dict:
+    """Pilns metadatu pārskats pa VISĀM Play sadaļām.
+
+    Katrā sadaļā paņem dažus nosaukumus, ielasa lapas un saskaita, kuri lauki
+    tur tiešām ir. Tas aizstāj ekrānuzņēmumu sūtīšanu pa vienam: uzreiz redzams,
+    kurās sadaļās trūkst žanra (drūmā dienā tādus nepublicē), vai kaut kur
+    parādās vecuma cenzs, un kāda ir īstā žanru vārdnīca.
+    """
+    cfg = settings(rules)
+    fetch = fetch or pagemeta.fetch
+    base = str(cfg.get("base") or PLAY_HOST + "/").rstrip("/")
+    out: dict = {"at": (now or utcnow()).isoformat(timespec="seconds"),
+                 "sections": [], "genres": {}, "categories": {}, "events": {},
+                 "field_coverage": {}, "warnings": []}
+    rows: list[dict] = []
+    for path in cfg.get("browse_pages") or []:
+        url = path if path.startswith("http") else base + path
+        html = fetch(url)
+        section: dict = {"path": path, "fetched": bool(html), "titles_found": 0,
+                         "sampled": 0, "fields": {}, "samples": []}
+        if html:
+            found = _sample_urls(html, base, 10_000)
+            section["titles_found"] = len(found)
+            for title_url in found[:per_section]:
+                info = enrich_from_page({**parse_loc(title_url), "url": title_url}, fetch)
+                row = _audit_row(info)
+                section["samples"].append(row)
+                rows.append({**row, "section": path})
+            section["sampled"] = len(section["samples"])
+            section["fields"] = {f: sum(1 for r in section["samples"]
+                                        if r.get(f) not in (None, "", [], 0, False))
+                                 for f in AUDIT_FIELDS if f in (section["samples"] or [{}])[0]}
+        out["sections"].append(section)
+    # sērijas atsevišķi: tām lapa izskatās citādi (sezona, fināls)
+    ep_rows: list[dict] = []
+    from app import videos
+
+    for sm in sitemap_urls(cfg, now)[:1]:
+        body = fetch(sm)
+        for entry in videos.sitemap_video_entries(body or ""):
+            loc = parse_loc(entry.get("loc", ""))
+            if not loc or loc["kind"] != "episode" or excluded(loc, cfg):
+                continue
+            info = enrich_from_page({**loc, "url": entry["loc"],
+                                     "title": entry.get("title", "")}, fetch)
+            info.update(labels(" ".join([info.get("title", ""), loc.get("ep", "")])) or {})
+            ep_rows.append({**_audit_row(info), "section": "sērijas"})
+            if len(ep_rows) >= episodes:
+                break
+    if ep_rows:
+        out["sections"].append({"path": "sērijas (no sitemap)", "fetched": True,
+                                "titles_found": len(ep_rows), "sampled": len(ep_rows),
+                                "fields": {}, "samples": ep_rows})
+        rows.extend(ep_rows)
+
+    # kopsavilkums: viens nosaukums var būt vairākās sadaļās — kopskaitam
+    # to skaitām vienreiz, citādi žanru vārdnīca sašķiebjas
+    seen_urls: set[str] = set()
+    rows = [r for r in rows if not (r["url"] in seen_urls or seen_urls.add(r["url"]))]
+    total = len(rows)
+    out["sampled_total"] = total
+    if total:
+        keys = ("title", "genres", "categories", "poster", "seconds", "year",
+                "description", "season", "event", "last_chance", "expires_days", "rating")
+        out["field_coverage"] = {
+            k: {"count": sum(1 for r in rows if r.get(k) not in (None, "", [], 0, False)),
+                "pct": round(100.0 * sum(1 for r in rows
+                                         if r.get(k) not in (None, "", [], 0, False)) / total)}
+            for k in keys}
+    for r in rows:
+        for g in r.get("genres") or []:
+            out["genres"][g] = out["genres"].get(g, 0) + 1
+        for c in r.get("categories") or []:
+            out["categories"][c] = out["categories"].get(c, 0) + 1
+        if r.get("event"):
+            out["events"][r["event"]] = out["events"].get(r["event"], 0) + 1
+    out["genres"] = dict(sorted(out["genres"].items(), key=lambda kv: -kv[1]))
+    out["categories"] = dict(sorted(out["categories"].items(), key=lambda kv: -kv[1]))
+
+    # ko tas nozīmē sargiem
+    allowed = [g.lower() for g in cfg["somber"].get("allowed_genres") or []]
+    unmapped = [g for g in out["genres"] if not any(a in g.lower() for a in allowed)]
+    out["somber_blocked_genres"] = unmapped
+    no_genre = [r["url"] for r in rows if not (r.get("genres") or r.get("categories"))]
+    out["titles_without_genre"] = no_genre
+    if no_genre:
+        out["warnings"].append(
+            f"{len(no_genre)} no {total} nosaukumiem nav žanra — drūmā dienā tie tiks "
+            "bloķēti; pieliec žanru ar `genre_overrides`")
+    if unmapped:
+        out["warnings"].append(
+            "šie žanri nav mierīgo sarakstā, tāpēc drūmā dienā tos nepublicēs: "
+            + ", ".join(unmapped[:12]))
+    if not any(r.get("rating") for r in rows):
+        out["warnings"].append(
+            "nevienā paraugā nav vecuma cenza — 16+/18+ šķirošana balstās tikai uz "
+            "`adult_slugs`; vērts lūgt Play komandai cenzu pievienot lapā")
+    empty = [s["path"] for s in out["sections"] if s["fetched"] and not s["titles_found"]]
+    if empty:
+        out["warnings"].append("sadaļās bez nosaukumiem (varbūt cita adrese): "
+                               + ", ".join(empty))
+    missing = [s["path"] for s in out["sections"] if not s.get("fetched")]
+    if missing:
+        out["warnings"].append("sadaļas neatbild: " + ", ".join(missing))
+    return out
+
+
+def save_audit(session, data: dict) -> None:
+    """Īsais kopsavilkums Diagnostikas lapai (Setting.value ir īss lauks)."""
+    import json
+
+    cov = data.get("field_coverage") or {}
+    set_setting(session, "play:audit", json.dumps({
+        "at": data.get("at", ""), "sampled": data.get("sampled_total", 0),
+        "genres": len(data.get("genres") or {}),
+        "genre_pct": (cov.get("genres") or {}).get("pct", 0),
+        "poster_pct": (cov.get("poster") or {}).get("pct", 0),
+        "rating_pct": (cov.get("rating") or {}).get("pct", 0),
+        "warnings": len(data.get("warnings") or []),
+    }, ensure_ascii=False)[:250])
+
+
+def last_audit(session) -> dict:
+    import json
+
+    raw = get_setting(session, "play:audit", "")
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
 

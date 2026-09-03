@@ -81,6 +81,21 @@ papildināt ar roku vai lūgt Play komandai pievienot cenzu lapā. Otrkārt,
 **straumes adreses lapā nav** (Go3 atskaņotājs), tāpēc Play formāti paliek
 saite, foto un stāsts — lentes no Play satura nav iespējamas.
 
+**Metadatu audits (Diagnostika → «Analizēt visu Play metadatus»).** Tā vietā, lai
+lapas pārbaudītu pa vienai, `/logs/play-audit` paņem dažus nosaukumus no katras
+sadaļas (filmas, seriāli, šovi, bērniem, sports, podkāsti, A–Z) plus dažas
+sērijas no sitemapa, atver to lapas un atdod:
+
+- **lauku pārklājums** procentos (nosaukums, žanri, kategorijas, plakāts,
+  ilgums, gads, apraksts, sezona, notikums, pieejamības logs, cenzs);
+- **žanru un kategoriju vārdnīca** ar biežumu — tieši tā, kā Play tos raksta;
+- **ko tas nozīmē sargiem**: kuri nosaukumi ir bez žanra (drūmā dienā tos
+  bloķē), kuri žanri nav mierīgo sarakstā, vai kaut kur parādās cenzs, un
+  kuras sadaļas neatbild vai nedod nosaukumus (nepareiza adrese).
+
+Viens nosaukums, kas ir vairākās sadaļās, kopskaitā skaitās vienreiz.
+Kopsavilkums paliek Diagnostikas lapā; pilnais JSON atveras jaunā cilnē.
+
 **Katalogs nāk no divām vietām.** Sitemapos ir sērijas un ziņu sižeti; paši
 nosaukumi (filmas, seriāli, raidījumi) ir sadaļu lapās — sākumlapā vien 426
 saites. Tāpēc `browse_pages` (sākumlapa, /filmas/, /seriali/,

@@ -1876,6 +1876,26 @@ def site_probe_auto(site: str = "play"):
     return JSONResponse(videos.investigate(fetch=fetch, site=site))
 
 
+@app.get("/logs/play-audit")
+def play_audit(per_section: int = 4, episodes: int = 3):
+    """Pilns TV3 Play metadatu pārskats pa visām sadaļām: cik nosaukumu sadaļā,
+    kuri lauki lapās tiešām ir, kāda ir žanru vārdnīca un ko tas nozīmē
+    sargiem. Aizstāj ekrānuzņēmumu sūtīšanu pa vienam."""
+    from fastapi.responses import JSONResponse
+
+    from app import pagemeta, play
+
+    fetch = (lambda u, timeout=30: pagemeta.fetch(u, timeout=timeout))
+    data = play.audit(fetch=fetch, per_section=max(1, min(per_section, 10)),
+                      episodes=max(0, min(episodes, 10)))
+    session = get_session()
+    try:
+        play.save_audit(session, data)
+    finally:
+        session.close()
+    return JSONResponse(data)
+
+
 @app.get("/logs/export.json")
 def logs_export(channel: str = "", lines: int = 500):
     """Viss vienā JSON failā — to var iedot izstrādātājam vai AI asistentam,

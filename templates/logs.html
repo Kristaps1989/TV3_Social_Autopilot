@@ -192,6 +192,10 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
       {%- if pl.items_events %} · notikumi (fināls/pirmizrāde): {{ pl.items_events }}{% endif %}
       {%- if pl.items_expired %} · vairs nav pieejami: {{ pl.items_expired }}{% endif %}</td></tr>
     <tr><td>Publicēti 7 dienās</td><td>{{ pl.published_7d }} · logs {{ pl.windows }} · dienā {{ pl.daily_cap }} · plūsmas daļa līdz {{ (pl.feed_share * 100) | round | int }}%</td></tr>
+    <tr><td>Metadatu audits</td><td>{% if pl.audit %}{{ pl.audit.at }} — {{ pl.audit.sampled }} paraugi,
+      žanrs {{ pl.audit.genre_pct }}%, plakāts {{ pl.audit.poster_pct }}%, cenzs {{ pl.audit.rating_pct }}%,
+      {{ pl.audit.genres }} dažādi žanri{% if pl.audit.warnings %} · <strong>{{ pl.audit.warnings }} brīdinājumi</strong>{% endif %}
+      {% else %}vēl nav bijis{% endif %}</td></tr>
     <tr><td>Pēdējais apgājiens</td><td>{% if pl.last_crawl %}{{ pl.last_crawl.at }} — redzēti {{ pl.last_crawl.seen }},
       jauni {{ pl.last_crawl.new }}, izslēgti {{ pl.last_crawl.excluded }}{% else %}vēl nav bijis{% endif %}</td></tr>
     <tr><td>Izlases (P2)</td><td>{{ pl.selections }} karuseļi, gaida apstiprinājumu {{ pl.selections_pending }}
@@ -203,7 +207,11 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     <form method="post" action="/toggle/play-pause" class="inline">
       <button>{{ 'Atsākt Play promo' if pl.paused else 'Pauzēt Play promo (sēru diena)' }}</button>
     </form>
+    <a class="button primary" href="/logs/play-audit" target="_blank">Analizēt visu Play metadatus</a>
     <a class="button" href="/logs/site-probe/auto?site=play" target="_blank">Izpētīt play.tv3.lv (JSON)</a>
+    <span class="muted">— audits paņem dažus nosaukumus no katras sadaļas, atver to lapas un
+      parāda, kuri lauki tur tiešām ir (žanrs, plakāts, ilgums, cenzs, sezona, «pēdējā iespēja»).
+      Aizņem apmēram minūti; rezultātu nokopē un ielīmē sarunā.</span>
   </p>
   {% endif %}
 </div>

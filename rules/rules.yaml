@@ -146,7 +146,8 @@ play:
   last_chance_days: 7        # «Pieejams vēl N dienas» -> izceļam un liekam pa priekšu
   genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
   # Katalogs: sadaļu lapas dod nosaukumus, sitemapi — jaunās sērijas
-  browse_pages: ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/", "/berniem/", "/sports/", "/vietejais-saturs/"]
+  browse_pages: ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/", "/berniem/", "/sports/",
+                 "/vietejais-saturs/", "/podkasti/", "/raidijumi/", "/a-z/"]
   page_fetch_per_run: 12     # cik nosaukumu lapu ielasa žanram/plakātam vienā apgājienā
   # Play lapas vecuma cenzu nedod, tāpēc pieaugušo saturu šķiro pēc adreses
   adult_slugs: [tikai-pieaugusajiem, erotika, erotic, adult]
