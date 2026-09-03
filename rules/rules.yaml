@@ -129,7 +129,7 @@ play:
   enabled: false
   sitemaps: ["/sitemaps/sitemap-latest.xml", "/sitemaps/sitemap-{month}.xml"]
   exclude_slugs: [tv3-zinas, tv3-zinas-isuma, degpunkta, 900-sekundes, bez-tabu, neka-personiga, tiesraides]
-  min_seconds: 300
+  min_seconds: 120           # ziņu sižetus šķiro žanrs, tāpēc īsfilmas paliek
   max_age_hours: 0           # 0 = kataloga nosaukums nenoveco kā ziņa
   daily_cap: 1
   weekend_daily_cap: 2
@@ -141,19 +141,18 @@ play:
   somber:
     window_hours: 6
     threshold: 0.4
-    # Play žanri (no metadatu audita): latviski un angliski. Bez šī saraksta
-    # sinhronizācijas drūmā dienā tiktu bloķēti arī animācija, mūzika un sports.
-    allowed_genres: [ģimenes, komēdij, drāma, romantik, dokumentāl, kulinār, ceļojum,
-                     daba, bērn, animāc, mūzik, piedzīvojum, fantāz, sport, realitāt,
-                     comedy, drama, romance, family, documentary, food, travel, nature,
-                     kids, children, music, lifestyle, reality, animation, adventure,
-                     sports, fantasy]
+    # Drūmā dienā šķiro AIZLIEGTIE žanri, ne atļautie: Play vārdnīca ir plaša un
+    # aug, un atļauto sarakstā neesošs jauns žanrs klusi bloķēja nevainīgu
+    # saturu (audits pieķēra, ka bloķēta būtu pat «Romantika»).
+    blocked_genres: [asa sižet, šausm, trilleris, "kara ", karš, noziegum, detektīv,
+                     katastrof, vardarb, action, horror, thriller, crime, war,
+                     disaster, violence]
   title_cooldown_days: 14
   last_chance_days: 7        # «Pieejams vēl N dienas» -> izceļam un liekam pa priekšu
   genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
   # Katalogs: sadaļu lapas dod nosaukumus, sitemapi — jaunās sērijas
   browse_pages: ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/", "/berniem/", "/sports/",
-                 "/vietejais-saturs/", "/podkasti/", "/raidijumi/"]   # /a-z/ neatbild
+                 "/vietejais-saturs/", "/podkasti/"]   # /a-z/ un /raidijumi/ nedod nosaukumus
   page_fetch_per_run: 12     # cik nosaukumu lapu ielasa žanram/plakātam vienā apgājienā
   # Play lapas vecuma cenzu nedod, tāpēc pieaugušo saturu šķiro pēc adreses
   adult_slugs: [tikai-pieaugusajiem, erotika, erotic, adult]

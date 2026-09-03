@@ -40,8 +40,7 @@ DEFAULTS = {
     # Sadaļu lapas: TIEŠI te ir katalogs (sākumlapā vien 426 nosaukumu saites).
     # Sitemapi dod jaunās sērijas, sadaļu lapas — pašus nosaukumus.
     "browse_pages": ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/",
-                     "/berniem/", "/sports/", "/vietejais-saturs/", "/podkasti/",
-                     "/raidijumi/"],
+                     "/berniem/", "/sports/", "/vietejais-saturs/", "/podkasti/"],
     "interval_minutes": 60,
     "max_new_per_run": 20,
     "page_fetch_per_run": 6,          # nosaukumu lapas žanram/cenzam
@@ -57,7 +56,9 @@ DEFAULTS = {
     # Slugu saraksts visus nenoķer (Zviedru Galds, Piķis un ģēvelis), tāpēc
     # šķiro pēc žanra/kategorijas — tas ir noturīgi pret jauniem nosaukumiem.
     "exclude_genres": ["ziņas", "news"],
-    "min_seconds": 300,               # īsāks par 5 min ir sižets, ne saturs
+    # Ziņu sižetus tagad šķiro žanrs, tāpēc garuma slieksnis var būt zems —
+    # citādi tas izmestu īsfilmas («Suns Funs un Rīga», 4 min)
+    "min_seconds": 120,
     "daily_cap": 1,                   # darbdienā uz kanālu
     "weekend_daily_cap": 2,
     "story_daily_cap": 1,
@@ -65,16 +66,16 @@ DEFAULTS = {
     "windows": ["19:00-22:30"],       # vakara logs Rīgā
     "adult_window": "21:00-23:59",    # 16+/18+ tikai vēlu
     "adjacency_minutes": 90,          # attālums no traģēdijas/nozieguma ieraksta
-    # Drūmā dienā atļautie žanri: Play tos raksta gan latviski
-    # («Komēdijas», «Drāmas»), gan angliski kategorijās (comedy, drama)
+    # Drūmā dienā šķiro AIZLIEGTIE žanri, ne atļautie. Atļauto sarakstu
+    # metadatu audits pieķēra kā kļūdu: Play žanru vārdnīca ir plaša un aug
+    # (Romantika, Medicīnas, Dzīvesveids & izklaide…), un katrs jauns žanrs
+    # sarakstā neesot klusi bloķēja pilnīgi nevainīgu saturu. Aizliegumu
+    # saraksts ir īss, saprotams un pats par sevi drošs.
     "somber": {"window_hours": 6, "threshold": 0.4,
-               "allowed_genres": ["ģimenes", "komēdij", "drāma", "romantik", "dokumentāl",
-                                  "kulinār", "ceļojum", "daba", "bērn", "animāc", "mūzik",
-                                  "piedzīvojum", "fantāz", "sport", "realitāt",
-                                  "comedy", "drama", "romance", "family", "documentary",
-                                  "food", "travel", "nature", "kids", "children", "music",
-                                  "lifestyle", "reality", "animation", "adventure",
-                                  "sports", "fantasy"]},
+               "blocked_genres": ["asa sižet", "šausm", "trilleris", "kara ", "karš",
+                                  "noziegum", "detektīv", "katastrof", "vardarb",
+                                  "action", "horror", "thriller", "crime", "war",
+                                  "disaster", "violence"]},
     "title_cooldown_days": 14,
     # «Pēdējā iespēja»: cik dienas pirms nosaukuma izņemšanas to izceļam un
     # laižam rindas priekšgalā (birka lapā to pasaka arī tieši)
@@ -655,11 +656,22 @@ def somber(session, now: datetime | None = None, rules: dict | None = None) -> t
     return share >= float(cfg.get("threshold") or 0.4), round(share, 2)
 
 
+def somber_blocked(genres, rules: dict | None = None) -> str:
+    """Pirmais žanrs, kas drūmā dienā nav vietā ('' ja tādu nav)."""
+    bad = [g.lower() for g in settings(rules)["somber"].get("blocked_genres") or []]
+    for g in genres or []:
+        low = str(g).lower()
+        if any(b in low for b in bad):
+            return str(g)
+    return ""
+
+
 def genre_ok_on_somber_day(article, rules: dict | None = None) -> bool:
-    allowed = [g.lower() for g in settings(rules)["somber"].get("allowed_genres") or []]
+    """Drūmā dienā der viss, izņemot asa sižeta, šausmu, kara un noziegumu
+    saturu. Nosaukums bez neviena žanra der arī nē: to pārbaudīt nevaram."""
     data = play_data(article)
-    genres = [g.lower() for g in (list(data.get("genres") or []) + list(data.get("categories") or []))]
-    return bool(genres) and any(any(a in g for a in allowed) for g in genres)
+    genres = list(data.get("genres") or []) + list(data.get("categories") or [])
+    return bool(genres) and not somber_blocked(genres, rules)
 
 
 def expired(article, now: datetime | None = None) -> bool:
@@ -1138,7 +1150,31 @@ def _audit_row(info: dict) -> dict:
             "description": bool(info.get("description"))}
 
 
-def audit(fetch=None, rules: dict | None = None, per_section: int = 4,
+def rule_overrides(rules: dict | None = None) -> dict:
+    """Kur DZĪVAIS `play` bloks atšķiras no repo noklusējuma faila.
+
+    Rediģējamā kopija uz servera tiek uzsēta VIENU reizi. `sync_missing_rules`
+    pieliek jaunas augšējā līmeņa atslēgas, bet `play` bloks tur jau ir, tāpēc
+    izmaiņas tā iekšienē (piem., `min_seconds` vai `browse_pages`) uz servera
+    nekad nenonāk. Bez šī saraksta tas ir neredzams: kods saka vienu, sistēma
+    dara citu. Atšķirība nav kļūda — redaktors drīkst pārrakstīt jebkuru
+    vērtību —, bet to vajag redzēt.
+    """
+    live = settings(rules)
+    try:
+        shipped = settings(config._load_yaml(config.DEFAULT_RULES_DIR / "rules.yaml"))
+    except Exception:  # noqa: BLE001 — audits nedrīkst krist konfigurācijas dēļ
+        return {}
+    out: dict = {}
+    for key, want in shipped.items():
+        if key == "enabled":   # slēdzi drīkst pārslēgt bez brīdinājuma
+            continue
+        if live.get(key) != want:
+            out[key] = {"live": live.get(key), "code": want}
+    return out
+
+
+def audit(fetch=None, rules: dict | None = None, per_section: int = 4,   # noqa: C901
           episodes: int = 3, now: datetime | None = None) -> dict:
     """Pilns metadatu pārskats pa VISĀM Play sadaļām.
 
@@ -1241,8 +1277,7 @@ def audit(fetch=None, rules: dict | None = None, per_section: int = 4,
     out["categories"] = dict(sorted(out["categories"].items(), key=lambda kv: -kv[1]))
 
     # ko tas nozīmē sargiem
-    allowed = [g.lower() for g in cfg["somber"].get("allowed_genres") or []]
-    unmapped = [g for g in out["genres"] if not any(a in g.lower() for a in allowed)]
+    unmapped = [g for g in out["genres"] if somber_blocked([g], rules)]
     out["somber_blocked_genres"] = unmapped
     no_genre = [r["url"] for r in rows if not (r.get("genres") or r.get("categories"))]
     out["titles_without_genre"] = no_genre
@@ -1252,7 +1287,7 @@ def audit(fetch=None, rules: dict | None = None, per_section: int = 4,
             "bloķēti; pieliec žanru ar `genre_overrides`")
     if unmapped:
         out["warnings"].append(
-            "šie žanri nav mierīgo sarakstā, tāpēc drūmā dienā tos nepublicēs: "
+            "šos žanrus drūmā dienā nepublicē (asa sižeta, šausmu, noziegumu u. tml.): "
             + ", ".join(unmapped[:12]))
     if not any(r.get("rating") for r in rows):
         out["warnings"].append(
@@ -1265,6 +1300,12 @@ def audit(fetch=None, rules: dict | None = None, per_section: int = 4,
     missing = [s["path"] for s in out["sections"] if not s.get("fetched")]
     if missing:
         out["warnings"].append("sadaļas neatbild: " + ", ".join(missing))
+    out["rule_overrides"] = rule_overrides(rules)
+    if out["rule_overrides"]:
+        out["warnings"].append(
+            "rediģējamā rules.yaml kopija atšķiras no koda noklusējuma "
+            "(izmaiņas `play` blokā uz servera nenonāk pašas): "
+            + ", ".join(sorted(out["rule_overrides"])))
     return out
 
 
@@ -1280,6 +1321,7 @@ def save_audit(session, data: dict) -> None:
         "poster_pct": (cov.get("poster") or {}).get("pct", 0),
         "rating_pct": (cov.get("rating") or {}).get("pct", 0),
         "warnings": len(data.get("warnings") or []),
+        "overrides": len(data.get("rule_overrides") or {}),
     }, ensure_ascii=False)[:250])
 
 

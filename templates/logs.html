@@ -194,7 +194,7 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     <tr><td>Publicēti 7 dienās</td><td>{{ pl.published_7d }} · logs {{ pl.windows }} · dienā {{ pl.daily_cap }} · plūsmas daļa līdz {{ (pl.feed_share * 100) | round | int }}%</td></tr>
     <tr><td>Metadatu audits</td><td>{% if pl.audit %}{{ pl.audit.at }} — {{ pl.audit.sampled }} paraugi,
       žanrs {{ pl.audit.genre_pct }}%, plakāts {{ pl.audit.poster_pct }}%, cenzs {{ pl.audit.rating_pct }}%,
-      {{ pl.audit.genres }} dažādi žanri{% if pl.audit.warnings %} · <strong>{{ pl.audit.warnings }} brīdinājumi</strong>{% endif %}
+      {{ pl.audit.genres }} dažādi žanri{% if pl.audit.warnings %} · <strong>{{ pl.audit.warnings }} brīdinājumi</strong>{% endif %}{% if pl.audit.overrides %} · <strong>{{ pl.audit.overrides }} noteikumi atšķiras no koda</strong>{% endif %}
       {% else %}vēl nav bijis{% endif %}</td></tr>
     <tr><td>Pēdējais apgājiens</td><td>{% if pl.last_crawl %}{{ pl.last_crawl.at }} — redzēti {{ pl.last_crawl.seen }},
       jauni {{ pl.last_crawl.new }}, izslēgti {{ pl.last_crawl.excluded }}{% else %}vēl nav bijis{% endif %}</td></tr>

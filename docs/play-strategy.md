@@ -90,8 +90,9 @@ sērijas no sitemapa, atver to lapas un atdod:
   ilgums, gads, apraksts, sezona, notikums, pieejamības logs, cenzs);
 - **žanru un kategoriju vārdnīca** ar biežumu — tieši tā, kā Play tos raksta;
 - **ko tas nozīmē sargiem**: kuri nosaukumi ir bez žanra (drūmā dienā tos
-  bloķē), kuri žanri nav mierīgo sarakstā, vai kaut kur parādās cenzs, un
-  kuras sadaļas neatbild vai nedod nosaukumus (nepareiza adrese).
+  bloķē), kuri žanri drūmā dienā ir aizliegti, vai kaut kur parādās cenzs,
+  kuras sadaļas neatbild vai nedod nosaukumus (nepareiza adrese), un
+  **kuri `play` noteikumi uz servera atšķiras no koda** (sk. zemāk).
 
 Viens nosaukums, kas ir vairākās sadaļās, kopskaitā skaitās vienreiz.
 Kopsavilkums paliek Diagnostikas lapā; pilnais JSON atveras jaunā cilnē.
@@ -106,6 +107,15 @@ Kopsavilkums paliek Diagnostikas lapā; pilnais JSON atveras jaunā cilnē.
 | Ziņu podkāsti (Zviedru Galds, Piķis un ģēvelis) slugu sarakstā nav | tie kļūtu par Play promo | šķiro pēc žanra/kategorijas (`exclude_genres: [ziņas, news]`), un pārbaude notiek **pēc** lapas ielasīšanas, jo pirms tam žanra vēl nav |
 | `rules.yaml` mierīgo žanru saraksts bija vecs | drūmā dienā tiktu bloķēta arī animācija, mūzika, sports | saraksts sinhronizēts ar īsto vārdnīcu (latviski + angliski) |
 | `/a-z/` neatbild | lieka ielase katrā apgājienā | izņemts no saraksta |
+
+**Ko parādīja otrais audits un kas no tā salabots.**
+
+| Atradums | Sekas | Labojums |
+| --- | --- | --- |
+| Drūmās dienas saraksts bija **atļauto** žanru saraksts | audits nosauca 12 bloķētus žanru: Romantika, Animācijas, Sports, Detektīvs, Medicīnas, Fantāzija, Piedzīvojumu… — praktiski viss, ko nepaspēja uzskaitīt | pāriets uz **aizliegto** sarakstu (`somber.blocked_genres`: asa sižeta, šausmu, trilleris, kara, noziegumu, katastrofu, vardarbība + tie paši angliski). Jauns žanrs, ko Play izdomās, vairs neapklust pats no sevis; bloķē tikai to, kas tiešām neiederas blakus traģēdijai |
+| Serverī rediģējamā `rules.yaml` kopija palika ar veco `allowed_genres` | repo labojums līdz sistēmai nemaz nenonāca — `sync_missing_rules` pieliek tikai jaunas **augšējā līmeņa** atslēgas, bet `play` bloks tur jau ir | `somber` tagad saplūst dziļi ar koda noklusējumu (veca atslēga neko nebloķē), un audits atsevišķi nosauc katru `play` noteikumu, kas uz servera atšķiras no repo faila (`rule_overrides`) |
+| `/raidijumi/` atbild, bet nedod nevienu nosaukumu | lieka ielase | izņemts no `browse_pages` |
+| `min_seconds: 300` izmeta īsfilmas | «Suns Funs un Rīga» (281 s) nekad nekļūtu par promo | 120 s — ziņas tagad šķiro pēc žanra, ne pēc garuma |
 
 **Katalogs nāk no divām vietām.** Sitemapos ir sērijas un ziņu sižeti; paši
 nosaukumi (filmas, seriāli, raidījumi) ir sadaļu lapās — sākumlapā vien 426
@@ -238,8 +248,8 @@ redakcija to ieslēdz Noteikumos:
 - formāti link / photo / story, saite uz Play lapu ar `utm_campaign=play`;
 - sargi kodā: vakara logs 19:00–22:30 (16+/18+ no 21:00), 90 min attālums no
   traģēdijas vai nozieguma ieraksta tajā pašā kanālā, drūmas dienas režīms
-  (≥ 40 % traģēdiju/noziegumu pēdējās 6 h → tikai mierīgi žanri; nezināms
-  žanrs = bloķēts), viena raidījuma atkārtojums ne biežāk kā reizi 14 dienās,
+  (≥ 40 % traģēdiju/noziegumu pēdējās 6 h → nepublicē asa sižeta, šausmu,
+  trilleri, kara, noziegumu un katastrofu žanrus; nezināms žanrs = bloķēts), viena raidījuma atkārtojums ne biežāk kā reizi 14 dienās,
   1 dienā (nedēļas nogalē 2) un 1 stāsts, ne vairāk kā 10 % nedēļas plūsmas;
 - Diagnostikā bloks «TV3 Play» ar stāvokli, drūmās dienas rādītāju, katalogu
   un pogu «Pauzēt Play promo».
@@ -249,7 +259,7 @@ P2 un P3 arī ir kodā (tie paši slēdži):
 - **izlašu karuselis** (`build_selection`): piektdienās, sestdienās un
   svētdienās no 17:00 tiek uzbūvēts 3–5 nosaukumu karuselis vakara logam
   (19:30 Rīgā), pa vienam uz raidījumu, bez 14 dienās rādītajiem, bez 16+,
-  drūmā dienā tikai mierīgi žanri, ne vairāk kā 2 viena žanra; katra kartīte
+  drūmā dienā bez aizliegtajiem žanriem, ne vairāk kā 2 viena žanra; katra kartīte
   ved uz savu Play lapu ar savu `utm_term`, saraksts pirmajā komentārā;
   slots atkāpjas no traģēdijas ieraksta; `selection_requires_approval`
   atstāj ierakstu stāvoklī «proposed», līdz redaktors apstiprina;

@@ -133,7 +133,7 @@ def test_catalog_parses_sitemaps_and_excludes_news_programmes_and_clips(monkeypa
     assert "tiesraides" not in " ".join(i["kind"] for i in items)
     assert play.excluded(kinds["12292095"], cfg).startswith("ziņu raidījums")
     assert play.excluded(kinds["12084795"], cfg).startswith("ziņu raidījums")
-    assert play.excluded({"kind": "episode", "show": "kaut-kas", "seconds": 120}, cfg).startswith("par īsu")
+    assert play.excluded({"kind": "episode", "show": "kaut-kas", "seconds": 60}, cfg).startswith("par īsu")
     assert play.excluded(kinds["6689723"], cfg) == ""
 
 
@@ -769,3 +769,22 @@ def test_crawl_harvests_titles_from_genre_filter_pages_and_skips_news_shows(sess
     assert play.play_data(ricards)["genres"] == ["Bērniem & ģimenei", "Animācijas"]
     # un šie žanri drūmā dienā ir atļauti (saraksts sinhronizēts ar auditu)
     assert play.genre_ok_on_somber_day(ricards) is True
+
+
+def test_audit_names_rules_that_drift_from_the_shipped_file(monkeypatch):
+    """Rediģējamā kopija uz servera tiek uzsēta vienu reizi, un `play` bloka
+    iekšējās izmaiņas tur nekad nenonāk. Audits to nosauc — citādi kods saka
+    vienu, bet sistēma dara citu, un neviens to neredz."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    assert play.rule_overrides(config.load_rules()) == {}
+    drifted = {"play": {**config.load_rules()["play"], "min_seconds": 300}}
+    out = play.rule_overrides(drifted)
+    assert out["min_seconds"]["live"] == 300
+    assert out["min_seconds"]["code"] == play.settings(config.load_rules())["min_seconds"]
+    # veco `allowed_genres` atslēgu uz servera audits nosauc...
+    stale = {"play": {**config.load_rules()["play"],
+                      "somber": {"allowed_genres": ["komēdija"]}}}
+    assert "somber" in play.rule_overrides(stale)
+    # ...bet tā vairs neko nebloķē: somber saplūst dziļi ar koda noklusējumu
+    assert play.genre_ok_on_somber_day(
+        Article(raw_json={"_play": {"genres": ["Romantika"]}}), stale) is True
