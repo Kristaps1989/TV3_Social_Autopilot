@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -161,6 +161,14 @@ def logout():
     return resp
 
 
+def riga_day_start(now: datetime) -> datetime:
+    """Šodienas (Rīgas) pusnakts kā naivs UTC laiks — DB glabā naivu UTC."""
+    tz = ZoneInfo(config.TIMEZONE)
+    local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
 def _link_picture_diag(session) -> str:
     """Konti lapas rinda: vai Facebook pieņem mūsu saites kartītes attēlu."""
     from app import credentials
@@ -252,11 +260,14 @@ def dashboard(request: Request):
                                    Post.state.in_(("published", "failed", "cancelled")))
                 .order_by(desc(Post.published_at), desc(Post.created_at)).limit(6)
             ).scalars().all()
+            # «Šodien» = Rīgas kalendārā diena, tāpat kā kanāla daily_cap
+            # plānotājā; ritošs 24 h logs no rīta rādīja vakardienas vakaru
+            # kopā ar šodienu un «7 / 6» izskatījās pēc pārkāpta limita
             published_today = session.execute(
                 select(Post).where(Post.channel == name, Post.state == "published",
-                                   Post.published_at >= now - timedelta(hours=24))
+                                   Post.published_at >= riga_day_start(now))
             ).scalars().all()
-            # formātu sadalījums pēdējās 24 h + rindā: vienveidība redzama
+            # formātu sadalījums šodien + rindā: vienveidība redzama
             # uzreiz, ne tikai pārlapojot ierakstus
             from collections import Counter
 
