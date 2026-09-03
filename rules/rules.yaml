@@ -128,8 +128,9 @@ page_meta: true
 # Zonde: Diagnostika -> «tv3.lv/video arhīvs» -> «Zonde».
 video_archive:
   enabled: true
-  listing: "https://tv3.lv/video/"     # arhīva saraksta lapa (jaunākie pirmie)
-  feed: ""                             # ja CMS dod video feed (JSON/RSS), liec šeit
+  listing: "https://tv3.lv/video/"     # arhīva lapa (JS čaula; tikai rezerve)
+  feed: "https://tv3.lv/api/1/video/feed/"   # klipu API (atrasts portāla JS pakotnē)
+  player_api: ""                       # atskaņotāja API ar {id}, ja feed nedod straumi
   interval_minutes: 30
   max_new_per_run: 6
   min_seconds: 5

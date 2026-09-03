@@ -260,7 +260,7 @@ def test_auto_investigation_walks_shell_scripts_and_reports_api_candidates(sessi
     app_bundle = out["bundles"][1]
     assert "https://api.skaties.lv/v1/videos?limit=20" in app_bundle["api"]
     assert "https://cdn.x/clip/1.m3u8" in app_bundle["clips"]
-    assert out["steps"][-1].startswith("pārbaudīti 2 skripti")
+    assert any(s.startswith("pārbaudīti 2 skripti") for s in out["steps"])
 
     from fastapi.testclient import TestClient
 
@@ -272,3 +272,64 @@ def test_auto_investigation_walks_shell_scripts_and_reports_api_candidates(sessi
     assert r["bundles"][1]["api"]
     page = client.get("/logs").text
     assert "Izpētīt tv3.lv/video automātiski" in page and "built-in method" not in page
+
+
+def test_crawl_prefers_the_clip_api_over_the_js_shell(session, monkeypatch):
+    """Portāla /video ir JS čaula; klipu saraksts nāk no
+    https://tv3.lv/api/1/video/feed/. Lauku nosaukumi ir minēti toleranti."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    feed = {"items": [
+        {"id": 196154563, "title": "Ostapenko pēc mača", "description": "Komentārs",
+         "image": {"url": "https://tv3cdn.lv/thumb/1.jpg"}, "duration": 48,
+         "published_at": "2026-09-03T07:15:00+03:00",
+         "categories": [{"name": "Sports"}], "tags": ["US Open"],
+         "streams": {"hls": "https://media.tv3.lv/196154563/index.m3u8"}},
+        {"id": 196154562, "title": "Bez straumes feed'ā", "image": "https://tv3cdn.lv/thumb/2.jpg",
+         "duration": "PT1M"},
+        {"id": 196154561, "title": "Par garu", "duration": 900,
+         "video_url": "https://media.tv3.lv/196154561.mp4"},
+    ]}
+    import json as _json
+
+    calls = []
+
+    def fetch(url, timeout=10):
+        calls.append(url)
+        if url == "https://tv3.lv/api/1/video/feed/":
+            return _json.dumps(feed)
+        if url == "https://player.example/tv3/video/196154562":
+            return _json.dumps({"data": {"sources": [{"type": "hls",
+                                                       "src": "https://media.tv3.lv/196154562/index.m3u8"}]}})
+        return "<!doctype html><html><body><div id=root></div></body></html>"
+
+    rules = {**config.load_rules(),
+             "video_archive": {"player_api": "https://player.example/tv3/video/{id}"}}
+    out = videos.crawl(session, rules=rules, fetch=fetch)
+    assert out["source"] == "api" and out["seen"] == 3
+    assert out["new"] == 2 and out["skipped"] == 1          # 900 s ir par garu
+    a = videos.existing_item(session, "https://tv3.lv/video/196154563/")
+    assert a.title == "Ostapenko pēc mača" and a.section == "sport"
+    assert a.raw_json["_video_url"].endswith("index.m3u8") and a.raw_json["_video_seconds"] == 48
+    assert a.images == ["https://tv3cdn.lv/thumb/1.jpg"]
+    b = videos.existing_item(session, "https://tv3.lv/video/196154562/")
+    assert b.raw_json["_video_url"] == "https://media.tv3.lv/196154562/index.m3u8"   # no atskaņotāja API
+    assert not any(u.startswith("https://tv3.lv/video/") for u in calls)          # čaulu nelasa
+
+
+def test_investigation_samples_portal_apis_and_lists_url_constants(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    shell = '<!doctype html><html><head><script type="module" src="/video/assets/index-X.js"></script></head><body></body></html>'
+    bundle = ('const LA="https://player.skaties.lv/api";fetch("https://tv3.lv/api/1/video/feed/");'
+              'u=`${LA}/tv3/video/${e}`;g="https://tv3.lv/api/1/video/menu/"')
+    pages = {"https://tv3.lv/video/": shell,
+             "https://tv3.lv/video/assets/index-X.js": bundle,
+             "https://tv3.lv/api/1/video/feed/": '{"items":[{"id":1,"title":"t","streams":{"hls":"x.m3u8"}}]}',
+             "https://tv3.lv/api/1/video/menu/": '[{"id":3,"name":"Sports"}]'}
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: pages.get(url, ""))
+    out = videos.investigate()
+    urls = [s["url"] for s in out["api_samples"]]
+    assert "https://tv3.lv/api/1/video/feed/" in urls and "https://tv3.lv/api/1/video/menu/" in urls
+    feed_sample = next(s for s in out["api_samples"] if s["url"].endswith("/feed/"))
+    assert feed_sample["json_shape"]["items"][0] == "list[1]"
+    assert "LA = https://player.skaties.lv/api" in out["url_constants"]
+    assert any("/tv3/video/" in c for c in out["context"])

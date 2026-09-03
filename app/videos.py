@@ -47,7 +47,11 @@ _DURATION_RE = re.compile(r"^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+
 DEFAULTS = {
     "enabled": True,
     "listing": "https://tv3.lv/video/",
-    "feed": "",
+    # klipu API (atrasts JS pakotnē): JSON ar klipu sarakstu
+    "feed": "https://tv3.lv/api/1/video/feed/",
+    # atskaņotāja API ar {id}: atbildē ir straumes (m3u8/mp4) adrese, ja
+    # feed to nedod; tukšs = nav zināms
+    "player_api": "",
     "interval_minutes": 30,
     "max_new_per_run": 6,
     "min_seconds": 5,
@@ -383,6 +387,131 @@ def attach_to_article(article, found: dict, fetch=None) -> bool:
     return changed
 
 
+# --- API feed ------------------------------------------------------------------
+
+def _pick(item: dict, *keys: str):
+    for k in keys:
+        v = item.get(k)
+        if v not in (None, "", [], {}):
+            return v
+    return ""
+
+
+def _clip_from(value) -> str:
+    """mp4/m3u8 adrese no lauka, kas var būt virkne, objekts vai saraksts."""
+    if isinstance(value, str):
+        return value if re.search(r"\.(mp4|m3u8)(\?|$)", value, re.I) or value.startswith("http") else ""
+    if isinstance(value, dict):
+        for k in ("hls", "m3u8", "mp4", "url", "src", "file", "stream", "source"):
+            got = _clip_from(value.get(k))
+            if got:
+                return got
+        for v in value.values():
+            got = _clip_from(v)
+            if got:
+                return got
+    if isinstance(value, list):
+        for v in value:
+            got = _clip_from(v)
+            if got:
+                return got
+    return ""
+
+
+def _image_from(value) -> str:
+    if isinstance(value, str):
+        return value if value.startswith("http") else ""
+    if isinstance(value, dict):
+        for k in ("url", "src", "large", "medium", "original", "thumbnail"):
+            got = _image_from(value.get(k))
+            if got:
+                return got
+    if isinstance(value, list):
+        for v in value:
+            got = _image_from(v)
+            if got:
+                return got
+    return ""
+
+
+def api_item_info(item: dict) -> dict:
+    """Klipu API ieraksts -> tas pats info dict, ko dod parse_video_page.
+
+    API lauku nosaukumi nav apstiprināti; katram laukam mēģinām vairākus
+    nosaukumus (kā ingest feed'am), lai pirmais īstais paraugs strādā bez
+    koda maiņas vai prasa tikai vienu nosaukumu pielikt."""
+    vid = str(_pick(item, "id", "video_id", "videoId", "post_id", "ID") or "")
+    url = str(_pick(item, "url", "link", "permalink", "page_url") or "")
+    canon = canonical_url(url) or (canonical_url(vid) if vid.isdigit() else "")
+    if not vid and canon:
+        vid = video_id(canon)
+    clip = _clip_from(_pick(item, "video_url", "videoUrl", "video", "stream", "streams",
+                            "hls", "m3u8", "mp4", "src", "file", "sources", "media"))
+    thumb = _image_from(_pick(item, "image", "thumbnail", "thumb", "poster", "cover",
+                              "images", "featured_image", "og_image"))
+    secs = parse_duration(_pick(item, "duration", "duration_seconds", "length", "seconds"))
+    cats = _pick(item, "categories", "category", "section", "menu", "tags_names")
+    if isinstance(cats, str):
+        cats = [cats]
+    cats = [str(c.get("name") or c.get("title") or c) if isinstance(c, dict) else str(c)
+            for c in (cats or [])]
+    tags = _pick(item, "tags", "keywords")
+    if isinstance(tags, str):
+        tags = [t.strip() for t in re.split(r"[;,]", tags) if t.strip()]
+    tags = [str(t.get("name") or t) if isinstance(t, dict) else str(t) for t in (tags or [])]
+    art = str(_pick(item, "article_url", "articleUrl", "article", "post_url", "related_url") or "")
+    if isinstance(_pick(item, "article"), dict):
+        art = str(_pick(item, "article").get("url") or "")
+    return {
+        "id": vid, "url": canon,
+        "title": str(_pick(item, "title", "name", "headline") or "").strip(),
+        "description": str(_pick(item, "description", "lead", "excerpt", "summary") or "").strip(),
+        "thumbnail": thumb, "clip": clip, "embed": "", "seconds": secs,
+        "upload_date": str(_pick(item, "published_at", "date", "created_at", "publish_date",
+                                 "uploadDate") or ""),
+        "tags": tags, "categories": cats,
+        "post_id": str(_pick(item, "post_id", "postId") or vid), "article": art,
+    }
+
+
+def api_items(cfg: dict, fetch) -> list[dict]:
+    """Klipu API ieraksti (tukšs saraksts, ja feed nav vai nav JSON)."""
+    feed = str(cfg.get("feed") or "")
+    if not feed:
+        return []
+    body = fetch(feed)
+    if not body:
+        return []
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return []
+    if isinstance(data, dict):
+        for key in ("items", "data", "results", "videos", "posts", "feed"):
+            if isinstance(data.get(key), list):
+                data = data[key]
+                break
+        else:
+            inner = next((v for v in data.values() if isinstance(v, list)), [])
+            data = inner
+    return [i for i in data if isinstance(i, dict)] if isinstance(data, list) else []
+
+
+def player_clip(cfg: dict, vid: str, fetch) -> str:
+    """Straumes adrese no atskaņotāja API (`player_api` ar {id})."""
+    tpl = str(cfg.get("player_api") or "")
+    if not tpl or not vid:
+        return ""
+    body = fetch(tpl.replace("{id}", vid))
+    if not body:
+        return ""
+    try:
+        return _clip_from(json.loads(body))
+    except ValueError:
+        hits = find_in(body, r"https?://[^\s\"'`<>]+\.(?:m3u8|mp4)[^\s\"'`<>]*", limit=5)
+        return hits[0] if hits else ""
+
+
 # --- pārlūkošana ---------------------------------------------------------------
 
 def _listing_urls(cfg: dict, fetch) -> list[str]:
@@ -421,8 +550,17 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
     if not cfg.get("enabled"):
         return summary
     fetch = fetch or pagemeta.fetch
-    urls = _listing_urls(cfg, fetch)
+    # API dod klipu datus uzreiz; video lapa ir tikai JS čaula bez datiem,
+    # tāpēc to ielasa tikai tad, ja API nav
+    items = api_items(cfg, fetch)
+    infos = {}
+    for it in items:
+        info = api_item_info(it)
+        if info["url"] and info["url"] not in infos:
+            infos[info["url"]] = info
+    urls = list(infos) or _listing_urls(cfg, fetch)
     summary["seen"] = len(urls)
+    summary["source"] = "api" if infos else "html"
     budget = int(cfg.get("max_new_per_run") or 6)
     for url in urls:
         if budget <= 0:
@@ -432,11 +570,15 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
         if covering_article(session, url) is not None:
             summary["covered"] += 1
             continue
-        html = fetch(url)
-        if not html:
-            summary["skipped"] += 1
-            continue
-        info = parse_video_page(html, url)
+        info = infos.get(url)
+        if info is None:
+            html = fetch(url)
+            if not html:
+                summary["skipped"] += 1
+                continue
+            info = parse_video_page(html, url)
+        if not info.get("clip"):
+            info["clip"] = player_clip(cfg, info.get("id", ""), fetch)
         row = upsert_item(session, info, cfg)
         if row is None:
             summary["skipped"] += 1
@@ -641,5 +783,58 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8) -> 
     out["bundles"] = bundles
     hits = sum(len(b.get("api") or []) for b in bundles)
     out["steps"].append(f"pārbaudīti {len(bundles)} skripti, {hits} API adrešu kandidāti")
+    # portāla API paraugi: ko feed un menu tiešām atdod (pirmie 3000 simboli)
+    samples = []
+    seen = set()
+    for b in bundles:
+        for hit in b.get("api") or []:
+            url = _absolute(hit, listing) if hit.startswith("/") else hit
+            if (not url.startswith("https://tv3.lv/api/") or "${" in url or url in seen
+                    or len(samples) >= 6):
+                continue
+            seen.add(url)
+            body = fetch(url)
+            sample = {"url": url, "fetched": bool(body), "bytes": len(body or "")}
+            if body:
+                sample["head"] = body[:3000]
+                try:
+                    data = json.loads(body)
+                    sample["json_shape"] = _shape(data)
+                except ValueError:
+                    pass
+            samples.append(sample)
+    out["api_samples"] = samples
+    # konstantes ar pilnām adresēm (te slēpjas atskaņotāja API bāze `LA`)
+    consts = []
+    ctx = []
+    for b in bundles:
+        text = fetch(b["script"]) if b.get("fetched") else ""
+        if not text:
+            continue
+        for m in re.finditer(r"\b([A-Za-z_$][\w$]{0,30})\s*=\s*[\"'`](https?://[^\"'`\s]{8,140})[\"'`]",
+                             text):
+            pair = f"{m.group(1)} = {m.group(2)}"
+            if pair not in consts:
+                consts.append(pair)
+        for m in re.finditer(r"/tv3/video/|/api/1/video/", text):
+            start = max(0, m.start() - 260)
+            ctx.append(text[start:m.end() + 140])
+            if len(ctx) >= 8:
+                break
+    out["url_constants"] = consts[:80]
+    out["context"] = ctx
+    if consts:
+        out["steps"].append(f"{len(consts)} adrešu konstantes skriptos (meklē atskaņotāja bāzi)")
     return out
+
+
+def _shape(data, depth: int = 0) -> object:
+    """JSON forma bez vērtībām: {atslēga: tips}, saraksts -> pirmā elementa forma."""
+    if depth > 3:
+        return "…"
+    if isinstance(data, dict):
+        return {k: _shape(v, depth + 1) for k, v in list(data.items())[:40]}
+    if isinstance(data, list):
+        return [f"list[{len(data)}]", _shape(data[0], depth + 1) if data else None]
+    return type(data).__name__
 
