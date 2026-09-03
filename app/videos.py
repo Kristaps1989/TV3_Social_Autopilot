@@ -853,16 +853,76 @@ def _absolute(url: str, base: str) -> str:
     return ""
 
 
-def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8) -> dict:
+# Citas TV3 vietnes, ko izpētīt ar to pašu zondi (Diagnostika -> «Izpētīt»)
+SITES = {
+    "video": {"listing": None, "label": "tv3.lv/video"},             # None = video_archive.listing
+    "play": {"listing": "https://play.tv3.lv/", "label": "TV3 Play"},
+}
+_INLINE_DATA_RE = re.compile(
+    r"<script[^>]*(?:id=[\"'](__NEXT_DATA__|__NUXT_DATA__)[\"'])[^>]*>(.*?)</script>"
+    r"|window\.(__NUXT__|__INITIAL_STATE__|__APOLLO_STATE__|__PRELOADED_STATE__|__DATA__)\s*=\s*(.{0,3000})",
+    re.I | re.S)
+_ALT_LINK_RE = re.compile(r"<link\b[^>]*rel=[\"']alternate[\"'][^>]*>", re.I)
+_HREF_RE = re.compile(r"href=[\"'](/[^\"'#?]{1,120}|https?://[^\"'#?]{8,160})[\"']", re.I)
+
+
+def _same_site(url: str, base: str) -> bool:
+    m1 = re.match(r"https?://([^/]+)", url or "")
+    m2 = re.match(r"https?://([^/]+)", base or "")
+    return bool(m1 and m2 and m1.group(1).lower() == m2.group(1).lower())
+
+
+def shell_content(html: str, base: str) -> dict:
+    """Ko čaula nes bez API: iebūvētie dati (Next/Nuxt), JSON-LD tipi,
+    alternatīvās plūsmas (RSS) un iekšējo saišu ceļi pēc biežuma."""
+    inline = []
+    for m in _INLINE_DATA_RE.finditer(html or ""):
+        name = m.group(1) or m.group(3)
+        body = (m.group(2) or m.group(4) or "").strip()
+        inline.append({"name": name, "head": body[:3000]})
+        if len(inline) >= 3:
+            break
+    ld_types = []
+    for node in pagemeta._json_ld_nodes(html or ""):
+        t = node.get("@type")
+        for tt in (t if isinstance(t, list) else [t]):
+            if tt and tt not in ld_types:
+                ld_types.append(str(tt))
+    prefixes: dict[str, int] = {}
+    examples: dict[str, str] = {}
+    for m in _HREF_RE.finditer(html or ""):
+        href = m.group(1)
+        url = _absolute(href, base) if href.startswith("/") else href
+        if not _same_site(url, base):
+            continue
+        path = re.sub(r"^https?://[^/]+", "", url)
+        seg = "/" + path.strip("/").split("/")[0] + "/" if path.strip("/") else "/"
+        prefixes[seg] = prefixes.get(seg, 0) + 1
+        examples.setdefault(seg, url)
+    paths = sorted(prefixes.items(), key=lambda kv: -kv[1])[:25]
+    return {
+        "inline_data": inline,
+        "json_ld_types": ld_types[:20],
+        "alternate_links": _ALT_LINK_RE.findall(html or "")[:10],
+        "internal_paths": [{"prefix": k, "count": n, "example": examples[k]} for k, n in paths],
+    }
+
+
+def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8,
+                site: str = "video") -> dict:
     """Viss vienā: saraksta lapa, tās skripti, API adreses skriptos.
 
     tv3.lv/video ir JavaScript čaula, tāpēc klipu saraksts nāk no API, kura
     adrese ir tikai JS pakotnēs. Šī zonde iet pa visu ķēdi pati, lai
     redaktoram jānospiež viena poga un rezultāts jānokopē izstrādātājam.
+    `site` izvēlas vietni (SITES): video arhīvs vai TV3 Play — Play gadījumā
+    papildus lasa sitemap un robots.txt, jo katalogs bieži ir tieši tur.
     """
     fetch = fetch or pagemeta.fetch
-    listing = str(settings(rules).get("listing") or DEFAULTS["listing"])
-    out: dict = {"listing": listing, "steps": []}
+    site_cfg = SITES.get(site) or SITES["video"]
+    listing = (site_cfg["listing"]
+               or str(settings(rules).get("listing") or DEFAULTS["listing"]))
+    out: dict = {"site": site, "listing": listing, "steps": []}
     shell = probe(listing, fetch=fetch, raw=True, find="api")
     out["shell"] = {k: shell.get(k) for k in ("fetched", "bytes", "videos", "hint",
                                               "scripts", "links", "globals", "found")}
@@ -870,11 +930,28 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8) -> 
     if not shell.get("fetched"):
         out["steps"].append("saraksta lapa neatbild")
         return out
-    if shell.get("videos"):
+    out["content"] = shell_content(shell.get("html", "") or fetch(listing) or "", listing)
+    if out["content"]["inline_data"]:
+        out["steps"].append("čaulā ir iebūvēti dati (" + ", ".join(
+            d["name"] for d in out["content"]["inline_data"]) + ")")
+    if site == "video" and shell.get("videos"):
         out["steps"].append(f"saraksta HTML jau satur {len(shell['videos'])} klipu saites — "
                             "parsētājs strādā, API nav vajadzīgs")
         return out
-    out["steps"].append("saraksta HTML ir JS čaula; meklējam API skriptos")
+    if site != "video":
+        extras = []
+        for path in ("robots.txt", "sitemap.xml", "sitemap_index.xml"):
+            url = listing.rstrip("/") + "/" + path
+            body = fetch(url)
+            entry = {"url": url, "fetched": bool(body), "bytes": len(body or "")}
+            if body:
+                entry["head"] = body[:2500]
+                entry["sitemaps"] = find_in(body, r"https?://[^\s<\"']+sitemap[^\s<\"']*", limit=20)
+                entry["urls"] = find_in(body, r"(?<=<loc>)https?://[^<\s]+", limit=30)
+            extras.append(entry)
+        out["site_files"] = extras
+        out["steps"].append("nolasīti robots.txt un sitemap")
+    out["steps"].append("meklējam API skriptos")
     bundles = []
     for src in (shell.get("scripts") or [])[:max_scripts]:
         url = _absolute(src, listing)
@@ -898,8 +975,9 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8) -> 
     for b in bundles:
         for hit in b.get("api") or []:
             url = _absolute(hit, listing) if hit.startswith("/") else hit
-            if (not url.startswith("https://tv3.lv/api/") or "${" in url or url in seen
-                    or len(samples) >= 6):
+            if ("${" in url or url in seen or len(samples) >= 8
+                    or not probe_allowed(url)
+                    or not re.search(r"/(api|graphql)\b", url, re.I)):
                 continue
             seen.add(url)
             body = fetch(url)

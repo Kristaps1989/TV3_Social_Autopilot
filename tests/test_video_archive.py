@@ -387,3 +387,48 @@ def test_real_feed_schema_links_articles_and_creates_items_for_the_rest(session,
     videos.crawl(session, fetch=fetch)
     assert art.raw_json["_video_page"] == "https://tv3.lv/video/193066443/"
     assert rtu.decided_at is not None and rtu.raw_json["_video_superseded"] == art.id
+
+
+def test_play_investigation_reads_inline_data_sitemap_and_apis(session, monkeypatch):
+    """play.tv3.lv izpēte: tā pati ķēde, plus Next dati, sitemap un robots."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    shell = """<!doctype html><html><head>
+<link rel="alternate" type="application/rss+xml" href="https://play.tv3.lv/feed.xml">
+<script type="application/ld+json">{"@type":"WebSite","name":"TV3 Play"}</script>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"titles":[{"id":7,"title":"Seriāls"}]}}}</script>
+<script src="/_next/static/chunks/main-abc.js"></script></head>
+<body><a href="/seriali/x/">S</a><a href="/seriali/y/">S2</a><a href="/filmas/z/">F</a>
+<a href="https://tv3.lv/zinas/">ārējs</a></body></html>"""
+    pages = {
+        "https://play.tv3.lv/": shell,
+        "https://play.tv3.lv/_next/static/chunks/main-abc.js":
+            'fetch("https://play.tv3.lv/api/v1/catalog?type=movie");x="https://api.play.tv3.lv/graphql"',
+        "https://play.tv3.lv/robots.txt": "User-agent: *\nSitemap: https://play.tv3.lv/sitemap.xml\n",
+        "https://play.tv3.lv/sitemap.xml": "<urlset><url><loc>https://play.tv3.lv/filmas/z/</loc></url></urlset>",
+        "https://play.tv3.lv/api/v1/catalog?type=movie": '{"items":[{"id":1,"title":"Filma"}]}',
+    }
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: pages.get(url, ""))
+    out = videos.investigate(site="play")
+    assert out["listing"] == "https://play.tv3.lv/"
+    assert out["content"]["inline_data"][0]["name"] == "__NEXT_DATA__"
+    assert out["content"]["json_ld_types"] == ["WebSite"]
+    assert out["content"]["internal_paths"][0] == {"prefix": "/seriali/", "count": 2,
+                                                   "example": "https://play.tv3.lv/seriali/x/"}
+    assert any("rss+xml" in a for a in out["content"]["alternate_links"])
+    robots = next(f for f in out["site_files"] if f["url"].endswith("robots.txt"))
+    assert robots["sitemaps"] == ["https://play.tv3.lv/sitemap.xml"]
+    sitemap = next(f for f in out["site_files"] if f["url"].endswith("/sitemap.xml"))
+    assert sitemap["urls"] == ["https://play.tv3.lv/filmas/z/"]
+    assert "https://play.tv3.lv/api/v1/catalog?type=movie" in out["bundles"][0]["api"]
+    sample = next(s for s in out["api_samples"] if "catalog" in s["url"])
+    assert sample["json_shape"]["items"][0] == "list[1]"
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    assert client.get("/logs/site-probe/auto", params={"site": "play"}).json()["site"] == "play"
+    assert client.get("/logs/site-probe/auto", params={"site": "x"}).status_code == 400
+    assert "Izpētīt TV3 Play automātiski" in client.get("/logs").text

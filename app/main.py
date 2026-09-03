@@ -1841,6 +1841,21 @@ def video_probe_auto():
     return JSONResponse(videos.investigate(fetch=fetch))
 
 
+@app.get("/logs/site-probe/auto")
+def site_probe_auto(site: str = "play"):
+    """Tā pati vienas pogas izpēte citai TV3 vietnei (play.tv3.lv): čaula,
+    iebūvētie dati, sitemap, skripti, API kandidāti un to atbilžu paraugi."""
+    from fastapi.responses import JSONResponse
+
+    from app import pagemeta, videos
+
+    if site not in videos.SITES:
+        return JSONResponse({"error": f"nezināma vietne; ir: {', '.join(videos.SITES)}"},
+                            status_code=400)
+    fetch = (lambda u, timeout=30: pagemeta.fetch(u, timeout=timeout))
+    return JSONResponse(videos.investigate(fetch=fetch, site=site))
+
+
 @app.get("/logs/export.json")
 def logs_export(channel: str = "", lines: int = 500):
     """Viss vienā JSON failā — to var iedot izstrādātājam vai AI asistentam,
