@@ -813,6 +813,7 @@ def probe(url: str, fetch=None, raw: bool = False, find: str = "") -> dict:
     if find is not None and (find or raw):
         out["find"] = find or "api"
         out["found"] = find_in(html, find)
+    out["_html"] = html          # pilnais teksts izpētei; JSON atbildē to noņem
     if raw:
         out["scripts"] = [m.group(1) for m in _SCRIPT_SRC_RE.finditer(html)][:40]
         out["links"] = [m.group(1) for m in _LINK_HREF_RE.finditer(html)][:40]
@@ -930,7 +931,8 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8,
     if not shell.get("fetched"):
         out["steps"].append("saraksta lapa neatbild")
         return out
-    out["content"] = shell_content(shell.get("html", "") or fetch(listing) or "", listing)
+    full_html = shell.pop("_html", "") or ""
+    out["content"] = shell_content(full_html, listing)
     if out["content"]["inline_data"]:
         out["steps"].append("čaulā ir iebūvēti dati (" + ", ".join(
             d["name"] for d in out["content"]["inline_data"]) + ")")
@@ -940,17 +942,28 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8,
         return out
     if site != "video":
         extras = []
-        for path in ("robots.txt", "sitemap.xml", "sitemap_index.xml"):
-            url = listing.rstrip("/") + "/" + path
+        queue = [listing.rstrip("/") + "/robots.txt", listing.rstrip("/") + "/sitemap.xml"]
+        seen_files: set[str] = set()
+        while queue and len(extras) < 8:
+            url = queue.pop(0)
+            if url in seen_files or not probe_allowed(url):
+                continue
+            seen_files.add(url)
             body = fetch(url)
             entry = {"url": url, "fetched": bool(body), "bytes": len(body or "")}
             if body:
                 entry["head"] = body[:2500]
                 entry["sitemaps"] = find_in(body, r"https?://[^\s<\"']+sitemap[^\s<\"']*", limit=20)
                 entry["urls"] = find_in(body, r"(?<=<loc>)https?://[^<\s]+", limit=30)
+                entry["loc_count"] = len(re.findall(r"<loc>", body))
+                # robots «Sitemap:» rindas un sitemap indeksa apakšsitemapi
+                queue.extend(u for u in entry["sitemaps"] if u not in seen_files)
             extras.append(entry)
         out["site_files"] = extras
-        out["steps"].append("nolasīti robots.txt un sitemap")
+        out["steps"].append(f"nolasīti robots.txt un {max(0, len(extras) - 1)} sitemap faili")
+        out["sample_pages"] = sample_pages(full_html, listing, fetch)
+        if out["sample_pages"]:
+            out["steps"].append(f"nolasītas {len(out['sample_pages'])} nosaukumu lapas paraugam")
     out["steps"].append("meklējam API skriptos")
     bundles = []
     for src in (shell.get("scripts") or [])[:max_scripts]:
@@ -972,7 +985,7 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8,
     # portāla API paraugi: ko feed un menu tiešām atdod (pirmie 3000 simboli)
     samples = []
     seen = set()
-    for b in bundles:
+    for b in [{"api": shell.get("found") or []}, *bundles]:
         for hit in b.get("api") or []:
             url = _absolute(hit, listing) if hit.startswith("/") else hit
             if ("${" in url or url in seen or len(samples) >= 8
@@ -1012,6 +1025,75 @@ def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8,
     out["context"] = ctx
     if consts:
         out["steps"].append(f"{len(consts)} adrešu konstantes skriptos (meklē atskaņotāja bāzi)")
+    return out
+
+
+def page_summary(html: str, url: str) -> dict:
+    """Nosaukuma/sērijas lapas kopsavilkums: og tagi, JSON-LD mezgli
+    (TVSeries/Movie/VideoObject/BreadcrumbList), dlEvent, klipu kandidāti."""
+    nodes = []
+    for node in pagemeta._json_ld_nodes(html):
+        stack = [node]
+        while stack and len(nodes) < 12:
+            cur = stack.pop()
+            if not isinstance(cur, dict):
+                continue
+            t = cur.get("@type")
+            if t:
+                compact = {k: (v if isinstance(v, (str, int, float)) else _shape(v, 2))
+                           for k, v in cur.items() if k != "@context"}
+                nodes.append(compact)
+            for v in cur.values():
+                if isinstance(v, dict):
+                    stack.append(v)
+                elif isinstance(v, list):
+                    stack.extend(x for x in v if isinstance(x, dict))
+    meta = pagemeta.parse(html)
+    return {
+        "url": url, "bytes": len(html),
+        "og": {k: pagemeta._meta_one(html, "og:" + k) for k in
+               ("type", "title", "description", "image", "video", "video:url", "url")},
+        "meta": {k: pagemeta._meta_one(html, k) for k in
+                 ("description", "keywords", "article:section", "video:duration",
+                  "video:release_date", "video:tag")},
+        "json_ld": nodes,
+        "dl_event": {k: meta.get(k) for k in ("post_id", "categories", "tags", "post_types",
+                                              "publish_date", "page_type")},
+        "clip_candidates": clip_urls(html)[:8],
+        "video_page_parse": {k: v for k, v in parse_video_page(html, "").items()
+                             if k in ("title", "clip", "seconds", "thumbnail", "upload_date")},
+        "internal_paths": shell_content(html, url)["internal_paths"][:10],
+    }
+
+
+def sample_pages(html: str, base: str, fetch, limit: int = 3) -> list[dict]:
+    """Pāris nosaukumu lapu paraugi: viena ar vienu ceļa segmentu (raidījums/
+    seriāls), viena ar diviem (sērija), un pirmā cita veida saite."""
+    picked: list[str] = []
+    kinds: set[str] = set()
+    for m in _HREF_RE.finditer(html or ""):
+        href = m.group(1)
+        url = _absolute(href, base) if href.startswith("/") else href
+        if not _same_site(url, base) or not probe_allowed(url):
+            continue
+        path = re.sub(r"^https?://[^/]+", "", url).strip("/")
+        segs = path.split("/") if path else []
+        if not segs or segs[0] in ("wp-content", "wp-json", "api", "cdn-cgi", "embed"):
+            continue
+        kind = f"{segs[0]}:{len(segs)}"
+        if kind in kinds or url in picked:
+            continue
+        kinds.add(kind)
+        picked.append(url)
+        if len(picked) >= limit:
+            break
+    out = []
+    for url in picked:
+        body = fetch(url)
+        if body:
+            out.append(page_summary(body, url))
+        else:
+            out.append({"url": url, "error": "lapa neatbild"})
     return out
 
 

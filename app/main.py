@@ -1826,7 +1826,9 @@ def video_probe(url: str = "", raw: str = "", find: str = ""):
         return JSONResponse({"error": "dod tv3.lv / tv3cdn.lv / skaties.lv adresi"},
                             status_code=400)
     fetch = (lambda u, timeout=30: pagemeta.fetch(u, timeout=timeout))
-    return JSONResponse(videos.probe(url, fetch=fetch, raw=bool(raw), find=find))
+    out = videos.probe(url, fetch=fetch, raw=bool(raw), find=find)
+    out.pop("_html", None)
+    return JSONResponse(out)
 
 
 @app.get("/logs/video-probe/auto")

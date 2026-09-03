@@ -403,8 +403,14 @@ def test_play_investigation_reads_inline_data_sitemap_and_apis(session, monkeypa
         "https://play.tv3.lv/": shell,
         "https://play.tv3.lv/_next/static/chunks/main-abc.js":
             'fetch("https://play.tv3.lv/api/v1/catalog?type=movie");x="https://api.play.tv3.lv/graphql"',
-        "https://play.tv3.lv/robots.txt": "User-agent: *\nSitemap: https://play.tv3.lv/sitemap.xml\n",
-        "https://play.tv3.lv/sitemap.xml": "<urlset><url><loc>https://play.tv3.lv/filmas/z/</loc></url></urlset>",
+        "https://play.tv3.lv/robots.txt": "User-agent: *\nSitemap: https://play.tv3.lv/sitemaps/sitemap.xml\n",
+        "https://play.tv3.lv/sitemaps/sitemap.xml": "<urlset><url><loc>https://play.tv3.lv/filmas/z/</loc></url></urlset>",
+        "https://play.tv3.lv/seriali/x/": """<html><head><meta property="og:type" content="video.tv_show">
+<meta property="og:title" content="Seriāls X"><script type="application/ld+json">
+{"@type":"TVSeries","name":"Seriāls X","genre":["Drāma"],"numberOfSeasons":2}</script></head>
+<body><a href="/seriali/x/1-serija-5/">1. sērija</a></body></html>""",
+        "https://play.tv3.lv/seriali/x/1-serija-5/": """<html><head><script type="application/ld+json">
+{"@type":"VideoObject","name":"1. sērija","contentUrl":"https://cdn.play/1.m3u8","duration":"PT42M"}</script></head><body></body></html>""",
         "https://play.tv3.lv/api/v1/catalog?type=movie": '{"items":[{"id":1,"title":"Filma"}]}',
     }
     monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: pages.get(url, ""))
@@ -416,9 +422,16 @@ def test_play_investigation_reads_inline_data_sitemap_and_apis(session, monkeypa
                                                    "example": "https://play.tv3.lv/seriali/x/"}
     assert any("rss+xml" in a for a in out["content"]["alternate_links"])
     robots = next(f for f in out["site_files"] if f["url"].endswith("robots.txt"))
-    assert robots["sitemaps"] == ["https://play.tv3.lv/sitemap.xml"]
-    sitemap = next(f for f in out["site_files"] if f["url"].endswith("/sitemap.xml"))
-    assert sitemap["urls"] == ["https://play.tv3.lv/filmas/z/"]
+    assert robots["sitemaps"] == ["https://play.tv3.lv/sitemaps/sitemap.xml"]
+    # robots «Sitemap:» rindai seko līdzi, arī ja tā nav saknē
+    sitemap = next(f for f in out["site_files"] if f["url"].endswith("/sitemaps/sitemap.xml"))
+    assert sitemap["urls"] == ["https://play.tv3.lv/filmas/z/"] and sitemap["loc_count"] == 1
+    # nosaukuma un sērijas lapu paraugi
+    kinds = {p["url"]: p for p in out["sample_pages"]}
+    show = kinds["https://play.tv3.lv/seriali/x/"]
+    assert show["og"]["type"] == "video.tv_show"
+    assert show["json_ld"][0]["@type"] == "TVSeries" and show["json_ld"][0]["name"] == "Seriāls X"
+    assert "https://play.tv3.lv/filmas/z/" in kinds
     assert "https://play.tv3.lv/api/v1/catalog?type=movie" in out["bundles"][0]["api"]
     sample = next(s for s in out["api_samples"] if "catalog" in s["url"])
     assert sample["json_shape"]["items"][0] == "list[1]"
