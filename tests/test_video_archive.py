@@ -173,16 +173,17 @@ def test_daily_cap_freshness_and_priority_treat_clips_as_filler(session, monkeyp
 
     # prioritāte: 30 h vecs klips ar pusperiodu 48 h vēl ir ~65 % vērtības
     p = Post(article_id=item.id, channel="fb_video", format="reel", copy="c",
-             scheduled_at=now + timedelta(hours=1), state="scheduled", extra={})
+             scheduled_at=now, state="scheduled", extra={})
     session.add(p)
     session.flush()
     assert 0.6 < slots.priority(p, now) / (1.0 + float(item.ai_score or 0)) < 0.7
 
-    # dienas limits: 3 klipi kanālā dienā
+    # Dienas limits: 3 klipi kanālā dienā. Ieraksti tieši `now`, ne now+1h..+3h:
+    # vēlā vakarā daļa aizceļotu uz nākamo Rīgas dienu un limits nekad neaizpildītos.
     assert videos.posted_today(session, "fb_video") == 1
-    for i in range(2):
+    for _ in range(2):
         session.add(Post(article_id=item.id, channel="fb_video", format="reel", copy="c",
-                         scheduled_at=now + timedelta(hours=2 + i), state="scheduled", extra={}))
+                         scheduled_at=now, state="scheduled", extra={}))
     session.flush()
     assert videos.over_daily_cap(session, "fb_video") is True
     assert videos.over_daily_cap(session, "fb_other") is False

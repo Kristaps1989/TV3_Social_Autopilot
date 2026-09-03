@@ -821,3 +821,15 @@ def test_reset_rule_block_replaces_the_seeded_copy_but_keeps_the_switch(tmp_path
     assert play.settings()["enabled"] is True
     # pārējie noteikumi failā netiek aiztikti
     assert "quiet_hours: []" in (tmp_path / "rules.yaml").read_text(encoding="utf-8")
+
+
+def test_audit_reports_the_actual_poster_addresses(monkeypatch):
+    """«Plakāts: ir» nepasaka, vai to var likt 1080x1920 stāstā. Adresi vajag:
+    no tās redzam izmēru un vai to drīkst prasīt lielāku."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    row = play._audit_row({"url": "https://play.tv3.lv/filmas/x-1/",
+                           "poster": "https://tv3cdn.lv/468x624/x.jpg",
+                           "wide_image": "https://tv3cdn.lv/1280x720/x.jpg"})
+    assert row["poster_url"] == "https://tv3cdn.lv/468x624/x.jpg"
+    assert row["wide_url"] == "https://tv3cdn.lv/1280x720/x.jpg"
+    assert row["poster"] is True

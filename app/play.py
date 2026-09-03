@@ -1153,6 +1153,9 @@ def _audit_row(info: dict) -> dict:
             "last_chance": bool(info.get("last_chance")),
             "expires_days": info.get("expires_days"),
             "rating": info.get("rating", ""), "poster": bool(info.get("poster")),
+            # Adreses, ne tikai «ir/nav»: no tām redzam izmēru un vai to var
+            # prasīt lielāku. 468x624 plakāts 1080x1920 stāstā būtu izplūdis.
+            "poster_url": info.get("poster", ""), "wide_url": info.get("wide_image", ""),
             "description": bool(info.get("description"))}
 
 
@@ -1306,6 +1309,14 @@ def audit(fetch=None, rules: dict | None = None, per_section: int = 4,   # noqa:
     missing = [s["path"] for s in out["sections"] if not s.get("fetched")]
     if missing:
         out["warnings"].append("sadaļas neatbild: " + ", ".join(missing))
+    # Kādus attēlus mēs īsti dabūjam: stāsts ir 1080x1920, tāpēc mazs plakāts
+    # tur izskatītos slikti, un plakātu (uzzīmētu, ar nosaukumu) griezt 9:16
+    # nozīmē nogriezt tekstu. Bez adresēm to nevar novērtēt.
+    out["poster_samples"] = [r["poster_url"] for r in rows if r.get("poster_url")][:6]
+    out["wide_samples"] = [r["wide_url"] for r in rows if r.get("wide_url")][:6]
+    if not out["poster_samples"]:
+        out["warnings"].append("nevienā paraugā nav vertikālā plakāta (Image3x4) — "
+                               "stāstiem paliktu tikai platais kadrs")
     out["rule_overrides"] = rule_overrides(rules)
     if out["rule_overrides"]:
         out["warnings"].append(
