@@ -130,6 +130,7 @@ play:
   sitemaps: ["/sitemaps/sitemap-latest.xml", "/sitemaps/sitemap-{month}.xml"]
   exclude_slugs: [tv3-zinas, tv3-zinas-isuma, degpunkta, 900-sekundes, bez-tabu, neka-personiga, tiesraides]
   min_seconds: 300
+  max_age_hours: 0           # 0 = kataloga nosaukums nenoveco kā ziņa
   daily_cap: 1
   weekend_daily_cap: 2
   story_daily_cap: 1
@@ -143,6 +144,11 @@ play:
     allowed_genres: [ģimenes, komēdija, drāma, dokumentāl, kulinār, ceļojum, daba, bērn]
   title_cooldown_days: 14
   genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
+  # Katalogs: sadaļu lapas dod nosaukumus, sitemapi — jaunās sērijas
+  browse_pages: ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/", "/berniem/", "/sports/", "/vietejais-saturs/"]
+  page_fetch_per_run: 12     # cik nosaukumu lapu ielasa žanram/plakātam vienā apgājienā
+  # Play lapas vecuma cenzu nedod, tāpēc pieaugušo saturu šķiro pēc adreses
+  adult_slugs: [tikai-pieaugusajiem, erotika, erotic, adult]
   # P2: izlašu karuselis (pk/se/sv vakarā, redaktors apstiprina) un tilti no
   # rakstiem par raidījumu/personu (tikai izklaide/sports, tikai bez traģēdijas)
   selection_channel: fb_tv3lv

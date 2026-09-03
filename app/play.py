@@ -36,13 +36,21 @@ DEFAULTS = {
     "base": PLAY_HOST + "/",
     # sitemapi: jaunākais + tekošais mēnesis ({month} = YYYY-MM)
     "sitemaps": ["/sitemaps/sitemap-latest.xml", "/sitemaps/sitemap-{month}.xml"],
+    # Sadaļu lapas: TIEŠI te ir katalogs (sākumlapā vien 426 nosaukumu saites).
+    # Sitemapi dod jaunās sērijas, sadaļu lapas — pašus nosaukumus.
+    "browse_pages": ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/",
+                     "/berniem/", "/sports/", "/vietejais-saturs/"],
     "interval_minutes": 60,
     "max_new_per_run": 20,
     "page_fetch_per_run": 6,          # nosaukumu lapas žanram/cenzam
     # raidījumi, kas ir ziņas, ne izklaide — Play promo tos neņem
     "exclude_slugs": ["tv3-zinas", "tv3-zinas-isuma", "degpunkta", "900-sekundes",
                       "bez-tabu", "neka-personiga", "tiesraides", "video-1"],
-    "sport_slugs": ["fiba", "fifa", "wrc", "hokej", "basketbol", "futbol", "sport"],
+    "sport_slugs": ["fiba", "fifa", "wrc", "hokej", "basketbol", "basketball", "futbol",
+                    "football", "sport", "olimp", "hockey"],
+    # Play lapas vecuma cenzu NEDOD (pārbaudīts ar zondi 07.09.2026), tāpēc
+    # pieaugušo saturu atpazīstam pēc adreses/kategorijas — sk. docs/play-strategy.md
+    "adult_slugs": ["tikai-pieaugusajiem", "erotika", "erotic", "adult"],
     "min_seconds": 300,               # īsāks par 5 min ir sižets, ne saturs
     "daily_cap": 1,                   # darbdienā uz kanālu
     "weekend_daily_cap": 2,
@@ -51,12 +59,20 @@ DEFAULTS = {
     "windows": ["19:00-22:30"],       # vakara logs Rīgā
     "adult_window": "21:00-23:59",    # 16+/18+ tikai vēlu
     "adjacency_minutes": 90,          # attālums no traģēdijas/nozieguma ieraksta
+    # Drūmā dienā atļautie žanri: Play tos raksta gan latviski
+    # («Komēdijas», «Drāmas»), gan angliski kategorijās (comedy, drama)
     "somber": {"window_hours": 6, "threshold": 0.4,
-               "allowed_genres": ["ģimenes", "komēdija", "drāma", "dokumentāl", "kulinār",
-                                  "ceļojum", "daba", "bērn"]},
+               "allowed_genres": ["ģimenes", "komēdij", "drāma", "romantik", "dokumentāl",
+                                  "kulinār", "ceļojum", "daba", "bērn", "animāc", "mūzik",
+                                  "comedy", "drama", "romance", "family", "documentary",
+                                  "food", "travel", "nature", "kids", "children", "music",
+                                  "lifestyle", "reality"]},
     "title_cooldown_days": 14,
     "half_life_hours": 72,
-    "max_age_hours": 240,
+    # Kataloga nosaukums nenoveco kā ziņa: 2023. gada filma vakar vakaram
+    # der tāpat. 0 = svaiguma ierobežojuma nav; atkārtošanos tur
+    # `title_cooldown_days` un prioritātes pusperiods.
+    "max_age_hours": 0,
     "genre_overrides": {},            # slug -> [žanri]
     "campaign": "play",
     # P2: izlašu karuselis (3–5 nosaukumi, katra kartīte ar savu saiti)
@@ -79,6 +95,10 @@ _LOC_RE = re.compile(
     r"^https?://(?:www\.)?play\.tv3\.lv/(?P<kind>filmas|video|seriali|sovi-un-raidijumi)/"
     r"(?P<show>[^/]+?)-(?P<show_id>\d+)/(?:(?P<ep>[^/]+?)-(?P<ep_id>\d+)/)?$")
 _ADULT_RE = re.compile(r"\b(1[68])\s*\+|\bN-?(1[68])\b|\bK-?(1[68])\b", re.I)
+# Nosaukuma lapas saite sadaļu lapā: /filmas/<slug>-<id>/ vai /video/<slug>-<id>/
+_TITLE_HREF_RE = re.compile(
+    r"href=[\"'](?:https?://(?:www\.)?play\.tv3\.lv)?(/(?:filmas|video|seriali|sovi-un-raidijumi)"
+    r"/[^\"'/?#]+-\d+/)[\"']", re.I)
 
 
 def settings(rules: dict | None = None) -> dict:
@@ -108,8 +128,9 @@ def parse_loc(url: str) -> dict:
         typ = "episode"
     else:
         typ = "show"
-    return {"kind": typ, "show": m.group("show"), "show_id": m.group("show_id"),
-            "ep": m.group("ep") or "", "ep_id": ep_id or "",
+    # «fifa-pasaules-kauss--11740256» — slug var beigties ar domuzīmi
+    return {"kind": typ, "show": m.group("show").rstrip("-"), "show_id": m.group("show_id"),
+            "ep": (m.group("ep") or "").rstrip("-"), "ep_id": ep_id or "",
             "id": ep_id or m.group("show_id")}
 
 
@@ -126,24 +147,65 @@ def sitemap_urls(cfg: dict, now: datetime | None = None) -> list[str]:
     return out
 
 
+def browse_titles(cfg: dict, fetch) -> list[dict]:
+    """Sadaļu lapas -> nosaukumu (filmu, seriālu, raidījumu) saknes lapas.
+
+    Sitemapos ir SĒRIJAS un ziņu sižeti; pats katalogs — filmas un raidījumi —
+    ir sadaļu lapās (sākumlapā vien 426 nosaukumu saites). Šeit tie ir bez
+    metadatiem, tos pieliek `enrich_from_page`."""
+    base = str(cfg.get("base") or PLAY_HOST + "/").rstrip("/")
+    out: list[dict] = []
+    seen: set[str] = set()
+    for path in cfg.get("browse_pages") or []:
+        url = path if path.startswith("http") else base + path
+        html = fetch(url)
+        if not html:
+            continue
+        for m in _TITLE_HREF_RE.finditer(html):
+            full = base + m.group(1)
+            loc = parse_loc(full)
+            if not loc or loc["kind"] == "episode" or loc["id"] in seen:
+                continue
+            seen.add(loc["id"])
+            out.append({**loc, "url": full, "title": "", "description": "",
+                        "thumbnail": "", "seconds": 0, "published": "", "player": "",
+                        "tags": [], "source": "browse"})
+    return out
+
+
 def catalog(fetch=None, cfg: dict | None = None, now: datetime | None = None) -> list[dict]:
-    """Sitemap video ieraksti -> kataloga vienības (jaunākie pirmie, unikāli)."""
+    """Kataloga vienības: sadaļu lapu nosaukumi + sitemapu jaunās sērijas."""
     from app import videos
 
     cfg = cfg or settings()
     fetch = fetch or pagemeta.fetch
-    seen: set[str] = set()
+    by_id: dict[str, dict] = {}
     items: list[dict] = []
+    for item in browse_titles(cfg, fetch):
+        by_id[item["id"]] = item
+        items.append(item)
     for url in sitemap_urls(cfg, now):
         body = fetch(url)
         if not body:
             continue
         for entry in videos.sitemap_video_entries(body):
             loc = parse_loc(entry.get("loc", ""))
-            if not loc or loc["id"] in seen:
+            if not loc:
                 continue
-            seen.add(loc["id"])
-            items.append({
+            known = by_id.get(loc["id"])
+            if known is not None:
+                # tas pats nosaukums jau no sadaļu lapas: papildinām tikai to,
+                # kā tur nav (sīktēls, ilgums, datums)
+                for key, val in (("thumbnail", entry.get("thumbnail_loc", "")),
+                                 ("seconds", int(entry.get("duration") or 0)
+                                  if str(entry.get("duration", "")).isdigit() else 0),
+                                 ("published", entry.get("publication_date")
+                                  or entry.get("lastmod") or ""),
+                                 ("title", entry.get("title", "").strip())):
+                    if val and not known.get(key):
+                        known[key] = val
+                continue
+            item = {
                 **loc, "url": entry["loc"],
                 "title": entry.get("title", "").strip(),
                 "description": entry.get("description", "").strip(),
@@ -151,16 +213,19 @@ def catalog(fetch=None, cfg: dict | None = None, now: datetime | None = None) ->
                 "seconds": int(entry.get("duration") or 0) if str(entry.get("duration", "")).isdigit() else 0,
                 "published": entry.get("publication_date") or entry.get("lastmod") or "",
                 "player": entry.get("player_loc", ""),
-                "tags": entry.get("tags") or [],
-            })
+                "tags": entry.get("tags") or [], "source": "sitemap",
+            }
+            by_id[loc["id"]] = item
+            items.append(item)
     return items
 
 
 def excluded(item: dict, cfg: dict) -> str:
     """Kāpēc vienība nav Play promo materiāls ('' = der)."""
     show = item.get("show", "")
+    full = f"{show}-{item.get('show_id', '')}"
     for slug in cfg.get("exclude_slugs") or []:
-        if show.startswith(slug):
+        if show == slug or show.startswith(slug) or full.startswith(slug):
             return f"ziņu raidījums ({slug})"
     if item.get("kind") not in ("movie", "show", "episode"):
         return "nav filma/seriāls/raidījums"
@@ -172,14 +237,40 @@ def excluded(item: dict, cfg: dict) -> str:
 
 def section_for(item: dict, cfg: dict) -> str:
     text = " ".join([item.get("show", ""), item.get("title", ""),
-                     " ".join(item.get("genres") or [])]).lower()
+                     " ".join(item.get("genres") or []),
+                     " ".join(item.get("categories") or [])]).lower()
     if any(s in text for s in (cfg.get("sport_slugs") or [])):
         return "sport"
     return "entertainment"
 
 
+def _meta_list(meta: dict, *keys: str) -> list[str]:
+    out: list[str] = []
+    for key in keys:
+        v = meta.get(key)
+        for x in (v if isinstance(v, list) else [v] if v else []):
+            x = str(x).strip()
+            if x and x not in out:
+                out.append(x)
+    return out
+
+
 def enrich_from_page(item: dict, fetch=None) -> dict:
-    """Nosaukuma lapa -> žanri, cenzs, labāks nosaukums/plakāts (ja lapa tos dod)."""
+    """Nosaukuma lapa -> žanri, kategorijas, plakāts, ilgums, sērijas piederība.
+
+    Play lapas (WordPress «skaties» tēma) nes to visu cXense meta tagos, ne
+    og:video vai schema.org `genre`; pārbaudīts ar Diagnostikas zondi:
+
+        cXenseParse:zfv-playProductTitle      «Kinozvaigzne un kovbojs»
+        cXenseParse:zfv-playProductGenre      «Komēdijas», «Drāmas», «Romantika»
+        cXenseParse:zfv-playProductCategories drama, romance, comedy (angliski)
+        cXenseParse:zfv-playProductImage3x4   vertikāls plakāts (stāstiem)
+        cXenseParse:zfv-playSeriesTitle/Link  kuram raidījumam sērija pieder
+        video:duration                        sekundes
+
+    Vecuma cenza lapā NAV — `rating` paliek tukšs, un pieaugušo saturu šķiro
+    `adult_slugs`.
+    """
     from app import videos
 
     fetch = fetch or pagemeta.fetch
@@ -187,37 +278,76 @@ def enrich_from_page(item: dict, fetch=None) -> dict:
     if not html:
         return item
     meta = videos.all_meta(html)
-    genres: list[str] = []
-    for key in ("video:tag", "genre", "article:tag"):
-        v = meta.get(key)
-        for g in (v if isinstance(v, list) else [v] if v else []):
-            if g and g not in genres:
-                genres.append(g)
-    rating = ""
+    px = "cXenseParse:zfv-play"
+    genres = _meta_list(meta, px + "ProductGenre", "video:tag", "genre")
+    categories = _meta_list(meta, px + "ProductCategories")
+    # apraksts: JSON-LD sinopse ir pilna, og:description tikai ievads
+    desc, rating, duration = "", "", 0
     for node in pagemeta._json_ld_nodes(html):
-        g = node.get("genre")
-        for x in (g if isinstance(g, list) else [g] if g else []):
-            if isinstance(x, str) and x not in genres:
-                genres.append(x)
+        desc = desc or str(node.get("description") or "").strip()
         rating = rating or str(node.get("contentRating") or "")
-    rating = rating or str(meta.get("video:rating") or meta.get("rating") or "")
-    og_title = pagemeta._meta_one(html, "og:title")
-    og_title = re.sub(r"\s*[|–-]\s*(TV3 Play|TV3|play\.tv3\.lv)\s*$", "", og_title).strip()
+        duration = duration or videos.parse_duration(node.get("duration"))
+        for g in _first_list(node.get("genre")):
+            if g not in genres:
+                genres.append(g)
     out = dict(item)
     out["genres"] = genres[:8]
-    out["rating"] = rating
-    out["show_title"] = og_title if item.get("kind") != "episode" else item.get("show_title", "")
-    if item.get("kind") != "episode" and og_title:
-        out["title"] = og_title
-    og_img = pagemeta._meta_one(html, "og:image")
-    if og_img and "AVOD_META" not in og_img:
-        out["poster"] = og_img
+    out["categories"] = categories[:8]
+    out["rating"] = rating or str(meta.get("video:rating") or "")
+    title = str(meta.get(px + "ProductTitle") or "").strip()
+    if not title:
+        title = re.sub(r"\s*\|[^|]*$", "", pagemeta._meta_one(html, "og:title")).strip()
+    if title:
+        out["title"] = title
+    series_title = str(meta.get(px + "SeriesTitle") or "").strip()
+    series_link = str(meta.get(px + "SeriesLink") or "").strip()
+    if series_title:
+        out["show_title"] = series_title
+    if series_link:
+        out["show_url"] = series_link
+    elif item.get("kind") in ("show", "movie"):
+        out["show_title"] = title or item.get("show_title", "")
+    out["description"] = (desc or pagemeta._meta_one(html, "og:description")
+                          or item.get("description", "")).strip()
+    # plakāts: vertikālais 3:4 stāstiem un foto, 16:9 rezervē
+    poster = str(meta.get(px + "ProductImage3x4") or "")
+    wide = str(meta.get(px + "ProductImage16x9") or "") or pagemeta._meta_one(html, "og:image")
+    if poster and "AVOD_META" not in poster:
+        out["poster"] = poster
+    if wide and "AVOD_META" not in wide:
+        out["wide_image"] = wide
+    secs = duration or videos.parse_duration(meta.get("video:duration"))
+    if secs:
+        out["seconds"] = secs
+    year = str(meta.get(px + "ProductYear") or "")
+    if year.isdigit():
+        out["year"] = int(year)
+    out["published"] = (item.get("published")
+                        or str(meta.get("video:release_date") or meta.get("datePublished") or ""))
+    out["enriched"] = True
     return out
 
 
-def is_adult(item_or_raw: dict) -> bool:
-    rating = str(item_or_raw.get("rating") or "")
-    return bool(_ADULT_RE.search(rating))
+def _first_list(value) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if isinstance(v, str) and v.strip()]
+    return []
+
+
+def is_adult(data: dict, cfg: dict | None = None) -> bool:
+    """Pieaugušo saturs. Play vecuma cenzu nedod, tāpēc: cenzs, ja tāds kādreiz
+    parādās, plus adreses/kategoriju saraksts (`adult_slugs`)."""
+    cfg = cfg or settings()
+    if data.get("adult"):
+        return True
+    if _ADULT_RE.search(str(data.get("rating") or "")):
+        return True
+    hay = " ".join([str(data.get("show") or ""), str(data.get("url") or ""),
+                    " ".join(data.get("categories") or []),
+                    " ".join(data.get("genres") or [])]).lower()
+    return any(slug.lower() in hay for slug in (cfg.get("adult_slugs") or []))
 
 
 # --- raksta rindas -------------------------------------------------------------
@@ -256,27 +386,33 @@ def upsert_item(session, item: dict, cfg: dict) -> Article | None:
     if row is not None:
         return row
     genres = list(item.get("genres") or [])
+    categories = list(item.get("categories") or [])
     for slug, over in (cfg.get("genre_overrides") or {}).items():
         if item.get("show", "").startswith(slug):
             genres = list(over)
-    title = item.get("title") or item.get("show", "").replace("-", " ").title()
+    title = item.get("title") or item.get("show", "").replace("-", " ").capitalize()
     if item.get("kind") == "episode" and item.get("show_title"):
         title = f"{item['show_title']}: {title}"
+    # attēls: vertikālais plakāts 3:4 (stāstiem un foto), tad platais, tad sīktēls
+    images = [u for u in (item.get("poster"), item.get("wide_image"), item.get("thumbnail")) if u]
+    data = {"kind": item.get("kind"), "show": item.get("show"),
+            "show_id": item.get("show_id"), "show_url": item.get("show_url", ""),
+            "genres": genres, "categories": categories,
+            "rating": item.get("rating", ""), "seconds": item.get("seconds", 0),
+            "year": item.get("year"), "player": item.get("player", ""),
+            "url": item["url"]}
+    data["adult"] = is_adult({**data, "url": item["url"]}, cfg)
     row = Article(
         guid=f"play:{item['id']}", url=item["url"], canonical_url=item["url"],
         title=title, lead=item.get("description") or "",
-        section=section_for({**item, "genres": genres}, cfg),
-        categories=genres,
-        images=[u for u in (item.get("poster"), item.get("thumbnail")) if u],
+        section=section_for({**item, "genres": genres, "categories": categories}, cfg),
+        categories=genres or categories,
+        images=images,
         published_at=_parse_date(item.get("published")) or utcnow(),
         editor_status="can", feed_name=FEED_NAME,
-        raw_json={"_play": {"kind": item.get("kind"), "show": item.get("show"),
-                            "show_id": item.get("show_id"), "genres": genres,
-                            "rating": item.get("rating", ""), "seconds": item.get("seconds", 0),
-                            "player": item.get("player", "")},
-                  "_section_src": "play",
+        raw_json={"_play": data, "_section_src": "play",
                   "_page_meta": {"post_types": ["video"], "tags": item.get("tags") or [],
-                                 "categories": genres},
+                                 "categories": genres or categories},
                   "_page_meta_at": utcnow().isoformat(timespec="seconds")},
     )
     session.add(row)
@@ -296,9 +432,10 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
     fetch = fetch or pagemeta.fetch
     items = catalog(fetch, cfg, now)
     summary["seen"] = len(items)
+    summary["deferred"] = 0
     budget = int(cfg.get("max_new_per_run") or 20)
     pages = int(cfg.get("page_fetch_per_run") or 0)
-    shows: dict[str, dict] = {}   # raidījuma lapa vienreiz: žanri, cenzs, plakāts, nosaukums
+    shows: dict[str, dict] = {}   # raidījuma lapa vienreiz: žanri, plakāts, nosaukums
     for item in items:
         if budget <= 0:
             break
@@ -308,28 +445,38 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
         if why:
             summary["excluded"] += 1
             continue
-        if pages > 0:
-            if item["kind"] == "episode":
-                show_url = f"{PLAY_HOST}/video/{item['show']}-{item['show_id']}/"
-                if item["show_id"] not in shows:
-                    shows[item["show_id"]] = enrich_from_page({"url": show_url, "kind": "show"}, fetch)
-                    pages -= 1
-                show = shows[item["show_id"]]
-                # sērija manto raidījuma žanrus, cenzu un plakātu — citādi drūmas
-                # dienas sargs to bloķē kā nezināma žanra saturu
-                item = {**item, "show_title": show.get("title", ""),
-                        "genres": show.get("genres") or [], "rating": show.get("rating", ""),
-                        "poster": show.get("poster", "")}
-            else:
-                item = enrich_from_page(item, fetch)
+        if item.get("kind") == "episode":
+            # sērija manto raidījuma žanrus un plakātu — citādi drūmās dienas
+            # sargs to bloķē kā nezināma žanra saturu
+            show_url = item.get("show_url") or f"{PLAY_HOST}/video/{item['show']}-{item['show_id']}/"
+            if item["show_id"] not in shows:
+                if pages <= 0:
+                    summary["deferred"] += 1
+                    continue
+                shows[item["show_id"]] = enrich_from_page({"url": show_url, "kind": "show"}, fetch)
                 pages -= 1
+            show = shows[item["show_id"]]
+            item = {**item, "show_title": show.get("title", "") or item.get("show_title", ""),
+                    "genres": show.get("genres") or [],
+                    "categories": show.get("categories") or [],
+                    "rating": show.get("rating", ""),
+                    "poster": show.get("poster", ""), "show_url": show_url}
+        else:
+            # sadaļu lapas nosaukums nāk bez metadatiem: bez lapas ielasīšanas
+            # tam nav ne žanra, ne plakāta — labāk atlikt uz nākamo apgājienu
+            if pages <= 0:
+                summary["deferred"] += 1
+                continue
+            item = enrich_from_page(item, fetch)
+            pages -= 1
         row = upsert_item(session, item, cfg)
         if row is None:
             continue
         summary["new"] += 1
         budget -= 1
-        log.info("Play katalogs: %s «%s» (%s, %s s)", item["kind"], row.title[:60],
-                 row.section, item.get("seconds") or "?")
+        log.info("Play katalogs: %s «%s» (%s, žanri %s, %s s)", item.get("kind"),
+                 row.title[:60], row.section, ", ".join(item.get("genres") or []) or "-",
+                 item.get("seconds") or "?")
     session.commit()
     import json
 
@@ -375,7 +522,8 @@ def somber(session, now: datetime | None = None, rules: dict | None = None) -> t
 
 def genre_ok_on_somber_day(article, rules: dict | None = None) -> bool:
     allowed = [g.lower() for g in settings(rules)["somber"].get("allowed_genres") or []]
-    genres = [g.lower() for g in play_data(article).get("genres") or []]
+    data = play_data(article)
+    genres = [g.lower() for g in (list(data.get("genres") or []) + list(data.get("categories") or []))]
     return bool(genres) and any(any(a in g for a in allowed) for g in genres)
 
 
@@ -435,7 +583,7 @@ def allowed_now(session, article, channel: str, fmt: str = "",
 
 def windows_for(article, rules: dict | None = None) -> list[str]:
     cfg = settings(rules)
-    if is_adult(play_data(article)):
+    if is_adult({**play_data(article), "url": article.canonical_url or article.url}, cfg):
         return [str(cfg.get("adult_window") or "21:00-23:59")]
     return list(cfg.get("windows") or [])
 
@@ -453,7 +601,9 @@ def hint(article) -> str:
     d = play_data(article)
     mins = int(d.get("seconds") or 0) // 60
     kind = {"movie": "filma", "show": "raidījums/seriāls", "episode": "sērija"}.get(d.get("kind"), "")
-    return (f"šis ir TV3 Play {kind} ({mins} min, žanri: {', '.join(d.get('genres') or []) or 'nav zināmi'}"
+    genres = ", ".join(d.get("genres") or d.get("categories") or []) or "nav zināmi"
+    return (f"šis ir TV3 Play {kind} ({mins} min, žanri: {genres}"
+            f"{', ' + str(d['year']) if d.get('year') else ''}"
             f"{', cenzs ' + d['rating'] if d.get('rating') else ''}): bez maksas Play; "
             "saite ved uz Play lapu; copy ir aicinājums noskatīties, ne ziņa; nekādu saistību ar aktualitātēm")
 
@@ -574,7 +724,7 @@ def selection_candidates(session, cfg: dict, now: datetime, channel: str) -> lis
         if d.get("kind") not in ("movie", "show", "episode"):
             continue
         sid = str(d.get("show_id") or "")
-        if not sid or sid in seen_shows or sid in recent_shows or is_adult(d):
+        if not sid or sid in seen_shows or sid in recent_shows or is_adult(d, cfg):
             continue
         if is_somber and not genre_ok_on_somber_day(a):
             continue

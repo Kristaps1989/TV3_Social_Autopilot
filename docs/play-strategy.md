@@ -32,6 +32,38 @@ svari (tāpat kā `ad_multipliers` rakstiem).
 Kamēr feed nav, izlases var kurēt ar roku `rules/play.yaml` (nosaukums,
 saite, žanrs, cenzs, klips). Sistēma ar to strādā tāpat.
 
+**Play lapu metadati (apstiprināts ar zondi 07.09.2026).** Nosaukuma lapa nes
+visu vajadzīgo cXense meta tagos, ne og:video vai schema.org `genre`:
+
+| Lauks | Piemērs | Kur aiziet |
+| --- | --- | --- |
+| `cXenseParse:zfv-playProductTitle` | Kinozvaigzne un kovbojs | tīrs nosaukums (og:title nes « \| Filmas») |
+| `cXenseParse:zfv-playProductGenre` | Komēdijas; Drāmas; Romantika | žanri izlasēm un drūmās dienas sargam |
+| `cXenseParse:zfv-playProductCategories` | drama; romance; sports | angliskie slugi (sadaļa, žanru sargs) |
+| `cXenseParse:zfv-playProductImage3x4` | 468×624 | **vertikālais plakāts** stāstiem un foto |
+| `cXenseParse:zfv-playSeriesTitle` / `SeriesLink` | FIBA Pasaules kauss | kuram raidījumam sērija pieder |
+| `video:duration`, JSON-LD `duration` | 5253 | ilgums minūtēs kartītē |
+| `cXenseParse:zfv-playProductYear` | 2023 | gads AI kontekstam |
+
+**Divi svarīgi secinājumi.** Pirmkārt, **vecuma cenza lapās nav vispār** — nedz
+`contentRating`, nedz cits lauks; tāpēc 16+/18+ šķirošana balstās uz adrešu
+sarakstu `adult_slugs` (piem. `taizeme-tikai-pieaugusajiem`), un to vērts
+papildināt ar roku vai lūgt Play komandai pievienot cenzu lapā. Otrkārt,
+**straumes adreses lapā nav** (Go3 atskaņotājs), tāpēc Play formāti paliek
+saite, foto un stāsts — lentes no Play satura nav iespējamas.
+
+**Katalogs nāk no divām vietām.** Sitemapos ir sērijas un ziņu sižeti; paši
+nosaukumi (filmas, seriāli, raidījumi) ir sadaļu lapās — sākumlapā vien 426
+saites. Tāpēc `browse_pages` (sākumlapa, /filmas/, /seriali/,
+/sovi-un-raidijumi/, /berniem/, /sports/, /vietejais-saturs/) dod nosaukumus,
+sitemapi tos papildina ar sīktēlu, ilgumu un datumu, un `page_fetch_per_run`
+(12) lēni ielasa nosaukumu lapas žanram un plakātam. Nosaukums bez ielasītas
+lapas netiek publicēts, bet gaida nākamo apgājienu.
+
+**Svaigums.** Kataloga nosaukums nenoveco kā ziņa: 2023. gada filma vakar
+vakaram der tāpat, tāpēc `max_age_hours: 0` (bez ierobežojuma). Atkārtošanos
+tur `title_cooldown_days` un prioritātes pusperiods.
+
 **Atklāts ar Diagnostikas zondi (03.09.2026):** play.tv3.lv ir WordPress
 vietne ar servera pusē zīmētu HTML, un `robots.txt` norāda uz
 `/sitemaps/sitemap.xml` (mēneša indekss) un `/sitemaps/sitemap-latest.xml`.
@@ -182,8 +214,12 @@ P2 un P3 arī ir kodā (tie paši slēdži):
 
 ## 11. Atklātie jautājumi
 
-1. Vai Play ir kataloga API, un vai tajā ir vecuma cenzs un pieejamības logs?
-2. Treileru tiesības sociālajiem tīkliem licencētām filmām?
+1. ~~Vai Play ir kataloga API?~~ Atbildēts: API nav vajadzīgs, katalogs nāk no
+   sadaļu lapām un sitemapiem. **Bet vecuma cenza lapās nav** — vai CMS to var
+   pievienot (`contentRating` vai meta tags)? Līdz tam 16+/18+ šķiro adrešu
+   saraksts.
+2. Treileru tiesības sociālajiem tīkliem licencētām filmām? (Straumes adreses
+   lapās nav, tāpēc treilerus vajadzētu kā atsevišķus failus.)
 3. GA4: atsevišķs Play īpašums vai kopīgs; skatīšanās sākuma notikuma nosaukums?
 4. Vai viss saturs ir bez maksas (AVOD), vai daļa ir abonementā? Tas maina CTA.
 5. Kurš apstiprina izlases pirmajā mēnesī — redakcija vai Play mārketings?

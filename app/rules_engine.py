@@ -108,9 +108,10 @@ def evaluate(article: Article, channel_name: str, channel_cfg: dict,
 
         max_age = videos.settings(rules).get("max_age_hours", 72)
     if (article.raw_json or {}).get("_play"):
+        # TV3 Play kataloga nosaukums nenoveco kā ziņa (0 = bez ierobežojuma)
         from app import play
 
-        max_age = play.settings(rules).get("max_age_hours", 240)
+        max_age = float(play.settings(rules).get("max_age_hours") or 0) or None
     fresh_until = None
     if max_age is not None and article.editor_timeframe != "evergreen":
         if article_age_hours(article, now) > float(max_age):

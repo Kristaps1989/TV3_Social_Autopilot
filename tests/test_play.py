@@ -1,4 +1,4 @@
-"""TV3 Play promo: katalogs no sitemapiem, ētikas sargi, kvotas, logs, UTM."""
+"""TV3 Play promo: katalogs, ētikas sargi, kvotas, logs, izlases, tilti, UTM."""
 from datetime import datetime, timedelta
 
 from app import config, play, slots
@@ -6,10 +6,10 @@ from app.models import Article, Post, set_setting, utcnow
 from app.rules_engine import Verdict, evaluate
 
 SITEMAP = """<?xml version="1.0"?><urlset xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
-<url><loc>https://play.tv3.lv/filmas/tosts-par-milestibu-6205267/</loc><lastmod>2026-08-30T20:00:00+03:00</lastmod>
-<video:video><video:thumbnail_loc>https://tv3cdn.lv/t/tosts.jpg</video:thumbnail_loc><video:title>Tosts par mīlestību</video:title>
-<video:player_loc>https://play.tv3.lv/goTo/6205267</video:player_loc><video:publication_date>2026-08-30T19:00:00+03:00</video:publication_date>
-<video:duration>5580</video:duration><video:description>Romantiska komēdija par kāzām.</video:description></video:video></url>
+<url><loc>https://play.tv3.lv/filmas/kinozvaigzne-un-kovbojs-6689723/</loc><lastmod>2026-08-30T20:00:00+03:00</lastmod>
+<video:video><video:thumbnail_loc>https://tv3cdn.lv/t/kino.jpg</video:thumbnail_loc><video:title>Kinozvaigzne un kovbojs</video:title>
+<video:player_loc>https://play.tv3.lv/goTo/6689723</video:player_loc><video:publication_date>2026-08-30T19:00:00+03:00</video:publication_date>
+<video:duration>5253</video:duration><video:description>Romantiska komēdija.</video:description></video:video></url>
 <url><loc>https://play.tv3.lv/video/klarksona-ferma-7426847/serija-3-7426850/</loc><lastmod>2026-08-29T20:00:00+03:00</lastmod>
 <video:video><video:thumbnail_loc>https://tv3cdn.lv/t/kf.jpg</video:thumbnail_loc><video:title>3. sērija</video:title>
 <video:player_loc>https://play.tv3.lv/goTo/7426850</video:player_loc><video:publication_date>2026-08-29T19:00:00+03:00</video:publication_date>
@@ -21,20 +21,63 @@ SITEMAP = """<?xml version="1.0"?><urlset xmlns:video="http://www.google.com/sch
 <url><loc>https://play.tv3.lv/tiesraides/tv3-lv-2831095/bez-tabu-12272731/</loc></url>
 </urlset>"""
 
-SHOW_PAGE = """<html><head><meta property="og:title" content="Klārksona ferma | TV3 Play">
-<meta property="og:image" content="https://tv3cdn.lv/p/kf-poster.jpg"><meta property="video:tag" content="Dokumentāls">
-<meta property="video:tag" content="Humors"></head><body></body></html>"""
-MOVIE_PAGE = """<html><head><meta property="og:title" content="Tosts par mīlestību | TV3 Play">
-<script type="application/ld+json">{"@type":"Movie","name":"Tosts par mīlestību","genre":["Romantiskā komēdija"],"contentRating":"12+"}</script>
+BROWSE = """<html><body><div class="grid">
+<a href="/video/klarksona-ferma-7426847/">Klārksona ferma</a>
+<a href="https://play.tv3.lv/filmas/kinozvaigzne-un-kovbojs-6689723/">Kinozvaigzne un kovbojs</a>
+<a href="/video/tv3-zinas-2530780/">TV3 Ziņas</a>
+<a href="/video/klarksona-ferma-7426847/serija-3-7426850/">3. sērija</a>
+<a href="/filmas/">Filmas</a><a href="/meklet/">Meklēt</a>
+</div></body></html>"""
+
+# Īsto Play lapu metadati (Diagnostikas zonde 07.09.2026): žanri un plakāti ir
+# cXense tagos, og:title nes sadaļu aiz svītras, vecuma cenza lapā NAV.
+SHOW_PAGE = """<html><head>
+<meta property="og:type" content="video.tv_show">
+<meta property="og:title" content="Klārksona ferma | Šovi un raidījumi">
+<meta property="og:image" content="https://tv3cdn.lv/thumbnails/1200x630/go3/serial/7426847/og.jpg">
+<meta name="cXenseParse:zfv-playProductTitle" content="Klārksona ferma">
+<meta name="cXenseParse:zfv-playProductGenre" content="Dokumentālās">
+<meta name="cXenseParse:zfv-playProductGenre" content="Komēdijas">
+<meta name="cXenseParse:zfv-playProductCategories" content="documentary">
+<meta name="cXenseParse:zfv-playProductCategories" content="comedy">
+<meta name="cXenseParse:zfv-playProductImage3x4" content="https://tv3cdn.lv/thumbnails/468x624/go3/serial/7426847/poster.jpg">
+<meta name="cXenseParse:zfv-playProductImage16x9" content="https://tv3cdn.lv/thumbnails/593x336/go3/serial/7426847/wide.jpg">
+<meta name="cXenseParse:zfv-playProductYear" content="2024">
+<script type="application/ld+json">{"@type":"TVSeries","name":"Klārksona ferma",
+"description":"Džeremijs Klārksons mācās vadīt fermu Anglijas laukos."}</script>
 </head><body></body></html>"""
+
+MOVIE_PAGE = """<html><head>
+<meta property="og:type" content="video.movie">
+<meta property="og:title" content="Kinozvaigzne un kovbojs | Filmas">
+<meta property="og:image" content="https://tv3cdn.lv/thumbnails/1200x630/go3/vod/6689723/og.jpg">
+<meta property="video:duration" content="5253">
+<meta property="video:release_date" content="2026-07-26T20:01:59+03:00">
+<meta name="cXenseParse:zfv-playProductTitle" content="Kinozvaigzne un kovbojs">
+<meta name="cXenseParse:zfv-playProductGenre" content="Komēdijas">
+<meta name="cXenseParse:zfv-playProductGenre" content="Drāmas">
+<meta name="cXenseParse:zfv-playProductGenre" content="Romantika">
+<meta name="cXenseParse:zfv-playProductCategories" content="drama">
+<meta name="cXenseParse:zfv-playProductCategories" content="romance">
+<meta name="cXenseParse:zfv-playProductImage3x4" content="https://tv3cdn.lv/thumbnails/468x624/go3/vod/6689723/poster.jpg">
+<meta name="cXenseParse:zfv-playProductImage16x9" content="https://tv3cdn.lv/thumbnails/593x336/go3/vod/6689723/wide.jpg">
+<meta name="cXenseParse:zfv-playProductYear" content="2023">
+<script type="application/ld+json">{"@type":"VideoObject","name":"Kinozvaigzne un kovbojs",
+"description":"Kad Izabellai rodas iespēja iegūt kovbojmeitenes lomu, viņa ir gatava darīt visu.",
+"duration":"PT1H27M33S"}</script>
+</head><body></body></html>"""
+
 NOW = datetime(2026, 9, 3, 17, 0)   # trešdiena 20:00 Rīgā
+
+PAGES = {"https://play.tv3.lv/sitemaps/sitemap-latest.xml": SITEMAP,
+         "https://play.tv3.lv/sitemaps/sitemap-2026-09.xml": "",
+         "https://play.tv3.lv/": BROWSE,
+         "https://play.tv3.lv/video/klarksona-ferma-7426847/": SHOW_PAGE,
+         "https://play.tv3.lv/filmas/kinozvaigzne-un-kovbojs-6689723/": MOVIE_PAGE}
 
 
 def _fetch(url, timeout=10):
-    return {"https://play.tv3.lv/sitemaps/sitemap-latest.xml": SITEMAP,
-            "https://play.tv3.lv/sitemaps/sitemap-2026-09.xml": "",
-            "https://play.tv3.lv/video/klarksona-ferma-7426847/": SHOW_PAGE,
-            "https://play.tv3.lv/filmas/tosts-par-milestibu-6205267/": MOVIE_PAGE}.get(url, "")
+    return PAGES.get(url, "")
 
 
 def _enabled(monkeypatch, **extra):
@@ -61,14 +104,17 @@ def test_catalog_parses_sitemaps_and_excludes_news_programmes_and_clips(monkeypa
                                            "https://play.tv3.lv/sitemaps/sitemap-2026-09.xml"]
     items = play.catalog(_fetch, cfg, NOW)
     kinds = {i["id"]: i for i in items}
-    assert kinds["6205267"]["kind"] == "movie" and kinds["6205267"]["seconds"] == 5580
+    # filma nāk no sadaļu lapas, ilgumu un sīktēlu pieliek sitemap
+    assert kinds["6689723"]["kind"] == "movie" and kinds["6689723"]["source"] == "browse"
+    assert kinds["6689723"]["seconds"] == 5253
+    assert kinds["6689723"]["thumbnail"] == "https://tv3cdn.lv/t/kino.jpg"
     assert kinds["7426850"]["kind"] == "episode" and kinds["7426850"]["show"] == "klarksona-ferma"
     assert kinds["7426850"]["show_id"] == "7426847"
     assert "tiesraides" not in " ".join(i["kind"] for i in items)
     assert play.excluded(kinds["12292095"], cfg).startswith("ziņu raidījums")
     assert play.excluded(kinds["12084795"], cfg).startswith("ziņu raidījums")
     assert play.excluded({"kind": "episode", "show": "kaut-kas", "seconds": 120}, cfg).startswith("par īsu")
-    assert play.excluded(kinds["6205267"], cfg) == ""
+    assert play.excluded(kinds["6689723"], cfg) == ""
 
 
 def test_crawl_is_off_by_default_and_builds_rows_with_genres_when_on(session, monkeypatch):
@@ -77,19 +123,29 @@ def test_crawl_is_off_by_default_and_builds_rows_with_genres_when_on(session, mo
                                                           "enabled": False, "new": 0}
     _enabled(monkeypatch)
     out = play.crawl(session, fetch=_fetch, now=NOW)
-    assert out["seen"] == 4 and out["new"] == 2 and out["excluded"] == 2
-    movie = play.existing_item(session, "6205267")
+    assert out["seen"] == 6 and out["new"] == 3 and out["excluded"] == 3
+    movie = play.existing_item(session, "6689723")
     assert play.is_play_item(movie) and movie.feed_name == "play"
-    assert movie.title == "Tosts par mīlestību" and movie.section == "entertainment"
-    assert play.play_data(movie)["genres"] == ["Romantiskā komēdija"]
-    assert play.play_data(movie)["rating"] == "12+"
+    # nosaukums no cXense (bez « | Filmas»), žanri latviski + kategorijas angliski
+    assert movie.title == "Kinozvaigzne un kovbojs" and movie.section == "entertainment"
+    data = play.play_data(movie)
+    assert data["genres"] == ["Komēdijas", "Drāmas", "Romantika"]
+    assert data["categories"] == ["drama", "romance"]
+    assert data["year"] == 2023 and data["seconds"] == 5253
+    # Play vecuma cenzu nedod: rating tukšs, pieaugušo saturs pēc adreses
+    assert data["rating"] == "" and data["adult"] is False
+    # vertikālais plakāts pirmais — stāstiem un foto
+    assert movie.images[0].endswith("468x624/go3/vod/6689723/poster.jpg")
+    assert "Izabellai rodas iespēja" in movie.lead
     assert movie.published_at == datetime(2026, 8, 30, 16, 0)
     ep = play.existing_item(session, "7426850")
     assert ep.title == "Klārksona ferma: 3. sērija"
-    assert play.play_data(ep)["genres"] == ["Dokumentāls", "Humors"]          # no raidījuma lapas
-    assert ep.images == ["https://tv3cdn.lv/p/kf-poster.jpg", "https://tv3cdn.lv/t/kf.jpg"]
+    assert play.play_data(ep)["genres"] == ["Dokumentālās", "Komēdijas"]      # no raidījuma lapas
+    assert ep.images[0].endswith("468x624/go3/serial/7426847/poster.jpg")
     assert "TV3 Play sērija (45 min" in play.hint(ep)
-    assert play.summary(session)["items"] == 2
+    show = play.existing_item(session, "7426847")
+    assert show.title == "Klārksona ferma" and play.play_data(show)["kind"] == "show"
+    assert play.summary(session)["items"] == 3
     # otrreiz nedublē
     assert play.crawl(session, fetch=_fetch, now=NOW)["new"] == 0
 
@@ -98,7 +154,7 @@ def test_formats_windows_freshness_and_utm_for_play_items(session, monkeypatch):
     monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
     _enabled(monkeypatch)
     play.crawl(session, fetch=_fetch, now=NOW)
-    movie = play.existing_item(session, "6205267")
+    movie = play.existing_item(session, "6689723")
     from app import formats
     from app.best_practices import add_utm
     from app.pipeline import utm_campaign
@@ -108,7 +164,8 @@ def test_formats_windows_freshness_and_utm_for_play_items(session, monkeypatch):
     v = evaluate(movie, "fb_play", {"formats": ["link"]}, config.load_rules(), NOW)
     assert v.outcome == "eligible"
     assert [(w[0].hour, w[1].hour) for w in v.allowed_windows] == [(19, 22)]   # vakara logs
-    assert v.fresh_until == movie.published_at + timedelta(hours=240)
+    # kataloga nosaukums nenoveco kā ziņa — svaiguma griestu nav
+    assert v.fresh_until is None
     # 16+ tikai vēlu vakarā
     movie.raw_json = {**movie.raw_json, "_play": {**play.play_data(movie), "rating": "16+"}}
     v = evaluate(movie, "fb_play", {"formats": ["link"]}, config.load_rules(), NOW)
@@ -126,7 +183,7 @@ def test_ethics_guards_block_play_next_to_tragedy_and_on_somber_days(session, mo
     monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
     _enabled(monkeypatch)
     play.crawl(session, fetch=_fetch, now=NOW)
-    movie = play.existing_item(session, "6205267")   # romantiskā komēdija
+    movie = play.existing_item(session, "6689723")   # romantiskā komēdija
     ep = play.existing_item(session, "7426850")      # dokumentāls, humors
 
     # parasta diena: divi neitrāli ieraksti, viens traģisks — 33 % < 40 %
@@ -186,7 +243,7 @@ def test_cooldown_daily_cap_and_feed_share(session, monkeypatch):
     _enabled(monkeypatch)
     play.crawl(session, fetch=_fetch, now=NOW)
     ep = play.existing_item(session, "7426850")
-    movie = play.existing_item(session, "6205267")
+    movie = play.existing_item(session, "6689723")
     for i in range(30):   # pilna ziņu nedēļa, lai daļas sargs ir dzīvs (10 % = 3 Play)
         _news(session, f"w{i}", f"Ziņa numur {i} par notikumu",
               at=NOW - timedelta(days=i % 6, hours=1 + i % 5))
@@ -281,8 +338,8 @@ def test_selection_carousel_is_built_on_selection_days_and_waits_for_approval(se
     assert post.channel == "fb_tv3lv" and post.format == "card_carousel"
     assert rendered["title"] == "Piektdienas vakaram: TV3 Play"
     assert rendered["label"] == "TV3 PLAY · BEZ MAKSAS"
-    assert set(rendered["points"]) == {"Tosts par mīlestību", "Klārksona ferma", "Mana ferma"}
-    assert any("Romantiskā komēdija · 93 min" == s for s in rendered["subtitles"])
+    assert set(rendered["points"]) == {"Kinozvaigzne un kovbojs", "Klārksona ferma", "Mana ferma"}
+    assert any("Komēdijas · 87 min" == s for s in rendered["subtitles"])
     # sērija ved uz raidījuma lapu, katra kartīte ar savu saiti
     links = post.extra["card_links"]
     assert "https://play.tv3.lv/video/klarksona-ferma-7426847/" in links
@@ -381,7 +438,7 @@ def test_paid_boost_takes_only_organically_working_play_posts_within_its_share(s
     from app import ads
     from app.models import PostMetrics
 
-    movie = play.existing_item(session, "6205267")
+    movie = play.existing_item(session, "6689723")
     ep = play.existing_item(session, "7426850")
     strong = Post(article_id=movie.id, channel="fb_tv3lv", format="photo", copy="c",
                   link_url=movie.url, state="published", published_at=NOW - timedelta(hours=5),
@@ -420,3 +477,34 @@ def test_paid_boost_takes_only_organically_working_play_posts_within_its_share(s
     monkeypatch.setattr(play, "somber", lambda s, now=None, rules=None: (True, 0.6))
     picked, rejected = ads.candidates(session, NOW)
     assert all(not e.get("play") for e in picked)
+
+
+def test_adult_titles_are_recognised_by_slug_and_deferred_when_page_budget_runs_out(
+        session, monkeypatch):
+    """Play lapas vecuma cenzu nedod (zonde 07.09.2026), tāpēc pieaugušo saturu
+    šķiro pēc adreses; bez lapas ielasīšanas nosaukumam nav ne žanra, ne
+    plakāta, tāpēc tas gaida nākamo apgājienu."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    cfg = play.settings({})
+    assert play.is_adult({"url": "https://play.tv3.lv/video/taizeme-tikai-pieaugusajiem-5897873/"},
+                         cfg) is True
+    assert play.is_adult({"categories": ["erotic"]}, cfg) is True
+    assert play.is_adult({"rating": "16+"}, cfg) is True
+    assert play.is_adult({"show": "klarksona-ferma", "genres": ["Komēdijas"]}, cfg) is False
+    # adrese ar pieaugušo pazīmi -> vēlais logs
+    adult = Article(guid="play:5897873",
+                    url="https://play.tv3.lv/video/taizeme-tikai-pieaugusajiem-5897873/",
+                    canonical_url="https://play.tv3.lv/video/taizeme-tikai-pieaugusajiem-5897873/",
+                    title="Taizeme tikai pieaugušajiem", section="entertainment",
+                    feed_name="play", raw_json={"_play": {"kind": "show", "show":
+                                                          "taizeme-tikai-pieaugusajiem",
+                                                          "show_id": "5897873", "adult": True}})
+    session.add(adult)
+    session.flush()
+    assert play.windows_for(adult) == ["21:00-23:59"]
+
+    _enabled(monkeypatch, page_fetch_per_run=1)
+    out = play.crawl(session, fetch=_fetch, now=NOW)
+    assert out["new"] == 1 and out["deferred"] >= 1
+    # nākamais apgājiens paņem atlikušos
+    assert play.crawl(session, fetch=_fetch, now=NOW)["new"] >= 1
