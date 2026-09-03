@@ -58,7 +58,7 @@ DEFAULTS = {
     "exclude_genres": ["ziņas", "news"],
     # Ziņu sižetus tagad šķiro žanrs, tāpēc garuma slieksnis var būt zems —
     # citādi tas izmestu īsfilmas («Suns Funs un Rīga», 4 min)
-    "min_seconds": 120,
+    "min_seconds": 120, "min_episode_seconds": 600,
     "daily_cap": 1,                   # darbdienā uz kanālu
     "weekend_daily_cap": 2,
     "story_daily_cap": 1,
@@ -255,7 +255,12 @@ def excluded(item: dict, cfg: dict) -> str:
     if item.get("kind") not in ("movie", "show", "episode"):
         return "nav filma/seriāls/raidījums"
     secs = int(item.get("seconds") or 0)
-    if secs and secs < int(cfg.get("min_seconds") or 0):
+    # Nosaukums drīkst būt īss (animēta īsfilma), sērija — nedrīkst: sitemapā
+    # «sērijas» ir arī sporta spēļu apskati (81–180 s). Tie nav AVOD saturs,
+    # ko vērts izcelt, un tie noveco kā ziņa, kamēr katalogs nenoveco vispār.
+    floor = int(cfg.get("min_episode_seconds") or 0) if item.get("kind") == "episode" \
+        else int(cfg.get("min_seconds") or 0)
+    if secs and secs < floor:
         return f"par īsu ({secs} s) — sižets, ne saturs"
     bad = [g.lower() for g in cfg.get("exclude_genres") or []]
     have = [str(g).lower() for g in
@@ -817,6 +822,7 @@ def summary(session, rules: dict | None = None, now: datetime | None = None) -> 
         "selections_pending": sum(1 for p in selections if p.state == "proposed"),
         "top_titles": sorted(scores.items(), key=lambda kv: -kv[1])[:5],
         "enabled": bool(cfg.get("enabled")), "paused": paused(session),
+        "overrides": rule_overrides(rules),
         "somber": is_somber, "grim_share": share,
         "items": len(items),
         "items_with_genre": sum(1 for a in items if play_data(a).get("genres")),

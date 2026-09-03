@@ -227,6 +227,40 @@ def missing_rules() -> list[str]:
         return []
 
 
+def reset_rule_block(key: str, keep: tuple[str, ...] = ()) -> bool:
+    """Pārraksta VIENU noteikumu bloku rediģējamajā kopijā ar repo versiju.
+
+    `sync_missing_rules` pieliek tikai TRŪKSTOŠAS atslēgas. Bloks, kas kopijā
+    jau ir (piem., `play`), paliek tāds, kāds tika uzsēts pirmajā palaišanā —
+    tāpēc labojums tā iekšienē līdz sistēmai nenonāk nekad, un neviens to
+    neredz. Šī ir apzināta atgriešana pie koda versijas; sarakstu, ko tā
+    nomainīs, redaktors iepriekš redz auditā (`rule_overrides`).
+
+    `keep` nosauc apakšatslēgas, kuru DZĪVĀ vērtība paliek (piem., `enabled`):
+    slēdzi, ko redaktors ir ieslēdzis, atgriešana pie koda nedrīkst izslēgt.
+    """
+    editable = RULES_DIR / "rules.yaml"
+    default = DEFAULT_RULES_DIR / "rules.yaml"
+    if not editable.exists() or editable.resolve() == default.resolve():
+        return False
+    blocks = _yaml_blocks(default.read_text(encoding="utf-8"))
+    fresh = blocks.get(key)
+    if fresh is None:
+        return False
+    text = editable.read_text(encoding="utf-8")
+    have = _yaml_blocks(text)
+    for sub in keep:
+        line = re.compile(rf"^\s+{re.escape(sub)}:[^\n]*$", re.M)
+        mine = line.search(have.get(key, ""))
+        if mine:
+            fresh = line.sub(lambda m: mine.group(0), fresh, count=1)
+    if key not in have:
+        editable.write_text(text.rstrip("\n") + "\n\n" + fresh + "\n", encoding="utf-8")
+        return True
+    editable.write_text(text.replace(have[key], fresh, 1), encoding="utf-8")
+    return True
+
+
 def set_rule(key: str, value: str) -> None:
     """Nomaina VIENU noteikumu rediģējamajā rules.yaml, saglabājot pārējo.
 

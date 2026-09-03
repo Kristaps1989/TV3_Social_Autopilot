@@ -117,6 +117,15 @@ Kopsavilkums paliek Diagnostikas lapā; pilnais JSON atveras jaunā cilnē.
 | `/raidijumi/` atbild, bet nedod nevienu nosaukumu | lieka ielase | izņemts no `browse_pages` |
 | `min_seconds: 300` izmeta īsfilmas | «Suns Funs un Rīga» (281 s) nekad nekļūtu par promo | 120 s — ziņas tagad šķiro pēc žanra, ne pēc garuma |
 
+**Ko parādīja trešais audits.** Bloķēto žanru saraksts nostrādāja: no 16 žanriem
+drūmā dienā aizturēti divi — «Detektīvs» un «Asa sižeta & piedzīvojumu». Bez
+žanra nepalika neviens nosaukums. Divi jauni labojumi:
+
+| Atradums | Sekas | Labojums |
+| --- | --- | --- |
+| Pazeminātais `min_seconds` ielaida sitemapa sporta spēļu apskatus (81–180 s) | «Barcelona – Rayo Vallecano. Spēles apskats» kļūtu par AVOD promo un noveco kā ziņa, kamēr katalogs nenoveco vispār | slieksnis šķirts pēc veida: nosaukumam 120 s (īsfilma der), sērijai `min_episode_seconds: 600` |
+| `rule_overrides` uzreiz nosauca trīs novirzes uz servera (`min_seconds` 300, `page_fetch_per_run` 6, `somber` ar veco `allowed_genres`) | tās bija jālabo ar roku rediģējamajā failā | Diagnostikas poga «Pieņemt koda noteikumus» pārraksta `play` bloku ar repo versiju, saglabājot komentārus un **neizslēdzot** ieslēgtu slēdzi |
+
 **Katalogs nāk no divām vietām.** Sitemapos ir sērijas un ziņu sižeti; paši
 nosaukumi (filmas, seriāli, raidījumi) ir sadaļu lapās — sākumlapā vien 426
 saites. Tāpēc `browse_pages` (sākumlapa, /filmas/, /seriali/,

@@ -196,6 +196,11 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
       žanrs {{ pl.audit.genre_pct }}%, plakāts {{ pl.audit.poster_pct }}%, cenzs {{ pl.audit.rating_pct }}%,
       {{ pl.audit.genres }} dažādi žanri{% if pl.audit.warnings %} · <strong>{{ pl.audit.warnings }} brīdinājumi</strong>{% endif %}{% if pl.audit.overrides %} · <strong>{{ pl.audit.overrides }} noteikumi atšķiras no koda</strong>{% endif %}
       {% else %}vēl nav bijis{% endif %}</td></tr>
+    {% if pl.overrides %}
+    <tr><td>Noteikumi serverī</td><td><strong>Rediģējamā rules.yaml kopija atšķiras no koda:
+      {% for k in pl.overrides %}{{ k }}{{ ' · ' if not loop.last }}{% endfor %}</strong>.
+      Bloku uzsēj vienu reizi, tāpēc labojumi tā iekšienē paši te nenonāk.</td></tr>
+    {% endif %}
     <tr><td>Pēdējais apgājiens</td><td>{% if pl.last_crawl %}{{ pl.last_crawl.at }} — redzēti {{ pl.last_crawl.seen }},
       jauni {{ pl.last_crawl.new }}, izslēgti {{ pl.last_crawl.excluded }}{% else %}vēl nav bijis{% endif %}</td></tr>
     <tr><td>Izlases (P2)</td><td>{{ pl.selections }} karuseļi, gaida apstiprinājumu {{ pl.selections_pending }}
@@ -209,6 +214,11 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     </form>
     <a class="button primary" href="/logs/play-audit" target="_blank">Analizēt visu Play metadatus</a>
     <a class="button" href="/logs/site-probe/auto?site=play" target="_blank">Izpētīt play.tv3.lv (JSON)</a>
+    {% if pl.overrides %}
+    <form method="post" action="/rules/reset/play" class="inline">
+      <button>Pieņemt koda noteikumus</button>
+    </form>
+    {% endif %}
     <span class="muted">— audits paņem dažus nosaukumus no katras sadaļas, atver to lapas un
       parāda, kuri lauki tur tiešām ir (žanrs, plakāts, ilgums, cenzs, sezona, «pēdējā iespēja»).
       Aizņem apmēram minūti; rezultātu nokopē un ielīmē sarunā.</span>

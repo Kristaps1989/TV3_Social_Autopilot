@@ -129,7 +129,8 @@ play:
   enabled: false
   sitemaps: ["/sitemaps/sitemap-latest.xml", "/sitemaps/sitemap-{month}.xml"]
   exclude_slugs: [tv3-zinas, tv3-zinas-isuma, degpunkta, 900-sekundes, bez-tabu, neka-personiga, tiesraides]
-  min_seconds: 120           # ziņu sižetus šķiro žanrs, tāpēc īsfilmas paliek
+  min_seconds: 120           # nosaukumam: ziņas šķiro žanrs, tāpēc īsfilmas paliek
+  min_episode_seconds: 600   # sērijai: sitemapā «sērijas» ir arī sporta apskati (~180 s)
   max_age_hours: 0           # 0 = kataloga nosaukums nenoveco kā ziņa
   daily_cap: 1
   weekend_daily_cap: 2

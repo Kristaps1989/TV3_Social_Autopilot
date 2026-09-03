@@ -788,3 +788,36 @@ def test_audit_names_rules_that_drift_from_the_shipped_file(monkeypatch):
     # ...bet tā vairs neko nebloķē: somber saplūst dziļi ar koda noklusējumu
     assert play.genre_ok_on_somber_day(
         Article(raw_json={"_play": {"genres": ["Romantika"]}}), stale) is True
+
+
+def test_short_films_pass_but_short_episodes_do_not(monkeypatch):
+    """Audits parādīja abas puses: «Suns Funs un Rīga» ir 281 s animēta īsfilma
+    (īsts katalogs), bet sitemapa «sērijas» ir arī sporta spēļu apskati 81–180 s.
+    Tie nav AVOD saturs un noveco kā ziņa, kamēr katalogs nenoveco vispār."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    cfg = play.settings({})
+    assert play.excluded({"kind": "movie", "show": "suns-funs", "seconds": 281}, cfg) == ""
+    assert play.excluded({"kind": "episode", "show": "basketbols",
+                          "seconds": 180}, cfg).startswith("par īsu")
+    assert play.excluded({"kind": "episode", "show": "klarksona-ferma",
+                          "seconds": 2700}, cfg) == ""
+
+
+def test_reset_rule_block_replaces_the_seeded_copy_but_keeps_the_switch(tmp_path, monkeypatch):
+    """Rediģējamo kopiju uzsēj vienu reizi, tāpēc `play` bloka labojumi tur
+    nenonāk paši. Poga tos pieņem — bet ieslēgtu slēdzi neizslēdz."""
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    stale = config._yaml_blocks(
+        (config.DEFAULT_RULES_DIR / "rules.yaml").read_text(encoding="utf-8"))["play"]
+    stale = stale.replace("min_seconds: 120", "min_seconds: 300")
+    stale = stale.replace("enabled: false", "enabled: true")
+    (tmp_path / "rules.yaml").write_text("quiet_hours: []\n\n" + stale + "\n", encoding="utf-8")
+    assert play.rule_overrides()["min_seconds"]["live"] == 300
+
+    assert config.reset_rule_block("play", keep=("enabled",)) is True
+    assert play.rule_overrides() == {}
+    assert play.settings()["min_seconds"] == 120
+    # ...un slēdzis, ko redaktors ieslēdza, paliek ieslēgts
+    assert play.settings()["enabled"] is True
+    # pārējie noteikumi failā netiek aiztikti
+    assert "quiet_hours: []" in (tmp_path / "rules.yaml").read_text(encoding="utf-8")
