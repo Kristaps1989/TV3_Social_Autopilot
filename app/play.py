@@ -41,7 +41,7 @@ DEFAULTS = {
     # Sitemapi dod jaunās sērijas, sadaļu lapas — pašus nosaukumus.
     "browse_pages": ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/",
                      "/berniem/", "/sports/", "/vietejais-saturs/", "/podkasti/",
-                     "/raidijumi/", "/a-z/"],
+                     "/raidijumi/"],
     "interval_minutes": 60,
     "max_new_per_run": 20,
     "page_fetch_per_run": 6,          # nosaukumu lapas žanram/cenzam
@@ -53,6 +53,10 @@ DEFAULTS = {
     # Play lapas vecuma cenzu NEDOD (pārbaudīts ar zondi 07.09.2026), tāpēc
     # pieaugušo saturu atpazīstam pēc adreses/kategorijas — sk. docs/play-strategy.md
     "adult_slugs": ["tikai-pieaugusajiem", "erotika", "erotic", "adult"],
+    # Ziņu raidījumi un podkāsti pieder portāla ziņu plūsmai, ne Play promo.
+    # Slugu saraksts visus nenoķer (Zviedru Galds, Piķis un ģēvelis), tāpēc
+    # šķiro pēc žanra/kategorijas — tas ir noturīgi pret jauniem nosaukumiem.
+    "exclude_genres": ["ziņas", "news"],
     "min_seconds": 300,               # īsāks par 5 min ir sižets, ne saturs
     "daily_cap": 1,                   # darbdienā uz kanālu
     "weekend_daily_cap": 2,
@@ -66,9 +70,11 @@ DEFAULTS = {
     "somber": {"window_hours": 6, "threshold": 0.4,
                "allowed_genres": ["ģimenes", "komēdij", "drāma", "romantik", "dokumentāl",
                                   "kulinār", "ceļojum", "daba", "bērn", "animāc", "mūzik",
+                                  "piedzīvojum", "fantāz", "sport", "realitāt",
                                   "comedy", "drama", "romance", "family", "documentary",
                                   "food", "travel", "nature", "kids", "children", "music",
-                                  "lifestyle", "reality"]},
+                                  "lifestyle", "reality", "animation", "adventure",
+                                  "sports", "fantasy"]},
     "title_cooldown_days": 14,
     # «Pēdējā iespēja»: cik dienas pirms nosaukuma izņemšanas to izceļam un
     # laižam rindas priekšgalā (birka lapā to pasaka arī tieši)
@@ -113,6 +119,7 @@ _EVENTS = (("finale", re.compile(r"\bfin[aā]l[sa]?\b", re.I)),
 EVENT_LABELS = {"finale": "fināls", "new_season": "jauna sezona",
                 "premiere": "pirmizrāde"}
 # Nosaukuma lapas saite sadaļu lapā: /filmas/<slug>-<id>/ vai /video/<slug>-<id>/
+_ABS_HOST = PLAY_HOST
 _TITLE_HREF_RE = re.compile(
     r"href=[\"'](?:https?://(?:www\.)?play\.tv3\.lv)?(/(?:filmas|video|seriali|sovi-un-raidijumi)"
     r"/[^\"'/?#]+-\d+/)[\"']", re.I)
@@ -249,6 +256,12 @@ def excluded(item: dict, cfg: dict) -> str:
     secs = int(item.get("seconds") or 0)
     if secs and secs < int(cfg.get("min_seconds") or 0):
         return f"par īsu ({secs} s) — sižets, ne saturs"
+    bad = [g.lower() for g in cfg.get("exclude_genres") or []]
+    have = [str(g).lower() for g in
+            (list(item.get("genres") or []) + list(item.get("categories") or []))]
+    hit = next((g for g in have if g in bad), "")
+    if hit:
+        return f"ziņu saturs (žanrs «{hit}»)"
     return ""
 
 
@@ -266,7 +279,9 @@ def _meta_list(meta: dict, *keys: str) -> list[str]:
     for key in keys:
         v = meta.get(key)
         for x in (v if isinstance(v, list) else [v] if v else []):
-            x = str(x).strip()
+            # Play žanrus raksta ar HTML entītijām («Bērniem &amp; ģimenei»),
+            # un bez atšifrēšanas tie vārdnīcā parādās divreiz
+            x = _html.unescape(str(x)).strip()
             if x and x not in out:
                 out.append(x)
     return out
@@ -325,6 +340,19 @@ def enrich_from_page(item: dict, fetch=None) -> dict:
         return item
     meta = videos.all_meta(html)
     px = "cXenseParse:zfv-play"
+    # Sadaļu lapās daļa saišu ved uz ŽANRA FILTRA lapām («Filmas – Romantika»),
+    # ne uz nosaukumiem: tur nav neviena produkta lauka. Tādas nekļūst par
+    # ierakstiem, toties tajās ir īstie nosaukumi — tos paņemam līdzi.
+    is_title = bool(meta.get(px + "ProductId") or meta.get(px + "ProductTitle")
+                    or str(pagemeta._meta_one(html, "og:type")).startswith("video."))
+    out_listing = dict(item)
+    out_listing["is_title"] = is_title
+    if not is_title:
+        og = _html.unescape(pagemeta._meta_one(html, "og:title"))
+        out_listing["listing_genre"] = re.split(r"\s+[–—-]\s+", og)[-1].strip()
+        out_listing["links"] = [_ABS_HOST + m.group(1)
+                                for m in _TITLE_HREF_RE.finditer(html)]
+        return out_listing
     genres = _meta_list(meta, px + "ProductGenre", "video:tag", "genre")
     categories = _meta_list(meta, px + "ProductCategories")
     # apraksts: JSON-LD sinopse ir pilna, og:description tikai ievads
@@ -337,6 +365,7 @@ def enrich_from_page(item: dict, fetch=None) -> dict:
             if g not in genres:
                 genres.append(g)
     out = dict(item)
+    out["is_title"] = True
     out["genres"] = genres[:8]
     out["categories"] = categories[:8]
     out["rating"] = rating or str(meta.get("video:rating") or "")
@@ -448,6 +477,8 @@ def upsert_item(session, item: dict, cfg: dict) -> Article | None:
         return row
     genres = list(item.get("genres") or [])
     categories = list(item.get("categories") or [])
+    if not genres and item.get("via_genre"):
+        genres = [str(item["via_genre"])]   # žanrs no filtra lapas, kurā to atradām
     for slug, over in (cfg.get("genre_overrides") or {}).items():
         if item.get("show", "").startswith(slug):
             genres = list(over)
@@ -504,9 +535,11 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
     items = catalog(fetch, cfg, now)
     summary["seen"] = len(items)
     summary["deferred"] = 0
+    summary["listings"] = 0
     budget = int(cfg.get("max_new_per_run") or 20)
     pages = int(cfg.get("page_fetch_per_run") or 0)
     shows: dict[str, dict] = {}   # raidījuma lapa vienreiz: žanri, plakāts, nosaukums
+    queued = {i["id"] for i in items}
     for item in items:
         if budget <= 0:
             break
@@ -546,6 +579,31 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
                 continue
             item = enrich_from_page(item, fetch)
             pages -= 1
+            # Žanru zinām tikai PĒC lapas ielasīšanas, tāpēc ziņu raidījumus
+            # («Zviedru Galds», «Piķis un ģēvelis») šķirojam vēlreiz šeit —
+            # pirmā pārbaude notika, kad žanra vēl nebija.
+            why = excluded(item, cfg)
+            if item.get("is_title", True) and why:
+                summary["excluded"] += 1
+                log.info("Play katalogs: izlaists %s — %s", item.get("url", ""), why)
+                continue
+            if not item.get("is_title", True):
+                # žanra filtra lapa («Filmas – Romantika»): pati par ierakstu
+                # nekļūst, bet tajā ir īstie nosaukumi — un lapas žanrs tiem
+                # noder kā rezerve, ja nosaukuma lapa savu nedod
+                summary["listings"] += 1
+                genre = item.get("listing_genre", "")
+                for url in (item.get("links") or [])[:60]:
+                    loc = parse_loc(url)
+                    if (not loc or loc["kind"] == "episode" or url == item["url"]
+                            or loc["id"] in queued or existing_item(session, loc["id"])):
+                        continue
+                    queued.add(loc["id"])
+                    items.append({**loc, "url": url, "title": "", "description": "",
+                                  "thumbnail": "", "seconds": 0, "published": "",
+                                  "player": "", "tags": [], "source": "listing",
+                                  "via_genre": genre})
+                continue
         row = upsert_item(session, item, cfg)
         if row is None:
             continue
@@ -1046,16 +1104,25 @@ AUDIT_FIELDS = ("title", "genres", "categories", "poster", "seconds", "year",
                 "rating", "show_title")
 
 
-def _sample_urls(html: str, base: str, limit: int) -> list[str]:
+def _page_links(html: str, base: str) -> list[str]:
     out: list[str] = []
     for m in _TITLE_HREF_RE.finditer(html or ""):
         url = base + m.group(1)
         loc = parse_loc(url)
         if loc and loc["kind"] != "episode" and url not in out:
             out.append(url)
-            if len(out) >= limit:
-                break
     return out
+
+
+def _spread(items: list[str], count: int) -> list[str]:
+    """Vienmērīgi izkliedēts paraugs, ne pirmie N — saraksta sākums sadaļās
+    mēdz būt viens un tas pats (izceltie raidījumi)."""
+    if count <= 0 or not items:
+        return []
+    if len(items) <= count:
+        return list(items)
+    step = len(items) / count
+    return [items[int(i * step)] for i in range(count)]
 
 
 def _audit_row(info: dict) -> dict:
@@ -1087,17 +1154,31 @@ def audit(fetch=None, rules: dict | None = None, per_section: int = 4,
                  "sections": [], "genres": {}, "categories": {}, "events": {},
                  "field_coverage": {}, "warnings": []}
     rows: list[dict] = []
+    # Katrā lapā ir kopīga izceltā josla (Bez Tabu, Degpunktā u. c.). Ja to
+    # neizmet, visās sadaļās paraugā nonāk vieni un tie paši četri raidījumi.
+    per_page: dict[str, tuple[bool, list[str]]] = {}
     for path in cfg.get("browse_pages") or []:
         url = path if path.startswith("http") else base + path
-        html = fetch(url)
-        section: dict = {"path": path, "fetched": bool(html), "titles_found": 0,
+        html = fetch(url) or ""
+        per_page[path] = (bool(html), _page_links(html, base))
+    seen_on: dict[str, int] = {}
+    for _, links in per_page.values():
+        for u in set(links):
+            seen_on[u] = seen_on.get(u, 0) + 1
+    chrome = {u for u, n in seen_on.items() if n >= 3}
+    out["chrome_links"] = sorted(chrome)[:20]
+    for path in cfg.get("browse_pages") or []:
+        ok, links = per_page.get(path, (False, []))
+        section: dict = {"path": path, "fetched": ok, "titles_found": 0,
                          "sampled": 0, "fields": {}, "samples": []}
-        if html:
-            found = _sample_urls(html, base, 10_000)
+        if links:
+            found = [u for u in links if u not in chrome]
             section["titles_found"] = len(found)
-            for title_url in found[:per_section]:
+            section["chrome_skipped"] = len(links) - len(found)
+            for title_url in _spread(found, per_section):
                 info = enrich_from_page({**parse_loc(title_url), "url": title_url}, fetch)
-                row = _audit_row(info)
+                row = {**_audit_row(info), "is_title": bool(info.get("is_title", True)),
+                       "listing_genre": info.get("listing_genre", "")}
                 section["samples"].append(row)
                 rows.append({**row, "section": path})
             section["sampled"] = len(section["samples"])
@@ -1127,8 +1208,16 @@ def audit(fetch=None, rules: dict | None = None, per_section: int = 4,
                                 "fields": {}, "samples": ep_rows})
         rows.extend(ep_rows)
 
-    # kopsavilkums: viens nosaukums var būt vairākās sadaļās — kopskaitam
-    # to skaitām vienreiz, citādi žanru vārdnīca sašķiebjas
+    # Žanra filtra lapas nav nosaukumi: tās neskaita pie lauku pārklājuma,
+    # citādi «žanrs 45 %» nozīmētu tikai to, ka paraugā bija filtru lapas.
+    listings = [r["url"] for r in rows if r.get("is_title") is False]
+    out["listing_pages"] = listings
+    if listings:
+        out["warnings"].append(
+            f"{len(listings)} paraugi ir žanra filtra lapas, ne nosaukumi — tās "
+            "nekļūst par ierakstiem, bet no tām paņem īstos nosaukumus")
+    rows = [r for r in rows if r.get("is_title") is not False]
+    # viens nosaukums var būt vairākās sadaļās — kopskaitam to skaitām vienreiz
     seen_urls: set[str] = set()
     rows = [r for r in rows if not (r["url"] in seen_urls or seen_urls.add(r["url"]))]
     total = len(rows)

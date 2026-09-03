@@ -644,13 +644,21 @@ def test_metadata_audit_reports_field_coverage_and_guard_consequences(session, m
     monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
     bare = """<html><head><meta property="og:title" content="Bez žanra | Filmas">
     <meta name="cXenseParse:zfv-playProductTitle" content="Bez žanra"></head><body></body></html>"""
+    # žanra filtra lapa: produkta lauku nav, toties tajā ir īsts nosaukums
+    listing = """<html><head><meta property="og:title" content="Filmas – Romantika">
+    <meta property="og:type" content="website"></head><body>
+    <a href="/filmas/kinozvaigzne-un-kovbojs-6689723/">A</a></body></html>"""
+    # izceltā josla ir visās sadaļās — paraugā tā nedrīkst nonākt
+    chrome = '<a href="/video/bez-tabu-2503775/">Bez Tabu</a>'
     pages = {**PAGES,
-             "https://play.tv3.lv/filmas/": """<html><body>
-                 <a href="/filmas/kinozvaigzne-un-kovbojs-6689723/">A</a>
+             "https://play.tv3.lv/": PAGES["https://play.tv3.lv/"] + chrome,
+             "https://play.tv3.lv/filmas/": f"""<html><body>{chrome}
+                 <a href="/filmas/romance-4197766/">Romantika</a>
                  <a href="/filmas/bez-zanra-777/">B</a></body></html>""",
-             "https://play.tv3.lv/seriali/": """<html><body>
+             "https://play.tv3.lv/seriali/": f"""<html><body>{chrome}
                  <a href="/video/nemiletie-1915103/">N</a></body></html>""",
              "https://play.tv3.lv/berniem/": "<html><body>nav nosaukumu</body></html>",
+             "https://play.tv3.lv/filmas/romance-4197766/": listing,
              "https://play.tv3.lv/filmas/bez-zanra-777/": bare}
 
     def fetch(url, timeout=10):
@@ -659,22 +667,28 @@ def test_metadata_audit_reports_field_coverage_and_guard_consequences(session, m
     data = play.audit(fetch=fetch, per_section=2, episodes=1, now=NOW)
     by_path = {s["path"]: s for s in data["sections"]}
     assert by_path["/filmas/"]["titles_found"] == 2 and by_path["/filmas/"]["sampled"] == 2
+    assert by_path["/filmas/"]["chrome_skipped"] == 1
+    assert "https://play.tv3.lv/video/bez-tabu-2503775/" in data["chrome_links"]
     assert by_path["/berniem/"]["fetched"] is True and by_path["/berniem/"]["titles_found"] == 0
     assert by_path["/podkasti/"]["fetched"] is False        # lapa neatbild
     # sērijas paraugs no sitemap ar savu notikumu
     eps = by_path["sērijas (no sitemap)"]["samples"]
     assert eps[0]["event"] == "finale" and eps[0]["kind"] == "episode"
 
+    # žanra filtra lapa netiek skaitīta kā nosaukums bez metadatiem
+    assert data["listing_pages"] == ["https://play.tv3.lv/filmas/romance-4197766/"]
+    assert any("filtra lapas" in w for w in data["warnings"])
+
     # lauku pārklājums un žanru vārdnīca
-    assert data["sampled_total"] >= 4
+    assert data["sampled_total"] >= 3
     assert data["field_coverage"]["genres"]["pct"] < 100      # «Bez žanra» velk uz leju
     assert data["field_coverage"]["rating"]["count"] == 0     # cenza Play nedod
     assert data["genres"]["Komēdijas"] >= 1 and "drama" in data["categories"]
     # viens nosaukums vairākās sadaļās kopskaitā skaitās vienreiz; fināls ir
     # gan raidījuma lapai, gan pašai fināla sērijai
     assert data["events"]["finale"] == 2
-    assert len({r for s in data["sections"] for r in
-                [x["url"] for x in s["samples"]]}) == data["sampled_total"]
+    sampled = {x["url"] for s in data["sections"] for x in s["samples"]}
+    assert len(sampled) - len(data["listing_pages"]) == data["sampled_total"]
 
     # ko tas nozīmē sargiem
     assert "https://play.tv3.lv/filmas/bez-zanra-777/" in data["titles_without_genre"]
@@ -703,3 +717,55 @@ def test_audit_route_is_on_the_diagnostics_page(session, monkeypatch):
     data = client.get("/logs/play-audit", params={"per_section": 1, "episodes": 1}).json()
     assert data["sampled_total"] >= 1 and "field_coverage" in data
     assert "Metadatu audits" in client.get("/logs").text
+
+
+def test_crawl_harvests_titles_from_genre_filter_pages_and_skips_news_shows(session, monkeypatch):
+    """Audits parādīja: sadaļu lapās pirmās saites ved uz ŽANRA FILTRA lapām
+    («Filmas – Romantika»), ne uz nosaukumiem, un starp nosaukumiem ir ziņu
+    raidījumi. Filtra lapa nekļūst par ierakstu, bet no tās paņem nosaukumus
+    un tās žanru; ziņu saturu šķiro pēc žanra, ne pēc slugu saraksta."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch, page_fetch_per_run=12)
+    listing = """<html><head><meta property="og:title" content="Filmas – Romantika">
+    <meta property="og:type" content="website"></head><body>
+    <a href="/filmas/bez-zanra-777/">Bez žanra</a></body></html>"""
+    bare = """<html><head><meta property="og:type" content="video.movie">
+    <meta name="cXenseParse:zfv-playProductTitle" content="Filma bez žanra">
+    <meta property="video:duration" content="4800"></head><body></body></html>"""
+    news = """<html><head><meta property="og:type" content="video.tv_show">
+    <meta name="cXenseParse:zfv-playProductTitle" content="Zviedru Galds">
+    <meta name="cXenseParse:zfv-playProductGenre" content="Ziņas">
+    <meta name="cXenseParse:zfv-playProductCategories" content="news"></head><body></body></html>"""
+    family = """<html><head><meta property="og:type" content="video.movie">
+    <meta name="cXenseParse:zfv-playProductTitle" content="Varenais Ričards 2">
+    <meta name="cXenseParse:zfv-playProductGenre" content="Bērniem &amp; ģimenei">
+    <meta name="cXenseParse:zfv-playProductGenre" content="Animācijas"></head><body></body></html>"""
+    pages = {**PAGES,
+             "https://play.tv3.lv/": """<html><body>
+                 <a href="/filmas/romance-4197766/">Romantika</a>
+                 <a href="/video/zviedru-galds-11323551/">Zviedru Galds</a>
+                 <a href="/filmas/varenais-ricards-2-6138645/">Ričards</a></body></html>""",
+             "https://play.tv3.lv/filmas/romance-4197766/": listing,
+             "https://play.tv3.lv/filmas/bez-zanra-777/": bare,
+             "https://play.tv3.lv/video/zviedru-galds-11323551/": news,
+             "https://play.tv3.lv/filmas/varenais-ricards-2-6138645/": family}
+
+    def fetch(url, timeout=10):
+        return pages.get(url, "")
+
+    out = play.crawl(session, fetch=fetch, now=NOW)
+    assert out["listings"] == 1
+    # filtra lapa pati par ierakstu nekļūst
+    assert play.existing_item(session, "4197766") is None
+    # bet tajā atrastais nosaukums kļūst, un žanru manto no filtra lapas
+    harvested = play.existing_item(session, "777")
+    assert harvested is not None and harvested.title == "Filma bez žanra"
+    assert play.play_data(harvested)["genres"] == ["Romantika"]
+    # ziņu raidījums netiek ņemts, arī ja slugu sarakstā tā nav
+    assert play.existing_item(session, "11323551") is None
+    assert out["excluded"] >= 1
+    # HTML entītija žanrā atšifrēta — citādi vārdnīcā tas būtu divreiz
+    ricards = play.existing_item(session, "6138645")
+    assert play.play_data(ricards)["genres"] == ["Bērniem & ģimenei", "Animācijas"]
+    # un šie žanri drūmā dienā ir atļauti (saraksts sinhronizēts ar auditu)
+    assert play.genre_ok_on_somber_day(ricards) is True

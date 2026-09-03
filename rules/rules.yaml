@@ -141,16 +141,25 @@ play:
   somber:
     window_hours: 6
     threshold: 0.4
-    allowed_genres: [ģimenes, komēdija, drāma, dokumentāl, kulinār, ceļojum, daba, bērn]
+    # Play žanri (no metadatu audita): latviski un angliski. Bez šī saraksta
+    # sinhronizācijas drūmā dienā tiktu bloķēti arī animācija, mūzika un sports.
+    allowed_genres: [ģimenes, komēdij, drāma, romantik, dokumentāl, kulinār, ceļojum,
+                     daba, bērn, animāc, mūzik, piedzīvojum, fantāz, sport, realitāt,
+                     comedy, drama, romance, family, documentary, food, travel, nature,
+                     kids, children, music, lifestyle, reality, animation, adventure,
+                     sports, fantasy]
   title_cooldown_days: 14
   last_chance_days: 7        # «Pieejams vēl N dienas» -> izceļam un liekam pa priekšu
   genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
   # Katalogs: sadaļu lapas dod nosaukumus, sitemapi — jaunās sērijas
   browse_pages: ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/", "/berniem/", "/sports/",
-                 "/vietejais-saturs/", "/podkasti/", "/raidijumi/", "/a-z/"]
+                 "/vietejais-saturs/", "/podkasti/", "/raidijumi/"]   # /a-z/ neatbild
   page_fetch_per_run: 12     # cik nosaukumu lapu ielasa žanram/plakātam vienā apgājienā
   # Play lapas vecuma cenzu nedod, tāpēc pieaugušo saturu šķiro pēc adreses
   adult_slugs: [tikai-pieaugusajiem, erotika, erotic, adult]
+  # Ziņu raidījumi un podkāsti (Zviedru Galds, Piķis un ģēvelis, Bez Tabu) pieder
+  # portāla ziņu plūsmai, ne Play promo — slugu saraksts visus nenoķer
+  exclude_genres: [ziņas, news]
   # P2: izlašu karuselis (pk/se/sv vakarā, redaktors apstiprina) un tilti no
   # rakstiem par raidījumu/personu (tikai izklaide/sports, tikai bez traģēdijas)
   selection_channel: fb_tv3lv

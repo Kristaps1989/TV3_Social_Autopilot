@@ -96,6 +96,17 @@ sērijas no sitemapa, atver to lapas un atdod:
 Viens nosaukums, kas ir vairākās sadaļās, kopskaitā skaitās vienreiz.
 Kopsavilkums paliek Diagnostikas lapā; pilnais JSON atveras jaunā cilnē.
 
+**Ko parādīja pirmais audits (07.09.2026) un kas no tā salabots.**
+
+| Atradums | Sekas | Labojums |
+| --- | --- | --- |
+| Sadaļu lapās pirmās saites ved uz **žanra filtra lapām** («Filmas – Romantika»), ne uz nosaukumiem | 12 no 29 paraugiem bija bez žanra, plakāta un gada | filtra lapu atpazīst pēc tā, ka lapā nav neviena produkta lauka; par ierakstu tā nekļūst, bet no tās paņem īstos nosaukumus, un lapas žanrs tiem noder kā rezerve |
+| Katrā sadaļā ir **kopīga izceltā josla** (Bez Tabu, Degpunktā…) | visās sadaļās paraugā nonāca vieni un tie paši četri raidījumi | audits izmet saites, kas atkārtojas trīs un vairāk sadaļās, un paraugu ņem izkliedēti, ne pirmos pēc kārtas |
+| Žanri nāk ar HTML entītijām («Bērniem &amp;amp; ģimenei») | vārdnīcā tas pats žanrs divreiz | meta vērtības tiek atšifrētas |
+| Ziņu podkāsti (Zviedru Galds, Piķis un ģēvelis) slugu sarakstā nav | tie kļūtu par Play promo | šķiro pēc žanra/kategorijas (`exclude_genres: [ziņas, news]`), un pārbaude notiek **pēc** lapas ielasīšanas, jo pirms tam žanra vēl nav |
+| `rules.yaml` mierīgo žanru saraksts bija vecs | drūmā dienā tiktu bloķēta arī animācija, mūzika, sports | saraksts sinhronizēts ar īsto vārdnīcu (latviski + angliski) |
+| `/a-z/` neatbild | lieka ielase katrā apgājienā | izņemts no saraksta |
+
 **Katalogs nāk no divām vietām.** Sitemapos ir sērijas un ziņu sižeti; paši
 nosaukumi (filmas, seriāli, raidījumi) ir sadaļu lapās — sākumlapā vien 426
 saites. Tāpēc `browse_pages` (sākumlapa, /filmas/, /seriali/,
