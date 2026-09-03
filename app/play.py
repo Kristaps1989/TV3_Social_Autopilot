@@ -104,6 +104,13 @@ _AVAIL_RE = re.compile(
     r"Pieejams\s+(?:vēl\s+)?(\d+)\s*(dien|stund|nedēļ|mēneš)", re.I)
 _LAST_CHANCE_RE = re.compile(r"P[eē]d[eē]j[aā]\s+iesp[eē]ja", re.I)
 _LABEL_TEXT_RE = re.compile(r'"text"\s*:\s*"([^"]{2,120})"')
+# Sezonas un notikuma birkas lapā: «10. SEZONA - FINĀLS», «Jauna sezona»
+_SEASON_RE = re.compile(r"(\d{1,2})\.\s*sezona", re.I)
+_EVENTS = (("finale", re.compile(r"\bfin[aā]l[sa]?\b", re.I)),
+           ("new_season", re.compile(r"jaun[aā]\s+sezon", re.I)),
+           ("premiere", re.compile(r"pirmizr[aā]de|premj?[eē]ra|pirm[aā]\s+s[eē]rija", re.I)))
+EVENT_LABELS = {"finale": "fināls", "new_season": "jauna sezona",
+                "premiere": "pirmizrāde"}
 # Nosaukuma lapas saite sadaļu lapā: /filmas/<slug>-<id>/ vai /video/<slug>-<id>/
 _TITLE_HREF_RE = re.compile(
     r"href=[\"'](?:https?://(?:www\.)?play\.tv3\.lv)?(/(?:filmas|video|seriali|sovi-un-raidijumi)"
@@ -280,6 +287,19 @@ def availability(html: str) -> dict:
     return {"expires_days": days, "last_chance": bool(_LAST_CHANCE_RE.search(text))}
 
 
+def labels(text: str) -> dict:
+    """{season, event} no lapas teksta vai nosaukuma.
+
+    Sērijas lapā ir birka «10. SEZONA - FINĀLS» — kataloga notikums, kas dod
+    spēcīgāko iemeslu ierakstam («šovakar fināls»), tāpat kā pirmizrāde vai
+    jauna sezona. Notikumu meklējam arī pašā nosaukumā, lai sērijai nebūtu
+    jāievelk atsevišķa lapa."""
+    clean = _html.unescape(re.sub(r"<[^>]+>", " ", text or ""))
+    m = _SEASON_RE.search(clean)
+    event = next((name for name, rx in _EVENTS if rx.search(clean)), "")
+    return {"season": int(m.group(1)) if m else None, "event": event}
+
+
 def enrich_from_page(item: dict, fetch=None) -> dict:
     """Nosaukuma lapa -> žanri, kategorijas, plakāts, ilgums, sērijas piederība.
 
@@ -349,6 +369,11 @@ def enrich_from_page(item: dict, fetch=None) -> dict:
         out["year"] = int(year)
     # pieejamības logs un «pēdējā iespēja» — kataloga notikums izlasēm
     out.update(availability(html))
+    found = labels(html)
+    if found.get("season") and not out.get("season"):
+        out["season"] = found["season"]
+    if found.get("event") and not out.get("event"):
+        out["event"] = found["event"]
     orig = _LABEL_TEXT_RE.search(_html.unescape(
         str(meta.get(px + "ProductLabeloriginalTitle") or "")))
     if orig:
@@ -436,6 +461,7 @@ def upsert_item(session, item: dict, cfg: dict) -> Article | None:
             "rating": item.get("rating", ""), "seconds": item.get("seconds", 0),
             "year": item.get("year"), "player": item.get("player", ""),
             "original_title": item.get("original_title", ""),
+            "season": item.get("season"), "event": item.get("event", ""),
             "embed": item.get("embed", ""), "url": item["url"]}
     # cik ilgi nosaukums Play vēl būs: pēc tam saite ved uz «nav pieejams»
     days = item.get("expires_days")
@@ -500,11 +526,17 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
                 shows[item["show_id"]] = enrich_from_page({"url": show_url, "kind": "show"}, fetch)
                 pages -= 1
             show = shows[item["show_id"]]
+            # sērijas paša notikums (fināls, pirmizrāde) nāk no tās nosaukuma —
+            # raidījuma lapas birka pieder citai sērijai
+            own = labels(" ".join([item.get("title", ""), item.get("ep", ""),
+                                   item.get("description", "")]))
             item = {**item, "show_title": show.get("title", "") or item.get("show_title", ""),
                     "genres": show.get("genres") or [],
                     "categories": show.get("categories") or [],
                     "rating": show.get("rating", ""),
-                    "poster": show.get("poster", ""), "show_url": show_url}
+                    "poster": show.get("poster", ""), "show_url": show_url,
+                    "season": own.get("season") or show.get("season"),
+                    "event": own.get("event") or ""}
         else:
             # sadaļu lapas nosaukums nāk bez metadatiem: bez lapas ielasīšanas
             # tam nav ne žanra, ne plakāta — labāk atlikt uz nākamo apgājienu
@@ -587,6 +619,16 @@ def last_chance(article) -> bool:
     return bool(play_data(article).get("last_chance")) and not expired(article)
 
 
+def event_label(article) -> str:
+    """«fināls» / «jauna sezona» / «pirmizrāde» / «pēdējā iespēja» — kataloga
+    notikums, kas dod ierakstam iemeslu tieši šodien ('' ja tāda nav)."""
+    d = play_data(article)
+    label = EVENT_LABELS.get(str(d.get("event") or ""), "")
+    if label and d.get("season") and d["event"] in ("finale", "new_season"):
+        return f"{d['season']}. sezonas {label}"
+    return label or ("pēdējā iespēja" if last_chance(article) else "")
+
+
 def _riga_day(dt: datetime):
     return dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(config.TIMEZONE)).date()
 
@@ -661,13 +703,15 @@ def too_close_to_grim(queue: list[Post], candidate: datetime, rules: dict | None
 
 def hint(article) -> str:
     d = play_data(article)
+    season = f", {d['season']}. sezona" if d.get("season") else ""
     mins = int(d.get("seconds") or 0) // 60
     kind = {"movie": "filma", "show": "raidījums/seriāls", "episode": "sērija"}.get(d.get("kind"), "")
     genres = ", ".join(d.get("genres") or d.get("categories") or []) or "nav zināmi"
-    return (f"šis ir TV3 Play {kind} ({mins} min, žanri: {genres}"
+    return (f"šis ir TV3 Play {kind} ({mins} min{season}, žanri: {genres}"
             f"{', ' + str(d['year']) if d.get('year') else ''}"
             f"{', cenzs ' + d['rating'] if d.get('rating') else ''}"
-            f"{'; PĒDĒJĀ IESPĒJA — drīz pazūd no Play' if d.get('last_chance') else ''}"
+            f"{'; NOTIKUMS: ' + event_label(article).upper() if event_label(article) else ''}"
+            f"{' — drīz pazūd no Play' if d.get('last_chance') else ''}"
             f"): bez maksas Play; "
             "saite ved uz Play lapu; copy ir aicinājums noskatīties, ne ziņa; nekādu saistību ar aktualitātēm")
 
@@ -706,6 +750,7 @@ def summary(session, rules: dict | None = None, now: datetime | None = None) -> 
         "items": len(items),
         "items_with_genre": sum(1 for a in items if play_data(a).get("genres")),
         "items_last_chance": sum(1 for a in items if last_chance(a)),
+        "items_events": sum(1 for a in items if play_data(a).get("event")),
         "items_expired": sum(1 for a in items if expired(a)),
         "items_undecided": sum(1 for a in items if a.decided_at is None),
         "published_7d": len(posts),
@@ -782,8 +827,12 @@ def selection_candidates(session, cfg: dict, now: datetime, channel: str) -> lis
     seen_shows: set[str] = set()
     picked: list[Article] = []
     per_genre: dict[str, int] = {}
-    # «Pēdējā iespēja» iet pa priekšu: pēc dažām dienām nosaukuma Play vairs nav
-    ordered = sorted(rows, key=lambda a: (-(1 if last_chance(a) else 0),
+    # Steidzamība pa priekšu: vispirms «pēdējā iespēja» (pēc dažām dienām
+    # nosaukuma Play vairs nav), tad pārējie notikumi (fināls, pirmizrāde)
+    def _rank(a) -> int:
+        return 0 if last_chance(a) else (1 if event_label(a) else 2)
+
+    ordered = sorted(rows, key=lambda a: (_rank(a),
                                           -(1 if a.images else 0),
                                           -scores.get(str(play_data(a).get("show_id")), 0.0),
                                           -(a.published_at or utcnow()).timestamp()))
@@ -847,8 +896,7 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
         mins = int(d.get("seconds") or 0) // 60
         g = (d.get("genres") or [""])[0]
         subtitles.append(" · ".join(x for x in (
-            g, f"{mins} min" if mins else "",
-            "pēdējā iespēja" if last_chance(a) else "") if x))
+            g, f"{mins} min" if mins else "", event_label(a)) if x))
     try:
         media = cards.render_cards(
             title, "entertainment", "#TV3PLAY", points, "", "",

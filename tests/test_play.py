@@ -10,6 +10,10 @@ SITEMAP = """<?xml version="1.0"?><urlset xmlns:video="http://www.google.com/sch
 <video:video><video:thumbnail_loc>https://tv3cdn.lv/t/kino.jpg</video:thumbnail_loc><video:title>Kinozvaigzne un kovbojs</video:title>
 <video:player_loc>https://play.tv3.lv/goTo/6689723</video:player_loc><video:publication_date>2026-08-30T19:00:00+03:00</video:publication_date>
 <video:duration>5253</video:duration><video:description>Romantiska komēdija.</video:description></video:video></url>
+<url><loc>https://play.tv3.lv/video/nemiletie-1915103/serija-62-10707122/</loc><lastmod>2026-08-28T20:00:00+03:00</lastmod>
+<video:video><video:thumbnail_loc>https://tv3cdn.lv/t/nem.jpg</video:thumbnail_loc><video:title>Sērija 62. Fināls</video:title>
+<video:player_loc>https://play.tv3.lv/goTo/10707122</video:player_loc><video:publication_date>2026-08-28T19:00:00+03:00</video:publication_date>
+<video:duration>2640</video:duration><video:description>Sezonas noslēgums.</video:description></video:video></url>
 <url><loc>https://play.tv3.lv/video/klarksona-ferma-7426847/serija-3-7426850/</loc><lastmod>2026-08-29T20:00:00+03:00</lastmod>
 <video:video><video:thumbnail_loc>https://tv3cdn.lv/t/kf.jpg</video:thumbnail_loc><video:title>3. sērija</video:title>
 <video:player_loc>https://play.tv3.lv/goTo/7426850</video:player_loc><video:publication_date>2026-08-29T19:00:00+03:00</video:publication_date>
@@ -23,6 +27,7 @@ SITEMAP = """<?xml version="1.0"?><urlset xmlns:video="http://www.google.com/sch
 
 BROWSE = """<html><body><div class="grid">
 <a href="/video/klarksona-ferma-7426847/">Klārksona ferma</a>
+<a href="/video/nemiletie-1915103/">Nemīlētie</a>
 <a href="https://play.tv3.lv/filmas/kinozvaigzne-un-kovbojs-6689723/">Kinozvaigzne un kovbojs</a>
 <a href="/video/tv3-zinas-2530780/">TV3 Ziņas</a>
 <a href="/video/klarksona-ferma-7426847/serija-3-7426850/">3. sērija</a>
@@ -73,7 +78,18 @@ MOVIE_PAGE = """<html><head>
 
 NOW = datetime(2026, 9, 3, 17, 0)   # trešdiena 20:00 Rīgā
 
+SERIES_PAGE = """<html><head>
+<meta property="og:type" content="video.tv_show">
+<meta property="og:title" content="Nemīlētie | Seriāli">
+<meta name="cXenseParse:zfv-playProductTitle" content="Nemīlētie">
+<meta name="cXenseParse:zfv-playProductGenre" content="Drāmas">
+<meta name="cXenseParse:zfv-playProductCategories" content="drama">
+<meta name="cXenseParse:zfv-playProductImage3x4" content="https://tv3cdn.lv/thumbnails/468x624/go3/serial/1915103/poster.jpg">
+<meta name="cXenseParse:zfv-playProductSeasonsCount" content="10">
+</head><body><span class="label label-season">10. SEZONA - FINĀLS</span></body></html>"""
+
 PAGES = {"https://play.tv3.lv/sitemaps/sitemap-latest.xml": SITEMAP,
+         "https://play.tv3.lv/video/nemiletie-1915103/": SERIES_PAGE,
          "https://play.tv3.lv/sitemaps/sitemap-2026-09.xml": "",
          "https://play.tv3.lv/": BROWSE,
          "https://play.tv3.lv/video/klarksona-ferma-7426847/": SHOW_PAGE,
@@ -127,7 +143,7 @@ def test_crawl_is_off_by_default_and_builds_rows_with_genres_when_on(session, mo
                                                           "enabled": False, "new": 0}
     _enabled(monkeypatch)
     out = play.crawl(session, fetch=_fetch, now=NOW)
-    assert out["seen"] == 6 and out["new"] == 3 and out["excluded"] == 3
+    assert out["seen"] == 8 and out["new"] == 5 and out["excluded"] == 3
     movie = play.existing_item(session, "6689723")
     assert play.is_play_item(movie) and movie.feed_name == "play"
     # nosaukums no cXense (bez « | Filmas»), žanri latviski + kategorijas angliski
@@ -149,7 +165,7 @@ def test_crawl_is_off_by_default_and_builds_rows_with_genres_when_on(session, mo
     assert "TV3 Play sērija (45 min" in play.hint(ep)
     show = play.existing_item(session, "7426847")
     assert show.title == "Klārksona ferma" and play.play_data(show)["kind"] == "show"
-    assert play.summary(session)["items"] == 3
+    assert play.summary(session)["items"] == 5
     # otrreiz nedublē
     assert play.crawl(session, fetch=_fetch, now=NOW)["new"] == 0
 
@@ -333,8 +349,6 @@ def test_selection_carousel_is_built_on_selection_days_and_waits_for_approval(se
 
     monkeypatch.setattr(cards, "render_cards", fake_cards)
     friday = datetime(2026, 9, 4).date()
-    # divi raidījumi ir par maz
-    assert play.build_selection(session, friday, NOW) is None
     _third_show(session)
     session.commit()
     post = play.build_selection(session, friday, NOW)
@@ -342,12 +356,13 @@ def test_selection_carousel_is_built_on_selection_days_and_waits_for_approval(se
     assert post.channel == "fb_tv3lv" and post.format == "card_carousel"
     assert rendered["title"] == "Piektdienas vakaram: TV3 Play"
     assert rendered["label"] == "TV3 PLAY · BEZ MAKSAS"
-    assert set(rendered["points"]) == {"Kinozvaigzne un kovbojs", "Klārksona ferma", "Mana ferma"}
+    assert set(rendered["points"]) == {"Kinozvaigzne un kovbojs", "Klārksona ferma",
+                                       "Nemīlētie", "Mana ferma"}
     assert any("Komēdijas · 87 min · pēdējā iespēja" == s for s in rendered["subtitles"])
     # sērija ved uz raidījuma lapu, katra kartīte ar savu saiti
     links = post.extra["card_links"]
     assert "https://play.tv3.lv/video/klarksona-ferma-7426847/" in links
-    assert len(links) == 3 and len(post.extra["items"]) == 3
+    assert len(links) == 4 and len(post.extra["items"]) == 4
     assert post.extra["items"][0]["show_id"]
     assert post.extra["timeless"] is True
     # slots vakara logā Rīgā (19:30 = 16:30 UTC)
@@ -566,5 +581,58 @@ def test_last_chance_titles_lead_the_selection_and_carry_the_badge(session, monk
     post = play.build_selection(session, datetime(2026, 9, 4).date(), NOW)
     assert post is not None
     # «pēdējā iespēja» ir pirmā kartīte, un tas redzams arī uz tās
+    # «pēdējā iespēja» ir steidzamāka par finālu, tāpēc pirmā
     assert rendered["points"][0] == "Kinozvaigzne un kovbojs"
     assert rendered["subtitles"][0] == "Komēdijas · 87 min · pēdējā iespēja"
+    assert rendered["points"][1] == "Nemīlētie"
+
+
+def test_season_finale_is_recognised_as_a_catalogue_event(session, monkeypatch):
+    """Sērijas lapā ir birka «10. SEZONA - FINĀLS» — spēcīgākais iemesls
+    ierakstam tieši šodien. Sērijas notikums nāk no tās nosaukuma, sezona no
+    raidījuma lapas; raidījuma birka nepieder katrai sērijai."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    assert play.labels("<span>10. SEZONA - FINĀLS</span>") == {"season": 10, "event": "finale"}
+    assert play.labels("Jauna sezona jau 5. septembrī") == {"season": None,
+                                                            "event": "new_season"}
+    assert play.labels("Pirmizrāde") == {"season": None, "event": "premiere"}
+    assert play.labels("Parasta sērija") == {"season": None, "event": ""}
+
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    finale = play.existing_item(session, "10707122")
+    assert finale.title == "Nemīlētie: Sērija 62. Fināls"
+    data = play.play_data(finale)
+    assert data["event"] == "finale" and data["season"] == 10
+    assert play.event_label(finale) == "10. sezonas fināls"
+    assert "NOTIKUMS: 10. SEZONAS FINĀLS" in play.hint(finale)
+    # cita tā paša raidījuma sērija notikumu nemanto
+    plain = play.existing_item(session, "7426850")
+    assert play.play_data(plain)["event"] == "" and play.event_label(plain) == ""
+    # notikumu nes gan raidījuma lapa (birka), gan pati fināla sērija
+    show = play.existing_item(session, "1915103")
+    assert play.event_label(show) == "10. sezonas fināls"
+    assert play.summary(session, now=NOW)["items_events"] == 2
+
+
+def test_events_lead_the_selection_and_show_on_the_card(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    from app import cards
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    rendered = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kw):
+        rendered.update(points=points, subtitles=kw.get("point_dates"))
+        return [f"data/cards/p{i}.png" for i in range(len(points))]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    post = play.build_selection(session, datetime(2026, 9, 4).date(), NOW)
+    assert post is not None
+    # notikumi (fināls, pēdējā iespēja) ir pirmās kartītes, un tas redzams uz tām
+    assert rendered["points"][:2] == ["Kinozvaigzne un kovbojs", "Nemīlētie"]
+    lead = dict(zip(rendered["points"], rendered["subtitles"]))
+    assert lead["Nemīlētie"].endswith("10. sezonas fināls")
+    assert lead["Kinozvaigzne un kovbojs"].endswith("pēdējā iespēja")

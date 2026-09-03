@@ -46,6 +46,7 @@ visu vajadzīgo cXense meta tagos, ne og:video vai schema.org `genre`:
 | `cXenseParse:zfv-playProductYear` | 2023 | gads AI kontekstam |
 | `…ProductLabeloriginalTitle` | The Movie Star and the Cowboy | oriģinālnosaukums AI kontekstam |
 | lapas teksts | «Pieejams vēl 3 dienas», «Pēdējā iespēja» | pieejamības logs un derīguma termiņš |
+| lapas birka | «10. SEZONA — FINĀLS» | sezona un kataloga notikums (fināls/pirmizrāde/jauna sezona) |
 
 **Pieejamības logs (no nosaukuma lapas ekrāna, 07.09.2026).** Lapā ir atskaite
 «Pieejams vēl 3 dienas» un sarkana birka «Pēdējā iespēja». Tas ir gan kataloga
@@ -53,6 +54,18 @@ notikums (plāna 4.2. ierosinātājs «pēdējā iespēja»), gan derīguma term
 `expires_at` glabājas pie nosaukuma, pēc tā ieraksts vairs netiek plānots
 («nosaukums Play vairs nav pieejams»), un līdz tam tas iet izlases priekšgalā
 ar uzrakstu «pēdējā iespēja» uz kartītes. Slieksni maina `last_chance_days`.
+
+**Sezona un notikums (no sērijas lapas ekrāna, 07.09.2026).** Lapā ir sarkana
+birka «10. SEZONA — FINĀLS». Tas ir spēcīgākais iemesls ierakstam tieši šodien,
+tāpēc `labels()` no lapas un no sērijas nosaukuma nolasa sezonas numuru un
+notikumu: **fināls**, **jauna sezona**, **pirmizrāde**. Notikums parādās uz
+izlases kartītes («10. sezonas fināls»), AI to zina, rakstot tekstu, un
+steidzamības kārtība rindā ir: pēdējā iespēja, tad notikums, tad pārējie.
+Sērijas notikums nāk no tās paša nosaukuma, ne no raidījuma birkas — citādi
+visas 62 sērijas būtu «fināls».
+
+**Adrešu paraugi:** raidījums `embed-video/<slug>,serial-<show_id>`, sērija
+`serija-62,episode-<ep_id>`, filma `embed-video/<slug>,vod-<id>`.
 
 **Par atskaņotāja saiti.** Nosaukuma lapā ir arī `embedUrl`
 (`play.tv3.lv/embed-video/<slug>,vod-<id>`) — tas ir atskaņotāja iframe, ne
