@@ -513,14 +513,62 @@ def summary(session, rules: dict | None = None) -> dict:
     }
 
 
-def probe(url: str, fetch=None) -> dict:
+# Zondei atļautie resursdatori: portāls, tā CDN (JS pakotnes) un video platforma
+PROBE_HOSTS = ("tv3.lv", "tv3cdn.lv", "skaties.lv", "tvplay.lv")
+_SCRIPT_SRC_RE = re.compile(r"<script\b[^>]*\bsrc=[\"']([^\"']+)[\"']", re.I)
+_LINK_HREF_RE = re.compile(r"<link\b[^>]*\bhref=[\"']([^\"']+)[\"']", re.I)
+_GLOBAL_RE = re.compile(r"window\.(__?[A-Za-z0-9_]+__?|[A-Za-z_][A-Za-z0-9_]*(?:Config|Data|State|Env|Settings))\s*=")
+_API_HINT_RE = re.compile(
+    r"(?:https?:)?//[A-Za-z0-9._-]+(?:/[^\s\"'`<>)]*)?(?:api|graphql|json|video|clip|media|stream|m3u8|mp4)[^\s\"'`<>)]*"
+    r"|/(?:api|graphql|v\d)/[^\s\"'`<>)]{2,120}", re.I)
+FIND_LIMIT = 300
+
+
+def probe_allowed(url: str) -> bool:
+    m = re.match(r"https?://([^/]+)", url or "")
+    host = (m.group(1) if m else "").lower()
+    return any(host == h or host.endswith("." + h) for h in PROBE_HOSTS)
+
+
+def find_in(text: str, pattern: str = "", limit: int = FIND_LIMIT) -> list[str]:
+    """Unikāli regex atradumi tekstā (JS pakotnē API adreses u.tml.).
+    `pattern` tukšs vai «api» = iebūvētais API/video adrešu meklētājs."""
+    rx = _API_HINT_RE if pattern in ("", "api") else re.compile(pattern, re.I)
+    out: list[str] = []
+    for m in rx.finditer(text or ""):
+        hit = m.group(0).replace("\\/", "/")
+        if hit not in out:
+            out.append(hit)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def probe(url: str, fetch=None, raw: bool = False, find: str = "") -> dict:
     """Diagnostikas zonde: ko parsētājs redz dzīvajā lapā (saraksts, video
-    lapa vai raksts) — lai portāla struktūru var pārbaudīt bez konsoles."""
+    lapa vai raksts) — lai portāla struktūru var pārbaudīt bez konsoles.
+
+    `raw` pievieno čaulas HTML, skriptu un stilu adreses un globālos JS
+    objektus: ja lapa ir JavaScript aplikācija, saturs nāk no API, un tieši
+    pakotnēs ir tā adrese. `find` meklē regex (vai iebūvēto API/video adrešu
+    meklētāju) ielādētajā tekstā — der arī JS pakotnei no CDN.
+    """
     fetch = fetch or pagemeta.fetch
     html = fetch(url)
     out: dict = {"url": url, "fetched": bool(html), "bytes": len(html or "")}
     if not html:
         out["error"] = "lapa neatbild vai nav 200"
+        return out
+    if find is not None and (find or raw):
+        out["find"] = find or "api"
+        out["found"] = find_in(html, find)
+    if raw:
+        out["scripts"] = [m.group(1) for m in _SCRIPT_SRC_RE.finditer(html)][:40]
+        out["links"] = [m.group(1) for m in _LINK_HREF_RE.finditer(html)][:40]
+        out["globals"] = sorted({m.group(1) for m in _GLOBAL_RE.finditer(html)})[:40]
+        out["html"] = html[:8000]
+    if not is_video_url(url) and not html.lstrip().lower().startswith(("<!doctype", "<html")):
+        out["kind"] = "text"
         return out
     if is_video_url(url):
         out["kind"] = "video"
@@ -529,6 +577,10 @@ def probe(url: str, fetch=None) -> dict:
     elif url.rstrip("/").endswith("/video") or "/video?" in url:
         out["kind"] = "listing"
         out["videos"] = parse_listing(html)[:40]
+        if not out["videos"] and len(html) < 20000:
+            out["hint"] = ("Saraksta HTML ir JavaScript aplikācijas čaula: klipus ielādē "
+                           "API pēc lapas atvēršanas. Palaid zondi ar raw=1, tad ar "
+                           "find=api uz atrastās JS pakotnes adresi, lai atrastu API.")
     else:
         out["kind"] = "article"
         meta = pagemeta.parse(html)

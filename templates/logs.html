@@ -160,8 +160,11 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
   <form method="get" action="/logs/video-probe" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem">
     <input type="text" name="url" value="{{ va.listing }}" style="min-width:24rem"
            placeholder="https://tv3.lv/video/ vai https://tv3.lv/video/<id>/ vai raksta adrese">
+    <input type="text" name="find" value="" style="width:9rem" placeholder="find: api vai regex">
+    <label><input type="checkbox" name="raw" value="1"> raw (HTML, skripti)</label>
     <button>Zonde: ko parsētājs redz</button>
-    <span class="muted">— atver JSON; ja klipu saraksts vai klipa adrese ir tukša, nokopē to izstrādātājam.</span>
+    <span class="muted">— atver JSON; ja klipu saraksts vai klipa adrese ir tukša, nokopē to
+      izstrādātājam. Ja lapa ir JS čaula: raw → skripta adrese → find=api uz to.</span>
   </form>
   {% endif %}
 </div>

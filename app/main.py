@@ -1812,18 +1812,21 @@ def logs_page(request: Request, channel: str = "", level: str = "",
 
 
 @app.get("/logs/video-probe")
-def video_probe(url: str = ""):
+def video_probe(url: str = "", raw: str = "", find: str = ""):
     """tv3.lv/video zonde: ko parsētājs redz dzīvajā lapā — saraksts, video
     lapa vai raksts. Tā portāla struktūru pārbauda no Railway, kur tv3.lv ir
-    sasniedzams, un rezultātu var iedot izstrādātājam."""
+    sasniedzams, un rezultātu var iedot izstrādātājam. raw=1 pievieno čaulas
+    HTML un skriptus; find=<regex|api> meklē adreses (arī JS pakotnē no CDN)."""
     from fastapi.responses import JSONResponse
 
-    from app import videos
+    from app import pagemeta, videos
 
     url = (url or "").strip() or str(videos.settings().get("listing") or "")
-    if not url.startswith("http") or "tv3.lv" not in url:
-        return JSONResponse({"error": "dod tv3.lv adresi"}, status_code=400)
-    return JSONResponse(videos.probe(url))
+    if not url.startswith("http") or not videos.probe_allowed(url):
+        return JSONResponse({"error": "dod tv3.lv / tv3cdn.lv / skaties.lv adresi"},
+                            status_code=400)
+    fetch = (lambda u, timeout=30: pagemeta.fetch(u, timeout=timeout))
+    return JSONResponse(videos.probe(url, fetch=fetch, raw=bool(raw), find=find))
 
 
 @app.get("/logs/export.json")

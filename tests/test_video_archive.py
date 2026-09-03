@@ -208,3 +208,35 @@ def test_probe_route_reports_what_the_parser_sees(session, monkeypatch):
     assert client.get("/logs/video-probe", params={"url": "https://cits.lv/"}).status_code == 400
     # Diagnostikas lapa rāda arhīva bloku
     assert "tv3.lv/video arhīvs" in client.get("/logs").text
+
+
+def test_probe_raw_and_find_expose_a_js_shell_and_its_api(session, monkeypatch):
+    """tv3.lv/video izrādījās JavaScript čaula (3 KB, vienāda katram
+    maršrutam): klipus dod API. Zonde tad parāda skriptus un meklē adreses."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    shell = """<!doctype html><html><head><meta property="og:title" content="TV3 video">
+<link rel="stylesheet" href="https://tv3cdn.lv/dist/abc/skaties/app.css">
+<script>window.__ENV__={"api":"https://tv3.lv/api/v2/"}</script>
+<script src="https://tv3cdn.lv/dist/abc/skaties/app.js"></script></head><body><div id="app"></div></body></html>"""
+    bundle = 'fetch(`${e}/api/v2/videos?page=${n}`);u="https://skaties.lv/api/video/"+t+".json";x="/graphql/videos"'
+    pages = {"https://tv3.lv/video/": shell, "https://tv3cdn.lv/dist/abc/skaties/app.js": bundle}
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: pages.get(url, ""))
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    r = client.get("/logs/video-probe", params={"url": "https://tv3.lv/video/", "raw": "1"}).json()
+    assert r["videos"] == [] and "JavaScript" in r["hint"]
+    assert r["scripts"] == ["https://tv3cdn.lv/dist/abc/skaties/app.js"]
+    assert r["globals"] == ["__ENV__"]
+    assert "https://tv3.lv/api/v2/" in r["found"]
+    assert r["html"].startswith("<!doctype")
+    r = client.get("/logs/video-probe",
+                   params={"url": "https://tv3cdn.lv/dist/abc/skaties/app.js", "find": "api"}).json()
+    assert r["kind"] == "text"
+    assert any(h.startswith("/api/v2/videos?page=") for h in r["found"])
+    assert "https://skaties.lv/api/video/" in r["found"]
+    assert "/graphql/videos" in r["found"]
+    assert client.get("/logs/video-probe", params={"url": "https://evil.example/"}).status_code == 400
