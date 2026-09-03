@@ -1829,6 +1829,18 @@ def video_probe(url: str = "", raw: str = "", find: str = ""):
     return JSONResponse(videos.probe(url, fetch=fetch, raw=bool(raw), find=find))
 
 
+@app.get("/logs/video-probe/auto")
+def video_probe_auto():
+    """Viena poga: saraksta čaula -> skripti -> API adreses. Rezultāts ir JSON,
+    ko nokopēt izstrādātājam."""
+    from fastapi.responses import JSONResponse
+
+    from app import pagemeta, videos
+
+    fetch = (lambda u, timeout=30: pagemeta.fetch(u, timeout=timeout))
+    return JSONResponse(videos.investigate(fetch=fetch))
+
+
 @app.get("/logs/export.json")
 def logs_export(channel: str = "", lines: int = 500):
     """Viss vienā JSON failā — to var iedot izstrādātājam vai AI asistentam,

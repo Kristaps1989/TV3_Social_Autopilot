@@ -148,7 +148,7 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
   <table>
     <tr><td>Stāvoklis</td><td>{{ 'ieslēgts ✓' if va.enabled else 'izslēgts (video_archive.enabled)' }}
       · saraksts <code>{{ va.listing }}</code>{% if va.feed %} · feed <code>{{ va.feed }}</code>{% endif %}</td></tr>
-    <tr><td>Klipi bez raksta</td><td>{{ va.items }} (ar klipa adresi {{ va.items_with_clip }}, vēl neizlemti {{ va.items_undecided }})</td></tr>
+    <tr><td>Klipi bez raksta</td><td>{{ va['items'] }} (ar klipa adresi {{ va.items_with_clip }}, vēl neizlemti {{ va.items_undecided }})</td></tr>
     <tr><td>Raksti ar piesaistītu video</td><td>{{ va.linked_articles }}</td></tr>
     <tr><td>Publicēti 7 dienās</td><td>{{ va.published_7d }}
       ({% for f, n in (va.published_7d_by_format or {}).items() %}{{ f }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %})
@@ -157,15 +157,23 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
       jauni {{ va.last_crawl.new }}, jau rakstos {{ va.last_crawl.covered }}, izlaisti {{ va.last_crawl.skipped }}
       {% else %}vēl nav bijis{% endif %}</td></tr>
   </table>
-  <form method="get" action="/logs/video-probe" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem">
+  <p style="margin-top:.7rem">
+    <a class="button primary" href="/logs/video-probe/auto" target="_blank">Izpētīt tv3.lv/video automātiski</a>
+    <span class="muted">— atveras JSON jaunā cilnē. Nokopē visu tekstu un ielīmē sarunā ar
+      izstrādātāju. Tas pats ielādē saraksta lapu, atrod tās skriptus un izraksta API adreses,
+      no kurām portāls ņem klipus.</span></p>
+  <details style="margin-top:.4rem"><summary class="muted">Zonde ar roku (vienai adresei)</summary>
+  <form method="get" action="/logs/video-probe" target="_blank"
+        style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem">
     <input type="text" name="url" value="{{ va.listing }}" style="min-width:24rem"
-           placeholder="https://tv3.lv/video/ vai https://tv3.lv/video/<id>/ vai raksta adrese">
+           placeholder="https://tv3.lv/video/<id>/ vai raksta adrese, vai skripta adrese no tv3cdn.lv">
     <input type="text" name="find" value="" style="width:9rem" placeholder="find: api vai regex">
     <label><input type="checkbox" name="raw" value="1"> raw (HTML, skripti)</label>
-    <button>Zonde: ko parsētājs redz</button>
-    <span class="muted">— atver JSON; ja klipu saraksts vai klipa adrese ir tukša, nokopē to
-      izstrādātājam. Ja lapa ir JS čaula: raw → skripta adrese → find=api uz to.</span>
+    <button>Zonde</button>
   </form>
+  <p class="muted" style="margin:.4rem 0 0">Adreses lauks ir tikai pilna tīmekļa adrese (sākas ar https://).
+    Raksta adresei zonde parāda, vai lapā ir piesaistīts video; klipa adresei — vai atrodama mp4/m3u8.</p>
+  </details>
   {% endif %}
 </div>
 

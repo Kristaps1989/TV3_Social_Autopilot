@@ -589,3 +589,57 @@ def probe(url: str, fetch=None, raw: bool = False, find: str = "") -> dict:
         out["video_links_anywhere"] = video_links(html)[:10]
         out["clip_candidates"] = clip_urls(html)[:10]
     return out
+
+
+def _absolute(url: str, base: str) -> str:
+    if url.startswith("//"):
+        return "https:" + url
+    if url.startswith("http"):
+        return url
+    if url.startswith("/"):
+        m = re.match(r"https?://[^/]+", base)
+        return (m.group(0) if m else VIDEO_HOST) + url
+    return ""
+
+
+def investigate(fetch=None, rules: dict | None = None, max_scripts: int = 8) -> dict:
+    """Viss vienā: saraksta lapa, tās skripti, API adreses skriptos.
+
+    tv3.lv/video ir JavaScript čaula, tāpēc klipu saraksts nāk no API, kura
+    adrese ir tikai JS pakotnēs. Šī zonde iet pa visu ķēdi pati, lai
+    redaktoram jānospiež viena poga un rezultāts jānokopē izstrādātājam.
+    """
+    fetch = fetch or pagemeta.fetch
+    listing = str(settings(rules).get("listing") or DEFAULTS["listing"])
+    out: dict = {"listing": listing, "steps": []}
+    shell = probe(listing, fetch=fetch, raw=True, find="api")
+    out["shell"] = {k: shell.get(k) for k in ("fetched", "bytes", "videos", "hint",
+                                              "scripts", "links", "globals", "found")}
+    out["shell_html"] = shell.get("html", "")[:4000]
+    if not shell.get("fetched"):
+        out["steps"].append("saraksta lapa neatbild")
+        return out
+    if shell.get("videos"):
+        out["steps"].append(f"saraksta HTML jau satur {len(shell['videos'])} klipu saites — "
+                            "parsētājs strādā, API nav vajadzīgs")
+        return out
+    out["steps"].append("saraksta HTML ir JS čaula; meklējam API skriptos")
+    bundles = []
+    for src in (shell.get("scripts") or [])[:max_scripts]:
+        url = _absolute(src, listing)
+        if not url or not probe_allowed(url):
+            continue
+        text = fetch(url)
+        entry = {"script": url, "fetched": bool(text), "bytes": len(text or "")}
+        if text:
+            entry["api"] = find_in(text, "api", limit=120)
+            entry["clips"] = [h for h in find_in(text, r"[^\s\"'`]+\.(?:m3u8|mp4)[^\s\"'`]*",
+                                                  limit=40)]
+            entry["video_paths"] = find_in(text, r"[\"'`][^\"'`]{0,60}/video[^\"'`]{0,80}[\"'`]",
+                                           limit=60)
+        bundles.append(entry)
+    out["bundles"] = bundles
+    hits = sum(len(b.get("api") or []) for b in bundles)
+    out["steps"].append(f"pārbaudīti {len(bundles)} skripti, {hits} API adrešu kandidāti")
+    return out
+

@@ -240,3 +240,35 @@ def test_probe_raw_and_find_expose_a_js_shell_and_its_api(session, monkeypatch):
     assert "https://skaties.lv/api/video/" in r["found"]
     assert "/graphql/videos" in r["found"]
     assert client.get("/logs/video-probe", params={"url": "https://evil.example/"}).status_code == 400
+
+
+def test_auto_investigation_walks_shell_scripts_and_reports_api_candidates(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    shell = """<!doctype html><html><head>
+<script src="/dist/abc/skaties/vendor.js"></script>
+<script src="https://tv3cdn.lv/dist/abc/skaties/app.js"></script>
+<script src="https://evil.example/x.js"></script></head><body></body></html>"""
+    pages = {"https://tv3.lv/video/": shell,
+             "https://tv3.lv/dist/abc/skaties/vendor.js": "var a=1;",
+             "https://tv3cdn.lv/dist/abc/skaties/app.js":
+                 'fetch("https://api.skaties.lv/v1/videos?limit=20");src="https://cdn.x/clip/1.m3u8";r="/video/"+id'}
+    monkeypatch.setattr(pagemeta, "fetch", lambda url, timeout=10: pages.get(url, ""))
+    out = videos.investigate()
+    assert out["shell"]["videos"] == []
+    assert [b["script"] for b in out["bundles"]] == [
+        "https://tv3.lv/dist/abc/skaties/vendor.js", "https://tv3cdn.lv/dist/abc/skaties/app.js"]
+    app_bundle = out["bundles"][1]
+    assert "https://api.skaties.lv/v1/videos?limit=20" in app_bundle["api"]
+    assert "https://cdn.x/clip/1.m3u8" in app_bundle["clips"]
+    assert out["steps"][-1].startswith("pārbaudīti 2 skripti")
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    r = client.get("/logs/video-probe/auto").json()
+    assert r["bundles"][1]["api"]
+    page = client.get("/logs").text
+    assert "Izpētīt tv3.lv/video automātiski" in page and "built-in method" not in page
