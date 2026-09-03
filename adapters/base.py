@@ -47,11 +47,13 @@ class Adapter(ABC):
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
                 card_titles: list[str] | None = None,
-                alt_text: str = "") -> str:
+                alt_text: str = "", picture: str = "") -> str:
         """Publish and return the platform post id. card_links: per-card
         destinations for digest carousels (platforms without carousel link
         support ignore it). alt_text: attēla apraksts ekrānlasītājiem —
-        platformas, kas to neatbalsta, to ignorē."""
+        platformas, kas to neatbalsta, to ignorē. picture: publisks URL
+        mūsu pašu saites kartītes attēlam (Facebook `picture`), lai kartīte
+        nerāda og:image ar nogrieztu augšu; citas platformas ignorē."""
 
     def fetch_insights(self, platform_post_id: str) -> dict | None:
         """Return {impressions, clicks, reactions} or None if unavailable."""
@@ -74,10 +76,10 @@ class DryRunAdapter(Adapter):
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
                 card_titles: list[str] | None = None,
-                alt_text: str = "") -> str:
-        log.info("[DRY RUN %s] %s | %s | link=%s images=%d alt=%s",
+                alt_text: str = "", picture: str = "") -> str:
+        log.info("[DRY RUN %s] %s | %s | link=%s images=%d alt=%s picture=%s",
                  self.platform, fmt, text[:120], link, len(images),
-                 (alt_text or "—")[:60])
+                 (alt_text or "—")[:60], picture or "—")
         return f"dry-run{'-' + self.note if self.note else ''}"
 
     def comment(self, post_id: str, message: str) -> str:

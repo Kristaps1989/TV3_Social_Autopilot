@@ -1111,8 +1111,12 @@ def render_number_card(number: str, context: str, section: str,
 
 
 def render_crop(image: str, width: int, height: int, out_dir: Path | None = None,
-                contain: bool = False, background: str = "#ffffff") -> str:
+                contain: bool = False, background: str = "#ffffff",
+                position: str = "center") -> str:
     """Attēls, iegriezts (cover) vai ievietots (contain) precīzā izmērā.
+
+    `position` ir CSS background-position: "center" griež vienādi no abām
+    malām, PHOTO_FOCUS ("center 22%") patur augšu — ziņu kadrā tur ir galvas.
 
     Google reklāmām vajag vienu un to pašu attēlu vairākās proporcijās
     (1.91:1, 1:1, 4:5) un kvadrātisku logo; PIL projektā nav, bet Chromium
@@ -1129,7 +1133,7 @@ def render_crop(image: str, width: int, height: int, out_dir: Path | None = None
     tmp.write_text(
         f'<!doctype html><html><body style="margin:0;background:{background}">'
         f'<div class="crop" style="width:{width}px;height:{height}px;'
-        f'background:{background} url(\'{src}\') center/{fit} no-repeat"></div>'
+        f'background:{background} url(\'{src}\') {position}/{fit} no-repeat"></div>'
         f'</body></html>', encoding="utf-8")
     chromium = os.environ.get("PLAYWRIGHT_CHROMIUM", "")
     try:

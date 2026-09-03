@@ -118,11 +118,13 @@ def test_saturday_builds_sport_top5_and_reel(session, monkeypatch):
     kinds = {p.hook_type: p for p in posts}
     assert set(kinds) == {"digest", "digestreel", "icymi"}
     # karuselī punkti ar absolūtiem datumiem savā rindā, čipam šodienas datums
-    assert "augustā" in rendered["point_dates"][0]
+    # (rakstu datums nāk no īstā pulksteņa — _article liek utcnow() - 2 d)
+    month = weekend.MONTHS_LOC[(utcnow() - timedelta(days=2)).month]
+    assert month in rendered["point_dates"][0]
     assert rendered["date"] == "29.08.2026"
     # icymi teksts satur publicēšanas datumu un nesatur relatīvus vārdus
     icymi = kinds["icymi"]
-    assert "Publicēts" in icymi.copy and "augustā" in icymi.copy
+    assert "Publicēts" in icymi.copy and month in icymi.copy
     assert weekend.has_relative_words(icymi.copy) == ""
     # otrā izpilde tajā pašā dienā neko nedublē
     assert weekend.run(session, SAT) == 0

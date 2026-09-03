@@ -153,7 +153,7 @@ class FacebookPageAdapter(Adapter):
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
                 card_titles: list[str] | None = None,
-                alt_text: str = "") -> str:
+                alt_text: str = "", picture: str = "") -> str:
         # alt_text_custom ir vienīgais lauks, ko FB pieņem pie /photos;
         # video un saites to neatbalsta, tāpēc tur to nesūtām
         alt = {"alt_text_custom": alt_text} if alt_text else {}
@@ -186,7 +186,35 @@ class FacebookPageAdapter(Adapter):
         data = {"message": text}
         if link:
             data["link"] = link
+        if link and picture:
+            return self._publish_link_with_picture(data, picture)
         return self._post(f"{self.page_id}/feed", data)["id"]
+
+    # Kāpēc Facebook noraidīja mūsu saites kartītes attēlu ('' = nenoraidīja).
+    # Pipeline to nolasa pēc publish() un atceras, lai nemēģinātu katru reizi.
+    picture_rejected: str = ""
+
+    def _publish_link_with_picture(self, data: dict, picture: str) -> str:
+        """Saites ieraksts ar MŪSU kartītes attēlu.
+
+        Facebook `picture` pieņem tikai lapām, kas Business Manager ir
+        verificējušas saites domēnu (tv3.lv); citādi atbild
+        «(#100) Only owners of the URL have the ability to specify the
+        picture…». Tad ierakstu sūtām bez attēla — Facebook pats ņem og:image
+        — un atzīmējam noraidījumu, lai Konti lapa pateiktu, kas jāizdara.
+        """
+        self.picture_rejected = ""
+        try:
+            return self._post(f"{self.page_id}/feed", {**data, "picture": picture})["id"]
+        except PublishError as e:
+            msg = str(e)
+            if e.retryable or not ("picture" in msg or "owners of the URL" in msg
+                                   or "(#100)" in msg):
+                raise
+            self.picture_rejected = msg[:300]
+            log.warning("FB noraidīja saites kartītes attēlu (domēns nav "
+                        "verificēts?), sūtām bez: %s", msg[:200])
+            return self._post(f"{self.page_id}/feed", data)["id"]
 
     def fetch_insights(self, platform_post_id: str) -> dict | None:
         try:

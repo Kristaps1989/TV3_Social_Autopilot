@@ -80,6 +80,7 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
   {% elif post.format == 'link' %}
   <div class="linkcard">
     {% if og_image %}<img class="img" src="{{ og_image }}"
+        {% if link_picture_plan %}style="object-position:center 22%"{% endif %}
         onerror="this.removeAttribute('src')">{% else %}<div class="img"></div>{% endif %}
     <div class="txt">
       <div class="dom">tv3.lv</div>
@@ -127,22 +128,40 @@ attēlu renderētājs (Chromium) nenostrādā — pārbaudi rindu
 «Attēlu renderētājs» lapā <a href="/connect">Konti</a>.</div>
 {% endif %}
 {% endif %}
-{% if post.format == 'link' and link_card_crop > 0.10 %}
+{% if post.format == 'link' and link_picture_plan %}
+<div class="notice" style="max-width:520px;background:#ecfdf5;color:#065f46">
+🖼️ Facebook kartīte no og attēla nogrieztu
+<strong>{{ (link_card_crop * 100) | round | int }}%</strong> augstuma (vidū, tāpēc
+galvas pazustu). Tāpēc kartītei sūtām <strong>savu 1.91:1 griezumu, piesietu
+augšai</strong> — attēls kartītē nobīdās zemāk un galvas paliek kadrā (augstāk
+redzams tāpat).
+{% if link_picture_state == 'unknown' %}
+Šis ir pirmais mēģinājums: ja Facebook attēlu noraidīs (tv3.lv domēns nav
+verificēts Business Manager), ieraksts aizies ar Facebook griezumu un
+<a href="/connect">Konti</a> lapā parādīsies, kas jāizdara.
+{% endif %}</div>
+{% elif post.format == 'link' and link_card_crop > 0.10 %}
 <div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">
 ⚠️ Facebook saites kartīte no šī attēla nogriež
 <strong>{{ (link_card_crop * 100) | round | int }}%</strong> augstuma (kā redzams
 augstāk) — parasti tieši augšu, kur ziņu kadrā ir galvas.
+{% if link_picture_state == 'rejected' %}
+Mūsu pašu kartītes attēlu Facebook noraidīja — verificē tv3.lv domēnu
+Business Manager sadaļā Brand Safety → Domains (skat. <a href="/connect">Konti</a>).
+Līdz tam:
+{% endif %}
 {% if link_card_crop >= 0.40 or img_portrait %}
-Šeit kartīte ir sabojāta neatkarīgi no formātu kvotas, tāpēc tieši pirms
-publicēšanas šis ieraksts <strong>automātiski kļūs par photo ierakstu</strong>,
-kur attēlu zīmējam mēs un augstums paliek vesels; saite aizies aprakstā un
-pirmajā komentārā. Atcelt to nav vajadzīgs.
+kartīte ir sabojāta neatkarīgi no formātu kvotas, tāpēc tieši pirms
+publicēšanas ieraksts <strong>kļūs par photo ierakstu</strong> (attēlu zīmējam
+mēs, augstums paliek vesels; saite aprakstā un pirmajā komentārā) — ja vien
+plūsmas galā jau nav pārāk daudz foto pēc kārtas: tad vienveidības sargs ir
+svarīgāks un saites kartīte iet tāda, kāda ir.
 {% elif link_card_crop > 0.20 %}
-Ieraksts kļūs par photo ierakstu, ja vien kanālam nepietrūkst saites postu
-(<code>format_mix</code> grīda) — tad saites kartīte paliek. Slieksni maina
-<code>link_card_max_crop</code> Noteikumos.
+ieraksts kļūs par photo ierakstu, ja vien kanālam nepietrūkst saites postu
+(<code>format_mix</code> grīda) vai foto jau ir par daudz — tad saites kartīte
+paliek. Slieksni maina <code>link_card_max_crop</code> Noteikumos.
 {% else %}
-Tas ir zem <code>link_card_max_crop</code> sliekšņa, tāpēc saites kartīte
+tas ir zem <code>link_card_max_crop</code> sliekšņa, tāpēc saites kartīte
 paliek — tā ir labākais klikšķu formāts. Pazemini slieksni, ja gribi arī šos
 kā foto ierakstus.
 {% endif %}</div>

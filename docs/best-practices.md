@@ -259,6 +259,31 @@ citādi labojums aizsniegtu tikai tos rakstus, par kuriem lēmums pieņemts pēc
 izvietošanas. Priekšskatījumā redaktors redz gan īsto apgriezumu (kartīte tur
 zīmēta 1.91:1), gan procentu, gan to, kurš noteikums nostrādās.
 
+Pārslēgšana tomēr **padodas vienveidības sargam**: ja plūsmas galā jau ir divi
+foto pēc kārtas, arī sabojāta saites kartīte iet ārā kā saite (tieši tā
+notika ar Ostapenko ierakstu — 58 % nost un galva ārpus kadra).
+
+### Savs kartītes attēls: attēls «nobīdās zemāk»
+
+Graph API `/feed` pieņem arī `picture` — publisku URL kartītes attēlam — **ja
+lapa ir verificējusi saites domēnu** Meta Business Manager (Brand Safety →
+Domains; tv3.lv pieder tam pašam biznesam, tāpēc tas ir vienas dienas darbs).
+Tad kartītes attēlu izvēlamies mēs (`link_card_custom_picture`):
+
+- tas pats raksta foto (vai platākais no raksta attēliem), iegriezts 1200×628
+  un **piesiets augšai** (`PHOTO_FOCUS`, 22 % no augšas) — kadrs kartītē
+  nobīdās zemāk un galvas paliek;
+- zīmēts tieši pirms publicēšanas (`link_picture_for`), lai fails nevar
+  pazust rindā stāvot; ceļš paliek `extra["link_picture"]`;
+- pirmais ieraksts ir pārbaude: ja Facebook atbild «Only owners of the URL…»,
+  adapteris to pašu ierakstu nosūta bez attēla, statuss `rejected` paliek
+  nedēļu, un Konti lapa pasaka, kas jāverificē; pēc pieņemšanas statuss `ok`
+  un saites ieraksti vairs netiek pārslēgti uz photo — kartīte vairs nav
+  sabojāta.
+
+Kamēr domēns nav verificēts, viss iepriekšējais (sliekšņi, pārslēgšana uz
+photo, sargs) darbojas kā līdz šim.
+
 ## Format → clicks
 
 - Link post = best CTR to site → default for news/politics/sport.

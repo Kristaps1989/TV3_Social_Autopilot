@@ -254,6 +254,14 @@ link_card_max_crop: 0.30
 # tikai izskatās slikti un iemāca svariem, ka saites posti nestrādā.
 link_card_force_crop: 0.40
 
+# Facebook saites kartītei sūtām SAVU attēlu (`picture`): tas pats foto,
+# iegriezts 1.91:1 un piesiets augšai — attēls kartītē it kā nobīdās zemāk,
+# un galvas paliek kadrā. Facebook to pieņem tikai tad, ja tv3.lv domēns ir
+# verificēts Meta Business Manager (Brand Safety → Domains); ja noraida,
+# ieraksts aiziet ar Facebook griezumu un Konti lapa parāda, kas jāizdara.
+# Kad attēls tiek pieņemts, saites ieraksti vairs netiek pārslēgti uz photo.
+link_card_custom_picture: true
+
 # Kur MI marķējumu likt. voiced_reels (noklusējums) = tikai lentēs, kurās
 # tiešām skan sintezēta balss — tā ir vienīgā daļa, kas ir mākslīgi ģenerēts
 # medijs. Rakstu raksta žurnālists, un atruna zem katra ieraksta lasās kā

@@ -161,6 +161,25 @@ def logout():
     return resp
 
 
+def _link_picture_diag(session) -> str:
+    """Konti lapas rinda: vai Facebook pieņem mūsu saites kartītes attēlu."""
+    from app import credentials
+    from app.pipeline import LINK_PICTURE_KEY, link_picture_status
+
+    state = link_picture_status(session)
+    if state == "ok":
+        return "FB pieņem mūsu 1.91:1 griezumu — saites kartītēs galvas paliek ✓"
+    if state == "off":
+        return "izslēgts (link_card_custom_picture: false) — FB griež og:image"
+    if state == "rejected":
+        row = credentials.info(session, LINK_PICTURE_KEY)
+        why = (row.label if row else "") or ""
+        return ("NORAIDA — verificē tv3.lv domēnu Meta Business Manager sadaļā "
+                "Brand Safety → Domains (lapai jābūt tam pašam biznesam); "
+                f"mēģināsim atkal pēc nedēļas. {why}")
+    return "vēl nav mēģināts — pirmais saites ieraksts ar griezumu to pārbaudīs"
+
+
 def public_base(request: Request) -> str:
     env = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
     if env:
@@ -431,7 +450,18 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             except Exception:  # noqa: BLE001
                 img_portrait = False
         from app import regenerate as regen
-        from app.pipeline import prebranded
+        from app.pipeline import (LINK_PICTURE_MIN_CROP, link_picture_status,
+                                  prebranded)
+        from adapters.base import public_image_url
+
+        # vai šim ierakstam kartītē ies MŪSU augšai piesietais griezums
+        link_picture_state = (link_picture_status(session)
+                              if post.format == "link" and platform == "facebook_page"
+                              else "")
+        link_picture_plan = bool(
+            link_picture_state in ("ok", "unknown")
+            and link_card_crop >= LINK_PICTURE_MIN_CROP
+            and public_image_url("x.png"))
 
         media_prebranded = bool((post.media or [""])[0]
                                 and prebranded(str(post.media[0])))
@@ -444,6 +474,8 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
             "link_card_crop": link_card_crop,
+            "link_picture_state": link_picture_state,
+            "link_picture_plan": link_picture_plan,
             "can_regenerate": regen.can_regenerate(post),
             "cms_meta": pagemeta.meta(article) if article else {},
             "cms_short": cms_short, "short_kind": short_kind,
@@ -776,6 +808,7 @@ def connect(request: Request, error: str = "", connected: str = ""):
                                           or "nav reģistrēta ✓"),
             "Video (ffmpeg)": ("strādā ✓" if reels.ffmpeg_bin()
                                else "nav — reel formāts izslēgts"),
+            "Saites kartītes attēls (FB picture)": _link_picture_diag(session),
             "Īsās saites": (
                 f"{shortlinks.base_url()}/<kods> ✓" if shortlinks.base_url()
                 else "izslēgtas — tekstā iet pilnā saite ar UTM "

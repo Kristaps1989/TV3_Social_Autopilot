@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from adapters import get_adapter
 from adapters.base import PublishError
-from app import config, disclosure, pagemeta, shortlinks, tts
+from app import config, credentials, disclosure, pagemeta, shortlinks, tts
 from app.best_practices import (PLATFORM_SPECS, add_utm, alt_text, assemble_post_text,
                                 sanitize_copy)
 from app.decide import decide
@@ -929,6 +929,11 @@ def link_card_broken(session, channel: str, cfg: dict, article,
     portrait = imageinfo.orientation(article) == "portrait"
     if not (portrait or loss > rules.get("link_card_max_crop", 0.30)):
         return False, loss
+    # Ja Facebook pieņem MŪSU kartītes attēlu (domēns verificēts), og:image
+    # griezums vairs neko nenozīmē: kartītē ies mūsu 1.91:1 griezums ar
+    # veselu augšu, un saites ieraksts paliek saites ieraksts.
+    if link_picture_status(session, rules) == "ok":
+        return False, loss
     # Saites postiem ir sava grīda (`format_mix`), un parasti tā ir svarīgāka
     # par vienu apgriezumu. BET grīdas jēga ir turēt plūsmā strādājošus saites
     # ierakstus, un šis tāds nav: pie portreta attēla vai puses nogrieztā
@@ -941,6 +946,85 @@ def link_card_broken(session, channel: str, cfg: dict, article,
                    cfg.get("format_mix") or {}, ["link"]):
         return False, loss
     return True, loss
+
+
+# Facebook saites kartītes attēls, ko sūtām paši (`picture`), un tā statuss.
+# Kartīte ir 1.91:1; ziņu foto parasti ir 3:2 vai 4:3, un FB griež vidu, tāpēc
+# augša ar galvām pazūd. Mūsu griezums ir piesiets augšai (PHOTO_FOCUS), un
+# attēls kartītē it kā «nobīdās zemāk» — galvas paliek kadrā.
+LINK_PICTURE_KEY = "fb_link_picture"
+LINK_PICTURE_SIZE = (1200, 628)
+LINK_PICTURE_MIN_CROP = 0.05       # zem šī FB griezums ir nemanāms — nav ko labot
+LINK_PICTURE_RETRY_DAYS = 7        # pēc noraidījuma mēģinām atkal pēc nedēļas
+
+
+def link_picture_status(session, rules: dict | None = None) -> str:
+    """'ok' — FB pieņēma mūsu attēlu; 'rejected' — noraidīja (domēns nav
+    verificēts) un nedēļa vēl nav pagājusi; 'off' — izslēgts noteikumos;
+    'unknown' — vēl nav mēģināts."""
+    rules = config.load_rules() if rules is None else rules
+    if not rules.get("link_card_custom_picture", True):
+        return "off"
+    row = credentials.info(session, LINK_PICTURE_KEY)
+    if row is None or not row.value:
+        return "unknown"
+    if row.value == "ok":
+        return "ok"
+    if row.updated_at and utcnow() - row.updated_at > timedelta(days=LINK_PICTURE_RETRY_DAYS):
+        return "unknown"
+    return "rejected"
+
+
+def link_picture_for(session, post, cfg: dict, rules: dict | None = None) -> str:
+    """Publiskais URL mūsu saites kartītes attēlam šim ierakstam ('' = nesūtīt).
+
+    Tikai Facebook saites ierakstiem, kuru og attēlu kartīte tiešām griež.
+    Griezumu zīmē tieši pirms publicēšanas (fails nevar pazust rindā stāvot)
+    un patur `extra["link_picture"]`, lai priekšskatījums un lēmumu vēsture
+    rāda, kas aizgāja."""
+    from pathlib import Path
+
+    rules = config.load_rules() if rules is None else rules
+    if (post.format != "link" or post.article is None
+            or cfg.get("platform") != "facebook_page"
+            or not (post.article.images or [])):
+        return ""
+    if link_picture_status(session, rules) in ("off", "rejected"):
+        return ""
+    from adapters.base import public_image_url
+    from app import cards, imageinfo
+
+    base = photo_base_image(post.article)
+    if imageinfo.link_card_crop(post.article, base) < LINK_PICTURE_MIN_CROP:
+        return ""
+    current = (post.extra or {}).get("link_picture") or ""
+    if not (current and Path(current).exists()):
+        try:
+            current = cards.render_crop(base, *LINK_PICTURE_SIZE,
+                                        position=cards.PHOTO_FOCUS)
+        except Exception as e:  # noqa: BLE001 — bez renderētāja iet parastā kartīte
+            log.warning("saites kartītes attēls post %s netika uzzīmēts: %s", post.id, e)
+            return ""
+        post.extra = {**(post.extra or {}), "link_picture": current}
+    url = public_image_url(current)
+    if not url:
+        log.warning("saites kartītes attēlam nav publiska URL (PUBLIC_BASE_URL) — "
+                    "post %s iet ar FB griezumu", post.id)
+    return url
+
+
+def remember_link_picture_outcome(session, adapter, picture: str, post) -> None:
+    """Pēc publicēšanas: pieraksta, vai FB mūsu attēlu pieņēma."""
+    if not picture:
+        return
+    rejected = getattr(adapter, "picture_rejected", "")
+    if rejected:
+        credentials.put(session, LINK_PICTURE_KEY, "rejected", label=rejected[:200])
+        post.extra = {**(post.extra or {}), "link_picture_rejected": rejected[:200]}
+        log.warning("FB noraidīja saites kartītes attēlu (post %s) — verificē tv3.lv "
+                    "domēnu Business Manager sadaļā Brand Safety → Domains", post.id)
+    elif link_picture_status(session) != "ok":
+        credentials.put(session, LINK_PICTURE_KEY, "ok", label="FB pieņem mūsu kartītes attēlu")
 
 
 def retarget_queued_link_post(session, post, cfg: dict) -> bool:
@@ -1299,9 +1383,13 @@ def publish_due(session) -> int:
                 extra_kwargs["alt_text"] = alt_text(
                     post.article.title, post.article.section,
                     pagemeta.author(post.article))
+            picture = link_picture_for(session, post, cfg, rules)
+            if picture:
+                extra_kwargs["picture"] = picture
             post.platform_post_id = adapter.publish(
                 text=text, link=link, images=post.media or [], fmt=post.format,
                 **extra_kwargs)
+            remember_link_picture_outcome(session, adapter, picture, post)
             post.state = "published"
             post.published_at = utcnow()
             post.error = ""
