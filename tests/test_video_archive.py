@@ -463,4 +463,4 @@ def test_play_investigation_reads_inline_data_sitemap_and_apis(session, monkeypa
     client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
     assert client.get("/logs/site-probe/auto", params={"site": "play"}).json()["site"] == "play"
     assert client.get("/logs/site-probe/auto", params={"site": "x"}).status_code == 400
-    assert "Izpētīt TV3 Play automātiski" in client.get("/logs").text
+    assert "Izpētīt play.tv3.lv (JSON)" in client.get("/logs").text
