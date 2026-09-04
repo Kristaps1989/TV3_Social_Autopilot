@@ -1,6 +1,8 @@
 """TV3 Play promo: katalogs, ētikas sargi, kvotas, logs, izlases, tilti, UTM."""
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
+
 from app import config, play, slots
 from app.models import Article, Post, set_setting, utcnow
 from app.rules_engine import Verdict, evaluate
@@ -292,6 +294,15 @@ def test_cooldown_daily_cap_and_feed_share(session, monkeypatch):
                     raw_json={"_play": {"kind": "movie", "show": "cita", "show_id": "999", "genres": ["Drāma"]}})
     session.add(other)
     session.flush()
+    # rindā jau gaida viens promo — otru pat nelemjam (agrāk tas saņēma
+    # apmaksātu AI tekstu un tikai pēc tam tika atcelts)
+    ok, why = play.allowed_now(session, other, "fb_play", now=NOW)
+    assert not ok and "jau ir rindā" in why
+    # kad tas ir publicēts, ne rindā, aiztur dienas limits
+    pending = session.execute(select(Post).where(Post.article_id == movie.id)).scalars().first()
+    pending.state = "published"
+    pending.scheduled_at = NOW - timedelta(hours=1)
+    session.commit()
     ok, why = play.allowed_now(session, other, "fb_play", now=NOW)
     assert not ok and "dienas limits" in why
     # stāstam savs limits

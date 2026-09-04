@@ -227,6 +227,37 @@ def missing_rules() -> list[str]:
         return []
 
 
+def rule_drift() -> dict[str, list[str]]:
+    """Kuras noteikumu atslēgas serverī atšķiras no repo faila, pa blokiem.
+
+    `sync_missing_rules` pieliek tikai jaunas AUGŠĒJĀ līmeņa atslēgas. Bloks,
+    kas kopijā jau ir, paliek tāds, kāds tika uzsēts pirmajā palaišanā — tāpēc
+    izmaiņas tā iekšienē uz servera nenonāk nekad. Tā pazuda gan Play
+    `min_seconds`, gan tv3.lv/video klipu API adrese, un abas reizes no ārpuses
+    tas izskatījās pēc tukša rezultāta, ne pēc novecojušas konfigurācijas.
+    """
+    editable = RULES_DIR / "rules.yaml"
+    default = DEFAULT_RULES_DIR / "rules.yaml"
+    if not editable.exists() or editable.resolve() == default.resolve():
+        return {}
+    try:
+        live = _load_yaml(editable)
+        shipped = _load_yaml(default)
+    except ConfigError:
+        return {}
+    out: dict[str, list[str]] = {}
+    for key, want in shipped.items():
+        have = live.get(key)
+        if isinstance(want, dict) and isinstance(have, dict):
+            diff = sorted({k for k in set(want) | set(have)
+                           if want.get(k) != have.get(k)} - {"enabled"})
+            if diff:
+                out[key] = diff
+        elif key in live and have != want:
+            out[key] = ["(visa vērtība)"]
+    return out
+
+
 def reset_rule_block(key: str, keep: tuple[str, ...] = ()) -> bool:
     """Pārraksta VIENU noteikumu bloku rediģējamajā kopijā ar repo versiju.
 

@@ -330,15 +330,15 @@ def toggle_play_pause():
     return RedirectResponse("/logs", status_code=303)
 
 
-@app.post("/rules/reset/play")
-def reset_play_rules():
-    """Atgriež `play` bloku rediģējamajā rules.yaml pie koda versijas.
+@app.post("/rules/reset/{key}")
+def reset_rule_block(key: str):
+    """Atgriež VIENU noteikumu bloku rediģējamajā rules.yaml pie koda versijas.
 
     Kopija tiek uzsēta vienu reizi, tāpēc labojumi bloka iekšienē uz servera
-    nenonāk paši — audits tos nosauc, un šī poga tos pieņem vienā klikšķī.
-    Ieslēgts slēdzis paliek ieslēgts.
+    nenonāk paši — Diagnostika tos nosauc, un šī poga tos pieņem vienā
+    klikšķī. Ieslēgts slēdzis paliek ieslēgts.
     """
-    config.reset_rule_block("play", keep=("enabled",))
+    config.reset_rule_block(key, keep=("enabled",))
     return RedirectResponse("/logs", status_code=303)
 
 

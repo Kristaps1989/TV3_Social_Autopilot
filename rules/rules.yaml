@@ -149,6 +149,7 @@ play:
                      katastrof, vardarb, action, horror, thriller, crime, war,
                      disaster, violence]
   title_cooldown_days: 14
+  undecided_target: 12      # katalogs nav plūsma: nepievieno vairāk, nekā var publicēt
   last_chance_days: 7        # «Pieejams vēl N dienas» -> izceļam un liekam pa priekšu
   genre_overrides: {}        # piem. {klarksona-ferma: [dokumentāls, humors]}
   # Katalogs: sadaļu lapas dod nosaukumus, sitemapi — jaunās sērijas
@@ -191,7 +192,6 @@ video_archive:
     900 sekundes: news
   interval_minutes: 30
   max_new_per_run: 6
-  undecided_target: 12       # katalogs nav plūsma: nepievieno vairāk, nekā var publicēt
   min_seconds: 5
   max_seconds: 180
   daily_cap: 3                         # klipi bez raksta uz kanālu dienā

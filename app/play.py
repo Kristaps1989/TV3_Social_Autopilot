@@ -768,6 +768,18 @@ def allowed_now(session, article, channel: str, fmt: str = "",
             other = play_data(p.article)
             if other.get("show_id") and other.get("show_id") == data.get("show_id"):
                 return False, f"«{data.get('show')}» kanālā jau bija pēdējās {cfg.get('title_cooldown_days')} dienās"
+    # Rindā jau gaidošie. Bez šī sarga dienas limits skatījās TIKAI uz šodienu,
+    # bet plānotājs slotu atrod arī rītvakarā — tāpēc no rīta cauri tika
+    # desmiti nosaukumu, katrs ar savu apmaksātu AI tekstu, un pārplānošana
+    # tos pēc tam atcēla. Diagnostikā tas izskatījās kā gara «cancelled» rinda.
+    ahead = [p for p in play_week
+             if p.scheduled_at and p.scheduled_at > now
+             and (p.format == "story") == (fmt == "story")]
+    pending_cap = int(cfg.get("story_daily_cap") or 1) if fmt == "story" else \
+        int(cfg.get("weekend_daily_cap") if _riga_day(now).weekday() >= 5
+            else cfg.get("daily_cap") or 1)
+    if len(ahead) >= pending_cap:
+        return False, f"Play jau ir rindā ({len(ahead)}/{pending_cap}) — vairāk nelemj"
     # dienas limiti (Rīgas diena), stāsti atsevišķi
     today = _riga_day(now)
     todays = [p for p in play_week if p.scheduled_at and _riga_day(p.scheduled_at) == today]

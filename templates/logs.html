@@ -11,6 +11,20 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     <tr><td>Noteikumu mape</td><td><code>{{ data.rules_dir }}</code>
       {% if data.editable_rules_used %}<span class="muted">(rediģējamā kopija — var būt vecāka par kodu)</span>
       {% else %}<span class="muted">(koda noklusējumi)</span>{% endif %}</td></tr>
+    {% if data.rule_drift %}
+    <tr><td>Novecojuši noteikumi</td><td>
+      <strong>Serverī esošā kopija atšķiras no koda.</strong> Bloku uzsēj vienu reizi, tāpēc
+      labojumi tā iekšienē te nenonāk paši — līdz tam sistēma strādā ar vecajām vērtībām.
+      <table class="n" style="margin-top:.4rem">
+      {% for block, keys in data.rule_drift.items() %}
+        <tr><td style="white-space:nowrap"><code>{{ block }}</code></td>
+          <td>{{ keys | join(', ') }}</td>
+          <td><form method="post" action="/rules/reset/{{ block }}" class="inline"
+                onsubmit="return confirm('Pārrakstīt bloku «{{ block }}» ar koda versiju? Slēdzis paliek, kāds ir.')">
+            <button>Pieņemt koda vērtības</button></form></td></tr>
+      {% endfor %}
+      </table></td></tr>
+    {% endif %}
     <tr><td>Attēlu renderētājs</td><td>{{ 'strādā ✓' if data.renderer_available else 'NAV — karuseļi un foto grafikas nevar tapt' }}</td></tr>
     <tr><td>Lentes (ffmpeg)</td><td>{{ 'strādā ✓' if data.reels_available else 'NAV — lentes nevar tapt' }}</td></tr>
     <tr><td>Reklāmu režīms</td><td>{{ data.ads_mode }}</td></tr>

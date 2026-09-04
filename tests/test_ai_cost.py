@@ -99,3 +99,21 @@ def test_cache_share_counts_the_cached_tokens_too(session):
     out = diagnostics._ai_cost(session)
     assert out["total_input"] == 10000
     assert out["cache_pct"] == 70
+
+
+def test_rule_drift_names_every_stale_block_not_just_play(tmp_path, monkeypatch):
+    """tv3.lv/video atgrieza nulli, jo serverī klipu API adreses vienkārši
+    nebija — tā pati novecojušās kopijas slimība, tikai citā blokā. Tāpēc
+    noviržu saraksts ir par visu failu, ne par vienu bloku."""
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    blocks = config._yaml_blocks(
+        (config.DEFAULT_RULES_DIR / "rules.yaml").read_text(encoding="utf-8"))
+    stale = blocks["video_archive"].replace(
+        '  feed: "https://tv3.lv/api/1/video/feed/"', '  feed: ""')
+    (tmp_path / "rules.yaml").write_text(stale + "\n\n" + blocks["play"] + "\n",
+                                         encoding="utf-8")
+    drift = config.rule_drift()
+    assert "feed" in drift["video_archive"]
+
+    assert config.reset_rule_block("video_archive", keep=("enabled",)) is True
+    assert "video_archive" not in config.rule_drift()
