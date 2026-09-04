@@ -174,6 +174,7 @@ def report(session, channel: str = "", posts: int = 15,
         "last_render_error": cards.last_render_failure(),
         "ads_mode": get_setting(session, "ads:mode", "off"),
         "published_24h": mix,
+        "queue": _queue_health(session),
         "video_archive": _video_summary(session),
         "play": _play_summary(session),
         "channels": [channel_diagnostics(session, name, cfg or {}, posts)
@@ -191,6 +192,16 @@ def report(session, channel: str = "", posts: int = 15,
                              for name, cfg in channels.items()},
             }
     return data
+
+
+def _queue_health(session) -> dict:
+    """Kāpēc nekas netiek plānots: lemjamā rinda un pēdējie sargu iemesli."""
+    from app import pipeline
+
+    try:
+        return pipeline.queue_health(session)
+    except Exception as e:  # noqa: BLE001 — diagnostika nedrīkst gāzt lapu
+        return {"error": str(e)}
 
 
 def _reels_available() -> bool:

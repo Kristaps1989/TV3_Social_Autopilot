@@ -26,6 +26,25 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
   </p>
 </div>
 
+{% set q = data.queue or {} %}
+{% if q and not q.error %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Lemjamā rinda <span class="muted" style="font-weight:400;font-size:.85rem">
+    kāpēc šobrīd kaut kas netiek plānots</span></h2>
+  <table class="n">
+    <tr><td>Nelemti raksti</td><td>{{ q.undecided }}{% if q.capped %}+{% endif %}
+      — lemjami tagad <strong>{{ q.ready }}</strong>, gaida atlikšanas taimeri {{ q.waiting_retry }}
+      {%- if q.oldest %} · vecākais no {{ q.oldest }}{% endif %}</td></tr>
+    {% if q.ready == 0 and q.undecided %}
+    <tr><td>Uzmanību</td><td><strong>Neviens raksts šobrīd nav lemjams</strong> — visi gaida
+      atlikšanas taimeri. Tas nozīmē, ka rinda kanālos ir pilna vai kāds sargs tos tur ārā.</td></tr>
+    {% endif %}
+    <tr><td>No kurām plūsmām</td><td>{% for feed, n in (q.by_feed or {}).items() %}{{ feed }}: {{ n }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</td></tr>
+    <tr><td>Kas pēdējo reizi neļāva atrast laiku</td><td>{% for why, n in (q.block_reasons or {}).items() %}{{ why }} ({{ n }}){{ ' · ' if not loop.last }}{% else %}nekas — laiks tika atrasts{% endfor %}</td></tr>
+  </table>
+</div>
+{% endif %}
+
 {% if data.ads %}
 <div class="card" style="margin-bottom:1rem">
   <h2>Formātu maksas rezultāti <span class="muted" style="font-weight:400;font-size:.85rem">

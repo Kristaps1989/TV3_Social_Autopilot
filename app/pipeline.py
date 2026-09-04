@@ -39,12 +39,7 @@ def paused(session, channel: str | None = None) -> bool:
 def run_decisions(session, limit: int = 20) -> int:
     """Evaluate + decide undecided articles, create scheduled posts."""
     now = utcnow()
-    articles = session.execute(
-        select(Article)
-        .where(Article.decided_at.is_(None), Article.editor_status != "dont")
-        .order_by(Article.first_seen_at)
-        .limit(limit)
-    ).scalars().all()
+    articles = undecided_batch(session, now, limit)
 
     channels_cfg = config.load_channels()
     created = 0
@@ -56,8 +51,6 @@ def run_decisions(session, limit: int = 20) -> int:
     meta_budget = 8
 
     for article in articles:
-        if retry_pending(article, now):
-            continue  # queue was full: waiting out the backoff before retrying
         if meta_budget > 0 and not pagemeta.meta(article):
             pagemeta.enrich(article)
             meta_budget -= 1
@@ -272,6 +265,74 @@ def run_decisions(session, limit: int = 20) -> int:
 # there wastes editorial work, so such articles are re-decided on later
 # cycles until they land — bounded, because freshness rules eventually
 # block them anyway.
+# Cik rindu drīkst pāršķirstīt, meklējot `limit` lemjamos rakstus. Atlikto
+# rakstu kaudze var būt liela (Play katalogs vien dod simtus dienā), un bez
+# šķirstīšanas tie visi ietilptu pirmajās 20 rindās.
+DECISION_SCAN_LIMIT = 2000
+DECISION_SCAN_PAGE = 200
+
+
+def queue_health(session, now=None, sample: int = 400) -> dict:
+    """Kāpēc šobrīd nekas netiek plānots — viss vienā vietā.
+
+    Bez šī atbilde bija log fails: cikls klusi izlaida atliktos rakstus, un
+    no ārpuses tas izskatījās tāpat kā «nav ko publicēt». Te redz, cik rakstu
+    gaida, cik no tiem gaida taimeri, no kuras plūsmas tie nāk un kurš sargs
+    pēdējo reizi tos apturēja.
+    """
+    now = now or utcnow()
+    rows = session.execute(
+        select(Article)
+        .where(Article.decided_at.is_(None), Article.editor_status != "dont")
+        .order_by(Article.first_seen_at).limit(sample)
+    ).scalars().all()
+    waiting = [a for a in rows if retry_pending(a, now)]
+    by_feed: dict[str, int] = {}
+    for a in rows:
+        key = a.feed_name or "?"
+        by_feed[key] = by_feed.get(key, 0) + 1
+    reasons: dict[str, int] = {}
+    for ev in session.execute(
+            select(Evaluation).where(Evaluation.outcome == "blocked")
+            .order_by(Evaluation.id.desc()).limit(200)).scalars().all():
+        why = str(ev.reason or "")
+        if why.startswith("nav derīga laika: "):
+            reasons[why[len("nav derīga laika: "):]] = \
+                reasons.get(why[len("nav derīga laika: "):], 0) + 1
+    oldest = min((a.first_seen_at for a in rows if a.first_seen_at), default=None)
+    return {"undecided": len(rows), "capped": len(rows) >= sample,
+            "waiting_retry": len(waiting), "ready": len(rows) - len(waiting),
+            "by_feed": dict(sorted(by_feed.items(), key=lambda kv: -kv[1])),
+            "oldest": oldest.isoformat(timespec="minutes") if oldest else "",
+            "block_reasons": dict(sorted(reasons.items(), key=lambda kv: -kv[1])[:6])}
+
+
+def undecided_batch(session, now, limit: int) -> list:
+    """`limit` vecākie raksti, KAS ŠOBRĪD IR LEMJAMI.
+
+    Agrāk te bija vienkāršs `limit(20)` pēc `first_seen_at`. Raksts, kam rinda
+    bija pilna, atgriežas ar atlikšanas taimeri (`requeue_for_retry`) un paliek
+    nelemts vēl stundas — bet vaicājumā tas joprojām bija starp vecākajiem, un
+    cikls to tikai izlaida. Kad tādu sakrājās vairāk nekā divdesmit, KATRS
+    cikls iztērēja visu budžetu uz izlaišanu, un neviena svaiga ziņa vairs
+    netika izlemta. Tāpēc gaidošos izlaižam pirms budžeta, ne pēc tā.
+    """
+    ready: list = []
+    offset = 0
+    while len(ready) < limit and offset < DECISION_SCAN_LIMIT:
+        rows = session.execute(
+            select(Article)
+            .where(Article.decided_at.is_(None), Article.editor_status != "dont")
+            .order_by(Article.first_seen_at)
+            .offset(offset).limit(DECISION_SCAN_PAGE)
+        ).scalars().all()
+        if not rows:
+            break
+        ready.extend(a for a in rows if not retry_pending(a, now))
+        offset += len(rows)
+    return ready[:limit]
+
+
 MAX_DECISION_RETRIES = 8
 RETRY_BACKOFF_MINUTES = 20
 
