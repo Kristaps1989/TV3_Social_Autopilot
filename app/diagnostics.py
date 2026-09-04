@@ -214,10 +214,13 @@ def _ai_cost(session, hours: int = 24) -> dict:
     reused = sum(1 for r in rows if int(getattr(r, "reused", 0) or 0))
     total_in = sum(m["in"] for m in by_model.values())
     total_cached = sum(m["cached"] for m in by_model.values())
+    # API `input_tokens` NEIETVER kešoto daļu — tā nāk atsevišķi. Dalot ar
+    # `input_tokens`, kešs izskatījās daudzkārt sliktāks, nekā ir patiesībā.
+    billed = total_in + total_cached
     return {"hours": hours, "calls": len(rows) - reused, "reused": reused,
             "input": total_in, "output": sum(m["out"] for m in by_model.values()),
-            "cached": total_cached,
-            "cache_pct": round(100 * total_cached / total_in) if total_in else 0,
+            "cached": total_cached, "total_input": billed,
+            "cache_pct": round(100 * total_cached / billed) if billed else 0,
             "by_model": dict(sorted(by_model.items(), key=lambda kv: -kv[1]["calls"]))}
 
 

@@ -54,7 +54,8 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     <tr><td>Izsaukumi</td><td>{{ ai.calls }}
       {%- if ai.reused %} · <strong>{{ ai.reused }} reizes izmantots iepriekšējais lēmums</strong>
       (tikpat izsaukumu netika veikts){% endif %}</td></tr>
-    <tr><td>Žetoni</td><td>ievade {{ ai.input }} (no keša {{ ai.cached }} = {{ ai.cache_pct }}%) ·
+    <tr><td>Žetoni</td><td>ievade {{ ai.total_input }} — no tās keša {{ ai.cached }}
+      (<strong>{{ ai.cache_pct }}%</strong>, maksā ~10 %), pilnā cenā {{ ai.input }} ·
       izvade {{ ai.output }}</td></tr>
     <tr><td>Pa modeļiem</td><td>{% for m, v in (ai.by_model or {}).items() %}{{ m }}: {{ v.calls }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</td></tr>
   </table>
@@ -221,7 +222,7 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     <tr><td>Stāvoklis</td><td>{{ 'ieslēgts ✓' if pl.enabled else 'IZSLĒGTS — ieslēdz ar play.enabled: true Noteikumos' }}
       {% if pl.paused %} · <strong>pauzēts ar roku</strong>{% endif %}</td></tr>
     <tr><td>Drūma diena</td><td>{% if pl.somber %}<strong>JĀ</strong> — traģēdiju/noziegumu daļa {{ (pl.grim_share * 100) | round | int }}%,
-      Play tikai mierīgos žanros{% else %}nē (traģēdiju daļa {{ (pl.grim_share * 100) | round | int }}%){% endif %}</td></tr>
+      Play bez asa sižeta, šausmu, trilleru, kara, noziegumu un katastrofu žanriem{% else %}nē (traģēdiju daļa {{ (pl.grim_share * 100) | round | int }}%){% endif %}</td></tr>
     <tr><td>Katalogs</td><td>{{ pl['items'] }} nosaukumi (ar žanru {{ pl.items_with_genre }}, vēl neizlemti {{ pl.items_undecided }})
       {%- if pl.items_last_chance %} · <strong>pēdējā iespēja: {{ pl.items_last_chance }}</strong>{% endif %}
       {%- if pl.items_events %} · notikumi (fināls/pirmizrāde): {{ pl.items_events }}{% endif %}

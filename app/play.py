@@ -7,7 +7,8 @@ par rakstu rindām ar `raw_json["_play"]`, iet cauri tam pašam AI lēmumam, bet
 - formāts tikai link / photo / story (klipu straumes nav — tās ir Go3 DRM);
 - saite ved uz konkrēto Play lapu ar `utm_campaign=play`;
 - **ētikas sargi kodā**: nekad blakus traģēdijai vai noziegumam (attālums
-  plūsmā), drūmas dienas režīms (tikai mierīgi žanri vai pauze), vakara
+  plūsmā), drūmas dienas režīms (bez asa sižeta/šausmu/noziegumu žanriem
+  vai pauze), vakara
   logs, vecuma cenzs tikai vēlu vakarā, viena nosaukuma atkārtojums ne biežāk
   kā reizi 14 dienās, un ne vairāk kā desmitā daļa plūsmas;
 - Play pēc noklusējuma ir IZSLĒGTS (`play.enabled`) — ieslēdz redaktors.
@@ -751,7 +752,12 @@ def allowed_now(session, article, channel: str, fmt: str = "",
         return False, "nosaukums Play vairs nav pieejams"
     is_somber, share = somber(session, now, rules)
     if is_somber and not genre_ok_on_somber_day(article, rules):
-        return False, f"drūma diena ({share:.0%} traģēdiju/noziegumu) — tikai mierīgi žanri"
+        d = play_data(article)
+        blocked = somber_blocked(
+            list(d.get("genres") or []) + list(d.get("categories") or []), rules)
+        return False, (f"drūma diena ({share:.0%} traģēdiju/noziegumu) — "
+                       f"žanrs «{blocked}» neiederas" if blocked
+                       else f"drūma diena ({share:.0%} traģēdiju/noziegumu) — žanrs nav zināms")
     data = play_data(article)
     week = channel_posts(session, channel, now - timedelta(days=7))
     play_week = [p for p in week if is_play_item(p.article)]
@@ -910,7 +916,7 @@ def _first_genre(article) -> str:
 
 def selection_candidates(session, cfg: dict, now: datetime, channel: str) -> list[Article]:
     """Nosaukumi izlasei: pa vienam uz raidījumu, bez nesen rādītiem, bez
-    16+/18+ (vakars sākas 19:00), drūmā dienā tikai mierīgi žanri, žanru
+    16+/18+ (vakars sākas 19:00), drūmā dienā bez aizliegtajiem žanriem, žanru
     dažādība, priekšroka ar plakātu un labāku mērīto rezultātu."""
     rows = session.execute(
         select(Article).where(Article.feed_name == FEED_NAME)

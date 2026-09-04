@@ -11,8 +11,9 @@ VERDICTS = {"fb_main": Verdict("eligible", "ok")}
 
 
 def _article(session, **kw):
+    kw.setdefault("feed_name", "tv3")
     a = Article(guid="g1", url="https://tv3.lv/a", canonical_url="https://tv3.lv/a",
-                title="Virsraksts", section="news", feed_name="tv3",
+                title="Virsraksts", section="news",
                 editor_status="can", published_at=utcnow(), raw_json={}, **kw)
     session.add(a)
     session.flush()
@@ -61,3 +62,40 @@ def test_the_static_guide_is_not_in_the_paid_user_message(session, monkeypatch):
     assert "Formātu izvēle. Noklusējums" in decide.FORMAT_GUIDE
     assert len(decide.FORMAT_GUIDE) > 4000     # tik daudz katrā izsaukumā ietaupīts
     assert "Virsraksts: Virsraksts" in prompt  # mainīgais paliek lietotāja ziņā
+
+
+def test_play_guards_run_before_the_expensive_call(session, monkeypatch):
+    """Žurnālā katrs kataloga nosaukums vispirms maksāja pilnu izsaukumu un
+    tikai tad uzzināja, ka dienas limits jau izlietots. Sargiem jābūt priekšā."""
+    from app import pipeline, play
+
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    a = _article(session, feed_name=play.FEED_NAME)
+    a.raw_json = {"_play": {"genres": ["Drāmas"], "url": a.url}}
+    session.flush()
+    calls = []
+    monkeypatch.setattr(decide, "call_claude",
+                        lambda art, v, s: (calls.append(1), DECISION)[1])
+    # Play izslēgts -> allowed_now saka nē, un izsaukumam nav jānotiek
+    monkeypatch.setattr(play, "allowed_now",
+                        lambda *a, **k: (False, "dienas limits izlietots"))
+    monkeypatch.setattr(pipeline, "evaluate_all", lambda art, now: VERDICTS)
+    pipeline.run_decisions(session, limit=5)
+    assert calls == []
+    # nosaukums nav pazudis: tas guļ līdz nākamajai reizei, bez soda punktiem
+    assert a.decided_at is None
+    assert (a.raw_json or {}).get("_decide_retries") is None
+    assert (a.raw_json or {}).get("_decide_retry_after")
+
+
+def test_cache_share_counts_the_cached_tokens_too(session):
+    """API input_tokens NEIETVER kešoto daļu, tāpēc dalot ar to, kešs
+    izskatījās daudzkārt sliktāks, nekā ir."""
+    from app import diagnostics
+
+    session.add(DecisionLog(article_id=1, model="claude-sonnet-5",
+                            input_tokens=3000, output_tokens=600, cached_tokens=7000))
+    session.flush()
+    out = diagnostics._ai_cost(session)
+    assert out["total_input"] == 10000
+    assert out["cache_pct"] == 70

@@ -63,6 +63,24 @@ def run_decisions(session, limit: int = 20) -> int:
             session.commit()
             continue
 
+        # Play sargus pārbaudām PIRMS lēmuma, ne pēc tā. Agrāk katrs kataloga
+        # nosaukums vispirms maksāja pilnu Claude izsaukumu un tikai tad
+        # uzzināja, ka dienas limits jau ir izlietots vai diena ir drūma.
+        # Žurnālā tas izskatījās kā «scheduled nowhere» tūlīt pēc izsaukuma —
+        # simts izsaukumu dienā par vienu publicētu ierakstu.
+        if play.is_play_item(article):
+            eligible = [n for n, v in verdicts.items()
+                        if v.outcome in ("eligible", "forced_now")]
+            blocked = [play.allowed_now(session, article, ch) for ch in eligible]
+            if blocked and not any(ok for ok, _ in blocked):
+                why_not = next((w for ok, w in blocked if not ok), "")
+                for channel in eligible:
+                    session.add(Evaluation(article_id=article.id, channel=channel,
+                                           outcome="blocked", reason=f"Play: {why_not}"))
+                defer_promo(article, now)
+                session.commit()
+                continue
+
         decision = decide(article, verdicts, session)
         maybe_correct_section(article, decision)
         scheduled_here = 0
@@ -291,14 +309,23 @@ def queue_health(session, now=None, sample: int = 400) -> dict:
     for a in rows:
         key = a.feed_name or "?"
         by_feed[key] = by_feed.get(key, 0) + 1
+    # Meklējam TIEŠI laika sargu iemeslus. Ar «pēdējie 200 bloķētie» tos
+    # noslīcināja formātu bloki («bloķēts photo: ...»), un lapa rādīja
+    # «laiks tika atrasts», kaut četrdesmit rakstu gaidīja tieši to.
     reasons: dict[str, int] = {}
+    prefix = "nav derīga laika: "
     for ev in session.execute(
-            select(Evaluation).where(Evaluation.outcome == "blocked")
+            select(Evaluation).where(Evaluation.outcome == "blocked",
+                                     Evaluation.reason.like(prefix + "%"))
+            .order_by(Evaluation.id.desc()).limit(200)).scalars().all():
+        why = str(ev.reason or "")[len(prefix):]
+        reasons[why] = reasons.get(why, 0) + 1
+    for ev in session.execute(
+            select(Evaluation).where(Evaluation.outcome == "blocked",
+                                     Evaluation.reason.like("Play: %"))
             .order_by(Evaluation.id.desc()).limit(200)).scalars().all():
         why = str(ev.reason or "")
-        if why.startswith("nav derīga laika: "):
-            reasons[why[len("nav derīga laika: "):]] = \
-                reasons.get(why[len("nav derīga laika: "):], 0) + 1
+        reasons[why] = reasons.get(why, 0) + 1
     oldest = min((a.first_seen_at for a in rows if a.first_seen_at), default=None)
     return {"undecided": len(rows), "capped": len(rows) >= sample,
             "waiting_retry": len(waiting), "ready": len(rows) - len(waiting),
@@ -335,6 +362,21 @@ def undecided_batch(session, now, limit: int) -> list:
 
 MAX_DECISION_RETRIES = 8
 RETRY_BACKOFF_MINUTES = 20
+
+
+# Cik ilgi promo nosaukums guļ, kad sargi to šodien nelaiž cauri. Tas nav
+# neveiksmīgs mēģinājums — tas ir «vēl nav laiks», tāpēc mēģinājumu skaitītāju
+# neaiztiekam: citādi katalogs pēc astoņām reizēm izkristu neatgriezeniski.
+PROMO_DEFER_MINUTES = 120
+
+
+def defer_promo(article, now) -> None:
+    """Promo nosaukums, kuram šodien vēl nav vietas — bez izsaukuma un bez soda."""
+    raw = dict(article.raw_json or {})
+    raw["_decide_retry_after"] = (
+        now + timedelta(minutes=PROMO_DEFER_MINUTES)).isoformat()
+    article.raw_json = raw
+    article.decided_at = None
 
 
 def retry_pending(article, now) -> bool:
