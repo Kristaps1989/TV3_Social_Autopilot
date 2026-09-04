@@ -316,8 +316,11 @@ def test_prompt_carries_the_article_body(session, monkeypatch):
     assert "Raksta teksts (sākums):" in prompt
     assert "daudzdzīvokļu namam tika nodarīti smagi bojājumi" in prompt
     # ar raksta tekstu modelim ir ko sadalīt nodaļās, un tieši nodaļu teksts
-    # kļūst par lentes ierunu
-    assert "card_sections" in prompt
+    # kļūst par lentes ierunu. Pati instrukcija dzīvo kešotajā sistēmas
+    # promptā, ne šeit — lietotāja ziņā ir tikai tas, kas mainās.
+    from app.decide import FORMAT_GUIDE
+
+    assert "card_sections" in FORMAT_GUIDE
 
 
 # --- īstā tv3.lv lapas struktūra -------------------------------------------

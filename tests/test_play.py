@@ -833,3 +833,18 @@ def test_audit_reports_the_actual_poster_addresses(monkeypatch):
     assert row["poster_url"] == "https://tv3cdn.lv/468x624/x.jpg"
     assert row["wide_url"] == "https://tv3cdn.lv/1280x720/x.jpg"
     assert row["poster"] is True
+
+
+def test_crawl_stops_adding_rows_it_can_never_publish(session, monkeypatch):
+    """Katalogs nav ziņu plūsma: dienā publicē vienu nosaukumu, bet apgājiens
+    ik pusstundu pievienoja sešus. Katra nelemtā rinda pēc tam vēl astoņas
+    reizes prasīja Claude lēmumu, ko neviens neizmantoja."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch, undecided_target=2)
+    first = play.crawl(session, fetch=_fetch, now=NOW)
+    assert first["new"] >= 2
+    assert play.undecided_count(session) >= 2
+
+    # kaudze jau ir pilna — nākamais apgājiens jaunas rindas nepievieno
+    again = play.crawl(session, fetch=_fetch, now=NOW)
+    assert again["new"] == 0 and again["backlog"] >= 2

@@ -20,7 +20,7 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import config, pagemeta
 from app.models import Article, Post, get_setting, set_setting, utcnow
@@ -42,7 +42,7 @@ DEFAULTS = {
     "browse_pages": ["/", "/filmas/", "/seriali/", "/sovi-un-raidijumi/",
                      "/berniem/", "/sports/", "/vietejais-saturs/", "/podkasti/"],
     "interval_minutes": 60,
-    "max_new_per_run": 20,
+    "max_new_per_run": 20, "undecided_target": 12,
     "page_fetch_per_run": 6,          # nosaukumu lapas žanram/cenzam
     # raidījumi, kas ir ziņas, ne izklaide — Play promo tos neņem
     "exclude_slugs": ["tv3-zinas", "tv3-zinas-isuma", "degpunkta", "900-sekundes",
@@ -528,6 +528,14 @@ def upsert_item(session, item: dict, cfg: dict) -> Article | None:
     return row
 
 
+def undecided_count(session) -> int:
+    """Cik Play kataloga rindu vēl gaida lēmumu."""
+    return int(session.execute(
+        select(func.count()).select_from(Article)
+        .where(Article.feed_name == FEED_NAME, Article.decided_at.is_(None))
+    ).scalar() or 0)
+
+
 def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None = None) -> dict:
     """Viens kataloga apgājiens: jaunie nosaukumi kļūst par rindām.
     Izslēgts = nekas netiek ielasīts (arī rindu nav, ko AI lemt)."""
@@ -543,6 +551,20 @@ def crawl(session, rules: dict | None = None, fetch=None, now: datetime | None =
     summary["deferred"] = 0
     summary["listings"] = 0
     budget = int(cfg.get("max_new_per_run") or 20)
+    # Katalogs nav ziņu plūsma: dienā publicējam vienu nosaukumu, bet apgājiens
+    # ik pusstundu pievienoja sešus. Simts nelemtu rindu vēlāk katra no tām vēl
+    # astoņas reizes prasīja Claude lēmumu, ko neviens nekad neizmantoja.
+    # Tāpēc jaunas rindas pievienojam tikai tik, cik tuvākajās dienās var
+    # patiešām publicēt; katalogs no tā necieš — nosaukumi nekur nepazūd.
+    waiting = undecided_count(session)
+    room = max(0, int(cfg.get("undecided_target") or 0) - waiting)
+    if cfg.get("undecided_target") and room == 0:
+        summary["backlog"] = waiting
+        log.info("Play katalogs: %d nelemtas rindas jau gaida — jaunas nepievieno",
+                 waiting)
+        budget = 0
+    elif cfg.get("undecided_target"):
+        budget = min(budget, room)
     pages = int(cfg.get("page_fetch_per_run") or 0)
     shows: dict[str, dict] = {}   # raidījuma lapa vienreiz: žanri, plakāts, nosaukums
     queued = {i["id"] for i in items}

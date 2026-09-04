@@ -163,6 +163,11 @@ class DecisionLog(Base):
     prompt_hash: Mapped[str] = mapped_column(String(64), default="")
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # Cik no ievades atnāca no keša (maksā ~10 %). Bez šī skaitļa nevar
+    # pateikt, vai kešs vispār strādā, un prompta kārtība ir minējums.
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # 1 = atkārtoti izmantots iepriekšējais lēmums, izsaukuma nebija
+    reused: Mapped[int] = mapped_column(Integer, default=0)
     raw_response: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

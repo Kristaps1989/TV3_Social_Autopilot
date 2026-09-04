@@ -187,50 +187,11 @@ def format_quota_context(session, channels: list[str], channels_cfg: dict) -> st
     return "\n".join(lines) if lines else "(kvotas brīvas)"
 
 
-def build_user_prompt(article: Article, verdicts: dict[str, Verdict],
-                      channels_cfg: dict, session) -> str:
-    eligible = {n: v for n, v in verdicts.items() if v.outcome in ("eligible", "forced_now")}
-    channel_desc = []
-    for name, v in eligible.items():
-        cfg = channels_cfg.get(name) or {}
-        channel_desc.append(
-            f"- {name} ({cfg.get('platform')}): formāti {cfg.get('formats')}, "
-            f"statuss: {v.reason}"
-        )
-    # CMS metadati no raksta lapas (autors, redakcijas tagi, apjoms,
-    # galerija, "Tikai tv3.lv") — tukšs, ja lapa nav ievilkta.
-    cms = pagemeta.prompt_lines(article)
-    # Raksta pašas rindkopas: bez tām punkti un ieruna top no virsraksta,
-    # un tad tie ir pārstāsts, nevis fakti.
-    body = pagemeta.article_body(article)
-    body_block = (f"Raksta teksts (sākums):\n{body[:BODY_IN_PROMPT]}\n"
-                  if body else "")
-    return f"""Raksts:
-Virsraksts: {article.title}
-Ievads: {article.lead[:600]}
-{body_block}
-Sadaļa (no feed, var būt kļūdaina — klasificē pats laukā section): {article.section}
-Attēli: {len(article.images or [])}
-Video: {pagemeta.video_hint(article)}
-{("TV3 Play: " + _play_hint(article)) if _play_hint(article) else ""}
-Redaktora statuss: {article.editor_status}
-Publicēts: {article.published_at}
-{cms}
-
-Pieejamie kanāli:
-{chr(10).join(channel_desc)}
-
-Nesenie ieraksti (neatkārto leņķus):
-{recent_posts_context(session, list(eligible))}
-
-Izmērītā veiktspēja (izmanto formāta un laika izvēlē):
-{performance_context(session, list(eligible))}
-
-Formātu kvotas šodien (sistēmas fakti; slēgtu formātu nepiedāvā — sistēma
-to tik un tā pārvērstu par saiti):
-{format_quota_context(session, list(eligible), channels_cfg)}
-
-Formātu izvēle. Noklusējums ikdienas ziņai ir link: saites kartīte ar
+# Formātu rokasgrāmata ir VIENĀDA katram rakstam, tāpēc tā pieder sistēmas
+# promptam, ne lietotāja ziņai: sistēmas prompts ir kešots un atkārtotā
+# ievade maksā ~10 %, bet lietotāja ziņa katru reizi tiek apmaksāta pilnā
+# cenā. Piecus kilobaitus reizināt ar katru lēmumu nav par ko.
+FORMAT_GUIDE = """Formātu izvēle. Noklusējums ikdienas ziņai ir link: saites kartīte ar
 virsrakstu un CTA dod labāko klikšķu attiecību uz portālu, tā ir vienīgais
 formāts, ko Facebook var pastiprināt kā traffic reklāmu, un tikai ar to
 sistēma iemācās, ko saite ir vērta. Izvēlies link, ja raksts ir notikums,
@@ -315,6 +276,52 @@ Pieņem lēmumu ar record_decision. Ja raksts nav pietiekami interesants
 ('can' statuss ļauj izlaist), atzīmē publish=false ar īsu iemeslu latviski."""
 
 
+def build_user_prompt(article: Article, verdicts: dict[str, Verdict],
+                      channels_cfg: dict, session) -> str:
+    eligible = {n: v for n, v in verdicts.items() if v.outcome in ("eligible", "forced_now")}
+    channel_desc = []
+    for name, v in eligible.items():
+        cfg = channels_cfg.get(name) or {}
+        channel_desc.append(
+            f"- {name} ({cfg.get('platform')}): formāti {cfg.get('formats')}, "
+            f"statuss: {v.reason}"
+        )
+    # CMS metadati no raksta lapas (autors, redakcijas tagi, apjoms,
+    # galerija, "Tikai tv3.lv") — tukšs, ja lapa nav ievilkta.
+    cms = pagemeta.prompt_lines(article)
+    # Raksta pašas rindkopas: bez tām punkti un ieruna top no virsraksta,
+    # un tad tie ir pārstāsts, nevis fakti.
+    body = pagemeta.article_body(article)
+    body_block = (f"Raksta teksts (sākums):\n{body[:BODY_IN_PROMPT]}\n"
+                  if body else "")
+    return f"""Raksts:
+Virsraksts: {article.title}
+Ievads: {article.lead[:600]}
+{body_block}
+Sadaļa (no feed, var būt kļūdaina — klasificē pats laukā section): {article.section}
+Attēli: {len(article.images or [])}
+Video: {pagemeta.video_hint(article)}
+{("TV3 Play: " + _play_hint(article)) if _play_hint(article) else ""}
+Redaktora statuss: {article.editor_status}
+Publicēts: {article.published_at}
+{cms}
+
+Pieejamie kanāli:
+{chr(10).join(channel_desc)}
+
+Nesenie ieraksti (neatkārto leņķus):
+{recent_posts_context(session, list(eligible))}
+
+Izmērītā veiktspēja (izmanto formāta un laika izvēlē):
+{performance_context(session, list(eligible))}
+
+Formātu kvotas šodien (sistēmas fakti; slēgtu formātu nepiedāvā — sistēma
+to tik un tā pārvērstu par saiti):
+{format_quota_context(session, list(eligible), channels_cfg)}
+"""
+
+
+
 def call_claude(article: Article, verdicts: dict[str, Verdict], session) -> dict | None:
     from app import credentials
 
@@ -331,6 +338,7 @@ def call_claude(article: Article, verdicts: dict[str, Verdict], session) -> dict
                  for n, v in verdicts.items() if v.outcome != "blocked"}
     for p in sorted(platforms):
         system += "\n\n" + config.system_prompt_for(p)
+    system += "\n\n" + FORMAT_GUIDE
     user = build_user_prompt(article, verdicts, channels_cfg, session)
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -356,6 +364,7 @@ def call_claude(article: Article, verdicts: dict[str, Verdict], session) -> dict
                 article_id=article.id, model=model,
                 prompt_hash=hashlib.sha256((system + user).encode()).hexdigest()[:16],
                 input_tokens=resp.usage.input_tokens, output_tokens=resp.usage.output_tokens,
+                cached_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
                 raw_response=json.dumps(decision, ensure_ascii=False) if decision else "",
             ))
             if decision and validate_decision(decision):
@@ -423,10 +432,54 @@ def _play_hint(article) -> str:
     return play.hint(article) if play.is_play_item(article) else ""
 
 
+def reusable_decision(article: Article, verdicts: dict[str, Verdict]) -> dict | None:
+    """Iepriekšējais lēmums šim pašam rakstam, ja tas vēl der.
+
+    Raksts, kam rinda bija pilna, atgriežas cikla rindā vēl astoņas reizes.
+    Katra no tām līdz šim bija PILNS jauns Claude izsaukums, kaut mainījās
+    tikai pulkstenis: raksts tas pats, kanāli tie paši, atbilde tā pati.
+    Astoņkārtīga cena par vienu lēmumu. Tāpēc lēmumu glabājam pie raksta un
+    atkārtoti izmantojam, kamēr derīgo kanālu kopa nav mainījusies — ja kāds
+    kanāls pa to laiku ir aizvēries vai atvēries, atbilde jāpārrēķina.
+    """
+    saved = (article.raw_json or {}).get("_decision")
+    if not isinstance(saved, dict):
+        return None
+    kept = saved.get("decision")
+    if not isinstance(kept, dict) or not validate_decision(kept):
+        return None
+    eligible = sorted(n for n, v in verdicts.items()
+                      if v.outcome in ("eligible", "forced_now"))
+    if list(saved.get("channels") or []) != eligible:
+        return None
+    return kept
+
+
+def remember_decision(article: Article, verdicts: dict[str, Verdict],
+                      decision: dict) -> None:
+    raw = dict(article.raw_json or {})
+    raw["_decision"] = {
+        "channels": sorted(n for n, v in verdicts.items()
+                           if v.outcome in ("eligible", "forced_now")),
+        "at": datetime.utcnow().isoformat(timespec="seconds"),
+        "decision": decision,
+    }
+    article.raw_json = raw
+
+
 def decide(article: Article, verdicts: dict[str, Verdict], session) -> dict:
-    decision = call_claude(article, verdicts, session)
-    if decision is None:
-        decision = fallback_decision(article, verdicts)
+    decision = reusable_decision(article, verdicts)
+    if decision is not None:
+        session.add(DecisionLog(article_id=article.id, model="(atkārtoti)",
+                                reused=1, raw_response=""))
+        log.info("article %s: izmantots iepriekšējais lēmums, izsaukuma nav",
+                 article.id)
+    else:
+        decision = call_claude(article, verdicts, session)
+        if decision is None:
+            decision = fallback_decision(article, verdicts)
+        else:
+            remember_decision(article, verdicts, decision)
     article.decided_at = datetime.utcnow()
     article.ai_score = float(decision.get("score") or 0)
     article.ai_reason = str(decision.get("reason") or "")

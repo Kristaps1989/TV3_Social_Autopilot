@@ -63,6 +63,8 @@ def _migrate() -> None:
         "ALTER TABLE posts ADD COLUMN short_hits INTEGER DEFAULT 0",
         "ALTER TABLE ads ADD COLUMN dark_ad_id VARCHAR(64) DEFAULT ''",
         "ALTER TABLE posts ADD COLUMN extra JSON",
+        "ALTER TABLE decisions_log ADD COLUMN cached_tokens INTEGER DEFAULT 0",
+        "ALTER TABLE decisions_log ADD COLUMN reused INTEGER DEFAULT 0",
     ):
         try:
             with engine.begin() as conn:

@@ -12,7 +12,7 @@ from datetime import timedelta
 from sqlalchemy import desc, select
 
 from app import config, formats, pipeline
-from app.models import AdEntry, Article, Post, get_setting, utcnow
+from app.models import AdEntry, Article, DecisionLog, Post, get_setting, utcnow
 
 HISTORY_STATES = ("scheduled", "publishing", "published", "cancelled")
 
@@ -175,6 +175,7 @@ def report(session, channel: str = "", posts: int = 15,
         "ads_mode": get_setting(session, "ads:mode", "off"),
         "published_24h": mix,
         "queue": _queue_health(session),
+        "ai_cost": _ai_cost(session),
         "video_archive": _video_summary(session),
         "play": _play_summary(session),
         "channels": [channel_diagnostics(session, name, cfg or {}, posts)
@@ -192,6 +193,32 @@ def report(session, channel: str = "", posts: int = 15,
                              for name, cfg in channels.items()},
             }
     return data
+
+
+def _ai_cost(session, hours: int = 24) -> dict:
+    """Cik Claude izsaukumu un cik žetonu pēdējā diennaktī, pa modeļiem.
+
+    Bez šī «API tērē daudz» ir sajūta, ne skaitlis: nevar pateikt, vai maksā
+    izsaukumu skaits, prompta garums vai kešs, kas nestrādā.
+    """
+    since = utcnow() - timedelta(hours=hours)
+    rows = session.execute(
+        select(DecisionLog).where(DecisionLog.created_at >= since)).scalars().all()
+    by_model: dict[str, dict] = {}
+    for r in rows:
+        cur = by_model.setdefault(r.model or "?", {"calls": 0, "in": 0, "out": 0, "cached": 0})
+        cur["calls"] += 1
+        cur["in"] += int(r.input_tokens or 0)
+        cur["out"] += int(r.output_tokens or 0)
+        cur["cached"] += int(getattr(r, "cached_tokens", 0) or 0)
+    reused = sum(1 for r in rows if int(getattr(r, "reused", 0) or 0))
+    total_in = sum(m["in"] for m in by_model.values())
+    total_cached = sum(m["cached"] for m in by_model.values())
+    return {"hours": hours, "calls": len(rows) - reused, "reused": reused,
+            "input": total_in, "output": sum(m["out"] for m in by_model.values()),
+            "cached": total_cached,
+            "cache_pct": round(100 * total_cached / total_in) if total_in else 0,
+            "by_model": dict(sorted(by_model.items(), key=lambda kv: -kv[1]["calls"]))}
 
 
 def _queue_health(session) -> dict:

@@ -191,6 +191,7 @@ video_archive:
     900 sekundes: news
   interval_minutes: 30
   max_new_per_run: 6
+  undecided_target: 12       # katalogs nav plūsma: nepievieno vairāk, nekā var publicēt
   min_seconds: 5
   max_seconds: 180
   daily_cap: 3                         # klipi bez raksta uz kanālu dienā

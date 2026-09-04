@@ -45,6 +45,22 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
 </div>
 {% endif %}
 
+{% set ai = data.ai_cost or {} %}
+{% if ai %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Claude patēriņš <span class="muted" style="font-weight:400;font-size:.85rem">
+    pēdējās {{ ai.hours }} h</span></h2>
+  <table class="n">
+    <tr><td>Izsaukumi</td><td>{{ ai.calls }}
+      {%- if ai.reused %} · <strong>{{ ai.reused }} reizes izmantots iepriekšējais lēmums</strong>
+      (tikpat izsaukumu netika veikts){% endif %}</td></tr>
+    <tr><td>Žetoni</td><td>ievade {{ ai.input }} (no keša {{ ai.cached }} = {{ ai.cache_pct }}%) ·
+      izvade {{ ai.output }}</td></tr>
+    <tr><td>Pa modeļiem</td><td>{% for m, v in (ai.by_model or {}).items() %}{{ m }}: {{ v.calls }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</td></tr>
+  </table>
+</div>
+{% endif %}
+
 {% if data.ads %}
 <div class="card" style="margin-bottom:1rem">
   <h2>Formātu maksas rezultāti <span class="muted" style="font-weight:400;font-size:.85rem">
