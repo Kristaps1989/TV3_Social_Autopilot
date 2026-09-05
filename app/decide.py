@@ -191,6 +191,11 @@ def format_quota_context(session, channels: list[str], channels_cfg: dict) -> st
 # promptam, ne lietotāja ziņai: sistēmas prompts ir kešots un atkārtotā
 # ievade maksā ~10 %, bet lietotāja ziņa katru reizi tiek apmaksāta pilnā
 # cenā. Piecus kilobaitus reizināt ar katru lēmumu nav par ko.
+# Platformu pamācības fiksētā kārtībā: sistēmas prompts nedrīkst mainīties no
+# raksta uz rakstu, citādi kešs sadalās vairākos prefiksos.
+ALL_PLATFORMS = ("facebook_page", "instagram", "threads", "x")
+
+
 FORMAT_GUIDE = """Formātu izvēle. Noklusējums ikdienas ziņai ir link: saites kartīte ar
 virsrakstu un CTA dod labāko klikšķu attiecību uz portālu, tā ir vienīgais
 formāts, ko Facebook var pastiprināt kā traffic reklāmu, un tikai ar to
@@ -333,10 +338,14 @@ def call_claude(article: Article, verdicts: dict[str, Verdict], session) -> dict
     channels_cfg = config.load_channels()
     strong = article.editor_status in ("now", "must")
     model = config.AI_MODEL_STRONG if strong else config.AI_MODEL_FAST
-    system = config.system_prompt_for("")  # base style guide; channel guides are appended below
-    platforms = {(channels_cfg.get(n) or {}).get("platform", "")
-                 for n, v in verdicts.items() if v.outcome != "blocked"}
-    for p in sorted(platforms):
+    # Sistēmas prompts ir VIENĀDS katram rakstam — arī tad, kad daļa kanālu šim
+    # rakstam nav derīgi. Kešs ir prefiksa sakritība: kamēr platformu pamācības
+    # pielika pēc derīgajiem kanāliem, katra kanālu kombinācija bija SAVS
+    # prefikss ar savu piecu minūšu kešu, un retāk sastopamās kombinācijas
+    # nekad nepaspēja sasilt. Neizmantotā pamācība kešā maksā ~10 %, bet
+    # netrāpīts kešs maksā visu prefiksu pilnā cenā — tāpēc liekam visas.
+    system = config.system_prompt_for("")
+    for p in ALL_PLATFORMS:
         system += "\n\n" + config.system_prompt_for(p)
     system += "\n\n" + FORMAT_GUIDE
     user = build_user_prompt(article, verdicts, channels_cfg, session)

@@ -197,7 +197,7 @@ def report(session, channel: str = "", posts: int = 15,
     return data
 
 
-def _ai_cost(session, hours: int = 24) -> dict:
+def _ai_cost(session, hours: int = 72) -> dict:
     """Cik Claude izsaukumu un cik žetonu pēdējā diennaktī, pa modeļiem.
 
     Bez šī «API tērē daudz» ir sajūta, ne skaitlis: nevar pateikt, vai maksā
@@ -214,6 +214,25 @@ def _ai_cost(session, hours: int = 24) -> dict:
         cur["out"] += int(r.output_tokens or 0)
         cur["cached"] += int(getattr(r, "cached_tokens", 0) or 0)
     reused = sum(1 for r in rows if int(getattr(r, "reused", 0) or 0))
+    # Pa dienām un pa plūsmām: «kāpēc tieši 4. septembrī» citādi ir jautājums,
+    # uz kuru var atbildēt tikai Console diagramma, un tā nezina, KAS šeit
+    # tērēja — ziņas, Play katalogs vai video arhīvs.
+    feeds = dict(session.execute(select(Article.id, Article.feed_name)).all())
+    by_day: dict[str, dict] = {}
+    by_feed: dict[str, dict] = {}
+    for r in rows:
+        if int(getattr(r, "reused", 0) or 0):
+            continue
+        billed = int(r.input_tokens or 0) + int(getattr(r, "cached_tokens", 0) or 0)
+        day = by_day.setdefault(r.created_at.date().isoformat(),
+                                {"calls": 0, "input": 0, "output": 0})
+        day["calls"] += 1
+        day["input"] += billed
+        day["output"] += int(r.output_tokens or 0)
+        feed = by_feed.setdefault(feeds.get(r.article_id) or "?",
+                                  {"calls": 0, "input": 0})
+        feed["calls"] += 1
+        feed["input"] += billed
     total_in = sum(m["in"] for m in by_model.values())
     total_cached = sum(m["cached"] for m in by_model.values())
     # API `input_tokens` NEIETVER kešoto daļu — tā nāk atsevišķi. Dalot ar
@@ -223,7 +242,9 @@ def _ai_cost(session, hours: int = 24) -> dict:
             "input": total_in, "output": sum(m["out"] for m in by_model.values()),
             "cached": total_cached, "total_input": billed,
             "cache_pct": round(100 * total_cached / billed) if billed else 0,
-            "by_model": dict(sorted(by_model.items(), key=lambda kv: -kv[1]["calls"]))}
+            "by_model": dict(sorted(by_model.items(), key=lambda kv: -kv[1]["calls"])),
+            "by_day": dict(sorted(by_day.items())),
+            "by_feed": dict(sorted(by_feed.items(), key=lambda kv: -kv[1]["input"]))}
 
 
 def _reel_voice(session, hours: int = 48) -> dict:

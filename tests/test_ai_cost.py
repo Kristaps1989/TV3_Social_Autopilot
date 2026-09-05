@@ -117,3 +117,57 @@ def test_rule_drift_names_every_stale_block_not_just_play(tmp_path, monkeypatch)
 
     assert config.reset_rule_block("video_archive", keep=("enabled",)) is True
     assert "video_archive" not in config.rule_drift()
+
+
+def test_system_prompt_is_identical_for_every_article(session, monkeypatch):
+    """Kešs ir prefiksa sakritība. Kamēr platformu pamācības pielika pēc
+    DERĪGAJIEM kanāliem, katra kanālu kombinācija bija savs prefikss ar savu
+    piecu minūšu kešu, un retākās nekad nepaspēja sasilt."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    seen = []
+
+    class FakeMessages:
+        def create(self, **kw):
+            seen.append(kw["system"][0]["text"])
+            raise RuntimeError("apstājamies pēc prompta savākšanas")
+
+    class FakeClient:
+        def __init__(self, api_key=None):
+            self.messages = FakeMessages()
+
+    import anthropic
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeClient)
+    monkeypatch.setattr("app.credentials.get", lambda name, s=None: "key")
+
+    a = _article(session)
+    for verdicts in ({"fb_main": Verdict("eligible", "ok")},
+                     {"fb_main": Verdict("eligible", "ok"),
+                      "x_main": Verdict("eligible", "ok")}):
+        monkeypatch.setattr(config, "load_channels",
+                            lambda: {"fb_main": {"platform": "facebook_page"},
+                                     "x_main": {"platform": "x"}})
+        decide.call_claude(a, verdicts, session)
+    assert len(seen) == 2 and seen[0] == seen[1]
+    # un tajā ir VISU platformu pamācības, ne tikai derīgo
+    assert "Instagram" in seen[0] or "instagram" in seen[0].lower()
+
+
+def test_cost_report_splits_by_day_and_by_feed(session):
+    """«Kāpēc tieši 4. septembrī» jābūt atbildamam lapā, ne Console diagrammā —
+    tā nezina, vai tērēja ziņas, Play katalogs vai video arhīvs."""
+    from datetime import timedelta
+
+    from app import diagnostics
+
+    a = _article(session, feed_name="play")
+    session.add(DecisionLog(article_id=a.id, model="claude-sonnet-5",
+                            input_tokens=3000, cached_tokens=7000, output_tokens=500,
+                            created_at=utcnow() - timedelta(hours=30)))
+    session.add(DecisionLog(article_id=a.id, model="claude-sonnet-5",
+                            input_tokens=1000, cached_tokens=7000, output_tokens=200))
+    session.flush()
+    out = diagnostics._ai_cost(session)
+    assert out["by_feed"]["play"]["calls"] == 2
+    assert out["by_feed"]["play"]["input"] == 18000
+    assert len(out["by_day"]) == 2
