@@ -98,7 +98,8 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     <tr><td>Žetoni</td><td>ievade {{ ai.total_input }} — no tās keša {{ ai.cached }}
       (<strong>{{ ai.cache_pct }}%</strong>, maksā ~10 %), pilnā cenā {{ ai.input }} ·
       izvade {{ ai.output }}</td></tr>
-    <tr><td>Pa modeļiem</td><td>{% for m, v in (ai.by_model or {}).items() %}{{ m }}: {{ v.calls }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</td></tr>
+    <tr><td>Pa modeļiem</td><td>{% for m, v in (ai.by_model or {}).items() %}{{ m }}: {{ v.calls }} izsauk.{% if v.usd is not none %} ≈ ${{ v.usd }}{% endif %}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}
+      {%- if ai.usd %}<br><span class="muted">kopā ≈ ${{ ai.usd }} par {{ ai.hours }} h (aplēse pēc publiskajām cenām; īsto rēķinu rāda Console)</span>{% endif %}</td></tr>
     {% if ai.by_day %}
     <tr><td>Pa dienām</td><td>{% for d, v in ai.by_day.items() %}{{ d }}: {{ v.calls }} izsauk. / {{ v.input }} ievade{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
     {% endif %}

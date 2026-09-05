@@ -197,6 +197,24 @@ def report(session, channel: str = "", posts: int = 15,
     return data
 
 
+# Orientējošas cenas ($ par 1M žetonu). Kešā lasītā ievade maksā ~10 %.
+# Tas ir aplēses rīks lēmumam «vai mainīt modeli», ne grāmatvedība: īsto
+# rēķinu rāda Console. Bez šī modeļa maiņas cena ir sajūta, ne skaitlis.
+MODEL_PRICES = {
+    "claude-opus-5": (5.0, 25.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+}
+
+
+def _estimate_usd(model: str, fresh: int, cached: int, out: int) -> float | None:
+    price = next((v for k, v in MODEL_PRICES.items() if str(model).startswith(k)), None)
+    if price is None:
+        return None
+    inp, outp = price
+    return round(fresh / 1e6 * inp + cached / 1e6 * inp * 0.1 + out / 1e6 * outp, 3)
+
+
 def _ai_cost(session, hours: int = 72) -> dict:
     """Cik Claude izsaukumu un cik žetonu pēdējā diennaktī, pa modeļiem.
 
@@ -213,6 +231,8 @@ def _ai_cost(session, hours: int = 72) -> dict:
         cur["in"] += int(r.input_tokens or 0)
         cur["out"] += int(r.output_tokens or 0)
         cur["cached"] += int(getattr(r, "cached_tokens", 0) or 0)
+    for name, m in by_model.items():
+        m["usd"] = _estimate_usd(name, m["in"], m["cached"], m["out"])
     reused = sum(1 for r in rows if int(getattr(r, "reused", 0) or 0))
     # Pa dienām un pa plūsmām: «kāpēc tieši 4. septembrī» citādi ir jautājums,
     # uz kuru var atbildēt tikai Console diagramma, un tā nezina, KAS šeit
@@ -243,6 +263,7 @@ def _ai_cost(session, hours: int = 72) -> dict:
             "cached": total_cached, "total_input": billed,
             "cache_pct": round(100 * total_cached / billed) if billed else 0,
             "by_model": dict(sorted(by_model.items(), key=lambda kv: -kv[1]["calls"])),
+            "usd": round(sum(m["usd"] or 0 for m in by_model.values()), 2),
             "by_day": dict(sorted(by_day.items())),
             "by_feed": dict(sorted(by_feed.items(), key=lambda kv: -kv[1]["input"]))}
 

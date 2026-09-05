@@ -171,3 +171,19 @@ def test_cost_report_splits_by_day_and_by_feed(session):
     assert out["by_feed"]["play"]["calls"] == 2
     assert out["by_feed"]["play"]["input"] == 18000
     assert len(out["by_day"]) == 2
+
+
+def test_cost_report_estimates_dollars_per_model(session):
+    """Modeļa maiņa ir kompromiss ar kvalitāti, tāpēc tās cenai jābūt skaitlim,
+    ne sajūtai: 17 % izsaukumu var būt 37 % no rēķina."""
+    from app import diagnostics
+
+    a = _article(session)
+    session.add(DecisionLog(article_id=a.id, model="claude-opus-5",
+                            input_tokens=1_000_000, cached_tokens=0,
+                            output_tokens=100_000))
+    session.flush()
+    out = diagnostics._ai_cost(session)
+    # 1M ievade x $5 + 0.1M izvade x $25 = $7.50
+    assert out["by_model"]["claude-opus-5"]["usd"] == 7.5
+    assert out["usd"] == 7.5
