@@ -330,6 +330,25 @@ def toggle_play_pause():
     return RedirectResponse("/logs", status_code=303)
 
 
+@app.get("/logs/voice-check")
+def voice_check():
+    """Pārbauda KATRU konfigurēto lenšu balsi ar īsu teikumu.
+
+    Sintēze klusē arī tad, kad balss ID ir nederīgs, tāpēc pašu izvēlētu
+    balsi citādi nevar pārbaudīt — klusa lente izskatās gluži kā apzināta
+    izvēle. Te ir pakalpojuma paša kļūdas teksts katrai balsij.
+    """
+    from fastapi.responses import JSONResponse
+
+    from app import tts
+
+    session = get_session()
+    try:
+        return JSONResponse(tts.check_voices(session=session))
+    finally:
+        session.close()
+
+
 @app.post("/rules/reset/{key}")
 def reset_rule_block(key: str):
     """Atgriež VIENU noteikumu bloku rediģējamajā rules.yaml pie koda versijas.

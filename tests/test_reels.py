@@ -1048,3 +1048,59 @@ def test_diagnostics_names_the_silent_reels(session):
     assert out["voices"] == {"Nils": 1}
     reasons = " ".join(out["reasons"])
     assert "401" in reasons and "avota klipam nav skaņas" in reasons
+
+
+def test_voice_check_tests_every_configured_voice(monkeypatch):
+    """Redaktors izvēlējās savus balss ID, jo tie latviski skan labāk. Ja viens
+    no tiem nav derīgs, tieši tās sadaļas lentes klusē — un no ārpuses tas
+    izskatās tāpat kā apzināti klusa lente. Pārbaudei jāsauc katra balss."""
+    from app import tts
+
+    rules = {"reel_voice": True, "tts_provider": "elevenlabs",
+             "reel_voice_name": "onwK4e9ZLuTAKqWW03F9",
+             "reel_voice_by_section": {"sport": "cg5gspJ2msm6clMCkdW9",
+                                       "news": "nederigs-id"}}
+    monkeypatch.setattr(tts, "_key", lambda session=None, rules=None: "k")
+    called = []
+
+    def fake(text, voice, session, errors, r, rate):
+        called.append(voice)
+        if voice == "nederigs-id":
+            errors.append("HTTP 404: voice_not_found")
+            return b""
+        return b"audio"
+
+    monkeypatch.setitem(tts._SYNTHS, "elevenlabs", fake)
+    out = tts.check_voices(rules=rules)
+    assert out["provider"] == "elevenlabs" and out["key"] is True
+    assert called == ["onwK4e9ZLuTAKqWW03F9", "nederigs-id", "cg5gspJ2msm6clMCkdW9"]
+    assert out["broken"] == ["news"]
+    bad = next(v for v in out["voices"] if v["section"] == "news")
+    assert "voice_not_found" in bad["error"]
+
+
+def test_voice_check_says_plainly_when_the_key_is_missing(monkeypatch):
+    from app import tts
+
+    monkeypatch.setattr(tts, "_key", lambda session=None, rules=None: "")
+    out = tts.check_voices(rules={"reel_voice": True, "tts_provider": "elevenlabs"})
+    assert out["key"] is False and "atslēgas nav" in out["note"]
+
+
+def test_unknown_silence_is_not_reported_as_a_diagnosis(session):
+    """Lente, kas būvēta pirms kļūdu uzskaites, nezina savu iemeslu. To
+    nedrīkst pasniegt kā «nav atslēgas» — tas ir minējums, ne mērījums."""
+    from app import diagnostics
+    from app.models import Article, Post, utcnow
+
+    a = Article(guid="g2", url="https://tv3.lv/b", canonical_url="https://tv3.lv/b",
+                title="T", section="news", feed_name="tv3", editor_status="can",
+                published_at=utcnow(), raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb", format="reel", copy="c",
+                     state="published", scheduled_at=utcnow(),
+                     extra={"recipe": {"voiced": False, "section": "news"}}))
+    session.flush()
+    out = diagnostics._reel_voice(session)
+    assert "nav pierakstīts" in " ".join(out["reasons"])

@@ -194,6 +194,59 @@ def voice_choice(rules: dict | None = None, section: str = "") -> dict:
                                     and by_rate.get(section) is not None)}
 
 
+SAMPLE_TEXT = "Šis ir pārbaudes teikums latviešu valodā."
+
+
+def configured_voices(rules: dict | None = None) -> dict[str, str]:
+    """Katra balss, ko noteikumi tiešām liks lietot: sadaļa -> balss.
+
+    Atslēga «(visām pārējām)» ir globālā `reel_voice_name`; pārējās nāk no
+    `reel_voice_by_section`. Sadaļu saraksts ir tas, kas te uzrakstīts —
+    sadaļa bez savas rindas lieto globālo, un tieši tāpēc abas jāpārbauda.
+    """
+    rules = config.load_rules() if rules is None else rules
+    out = {"(visām pārējām)": voice_name(rules, "")}
+    for section in sorted((rules or {}).get("reel_voice_by_section") or {}):
+        out[section] = voice_name(rules, section)
+    return out
+
+
+def check_voices(session=None, rules: dict | None = None) -> dict:
+    """Nosintezē īsu teikumu ar KATRU konfigurēto balsi un pasaka, kura strādā.
+
+    Sintēze pēc konstrukcijas nemet kļūdu — neizdevusies ieruna nozīmē klusu
+    lenti. Tāpēc nederīgu balss ID no ārpuses nevar atšķirt no apzināti klusas
+    lentes, un redaktors, kas balsi izvēlējās pats, nevar pārbaudīt savu
+    izvēli. Šī pārbaude to izdara: viens izsaukums uz balsi, atbilde ar
+    pakalpojuma pašu kļūdas tekstu.
+    """
+    rules = config.load_rules() if rules is None else rules
+    out: dict = {"provider": provider(rules),
+                 "model": str((rules or {}).get("elevenlabs_model")
+                              or ELEVENLABS_MODEL),
+                 "enabled": bool((rules or {}).get("reel_voice", True)),
+                 "key": bool(_key(session, rules)), "voices": []}
+    if not out["enabled"]:
+        out["note"] = "reel_voice: false — balss izslēgta noteikumos"
+        return out
+    if out["provider"] not in _SYNTHS:
+        out["note"] = (f"tts_provider «{out['provider']}» nav atbalstīts "
+                       f"(ir: {', '.join(sorted(_SYNTHS))})")
+        return out
+    if not out["key"]:
+        out["note"] = "pakalpojuma atslēgas nav — visas lentes iznāk klusas"
+        return out
+    for section, voice in configured_voices(rules).items():
+        errors: list[str] = []
+        audio = _SYNTHS[out["provider"]](SAMPLE_TEXT, voice, session, errors,
+                                         rules, speech_rate(rules, section))
+        out["voices"].append({"section": section, "voice": voice,
+                              "ok": bool(audio), "bytes": len(audio or b""),
+                              "error": "; ".join(errors)[:300]})
+    out["broken"] = [v["section"] for v in out["voices"] if not v["ok"]]
+    return out
+
+
 def spoken_text(text: str, rules: dict | None = None) -> str:
     """Teksts tā, kā tas JĀIZRUNĀ (izrunas vārdnīca pielietota).
 

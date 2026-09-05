@@ -70,10 +70,19 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     {% if rv.reasons %}
     <tr><td>Kāpēc klusas</td><td>{% for why, n in rv.reasons.items() %}{{ why }} ({{ n }}){{ ' · ' if not loop.last }}{% endfor %}</td></tr>
     {% endif %}
+    {% if rv.configured %}
+    <tr><td>Noteikumos izvēlētās</td><td>{% for sec, v in rv.configured.items() %}{{ sec }} → <code>{{ v }}</code>{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+    {% endif %}
     {% if rv.voices %}
-    <tr><td>Lietotās balsis</td><td>{% for v, n in rv.voices.items() %}{{ v }}: {{ n }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+    <tr><td>Tiešām lietotās</td><td>{% for v, n in rv.voices.items() %}{{ v }}: {{ n }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
     {% endif %}
   </table>
+  <p style="margin-top:.6rem">
+    <a class="button primary" href="/logs/voice-check" target="_blank">Pārbaudīt visas balsis</a>
+    <span class="muted">— nosintezē īsu teikumu ar katru konfigurēto balsi (globālo un katras
+      sadaļas savu) un parāda pakalpojuma paša kļūdu tai, kura nestrādā. Pašam izvēlētu balss ID
+      citādi pārbaudīt nevar: nederīga balss vienkārši klusē.</span>
+  </p>
 </div>
 {% endif %}
 

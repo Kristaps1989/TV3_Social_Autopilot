@@ -239,6 +239,12 @@ def _reel_voice(session, hours: int = 48) -> dict:
     ).scalars().all()
     out = {"hours": hours, "reels": len(rows), "voiced": 0, "silent": [],
            "reasons": {}, "voices": {}}
+    try:
+        from app import tts
+
+        out["configured"] = tts.configured_voices()
+    except Exception:  # noqa: BLE001 — diagnostika nedrīkst gāzt lapu
+        out["configured"] = {}
     for p in rows:
         recipe = (p.extra or {}).get("recipe") or {}
         if recipe.get("voiced"):
@@ -247,9 +253,17 @@ def _reel_voice(session, hours: int = 48) -> dict:
             if used:
                 out["voices"][used] = out["voices"].get(used, 0) + 1
             continue
-        why = ("avota klipam nav skaņas celiņa" if recipe.get("kind") == "video_reel"
-               else "; ".join(recipe.get("voice_errors") or [])
-               or "ieruna netika sintezēta (atslēga, teksts vai balss)")
+        if recipe.get("kind") == "video_reel":
+            why = "avota klipam nav skaņas celiņa"
+        elif recipe.get("voice_errors"):
+            why = "; ".join(recipe["voice_errors"])
+        elif "voice_errors" not in recipe:
+            # Lente būvēta pirms kļūdu uzskaites. To NEDRĪKST pasniegt kā
+            # diagnozi: nezināms iemesls un «nav atslēgas» ir divas dažādas
+            # lietas, un minējums te maksātu dienu nepareizas meklēšanas.
+            why = "iemesls nav pierakstīts (būvēta pirms šīs uzskaites)"
+        else:
+            why = "sintēze atgrieza tukšu audio bez kļūdas"
         out["silent"].append({"post": p.id, "section": recipe.get("section", ""),
                               "why": why[:200]})
         out["reasons"][why[:120]] = out["reasons"].get(why[:120], 0) + 1
