@@ -55,6 +55,43 @@ savienojumus). Railway kanvā: labais klikšķis uz servisa → <strong>Attach V
         </form>
     </div>
 
+    {% if ch.waiting %}
+    <table style="margin-bottom:.6rem">
+      <tr><th colspan="3">Gaida apstiprinājumu ({{ ch.waiting|length }})</th></tr>
+      {% for p in ch.waiting %}
+      <tr>
+        <td>{{ p.scheduled_at | local }}</td>
+        <td class="copytext">
+          <strong>{{ p.format }}</strong> —
+          <a href="/post/{{ p.id }}/preview" style="color:inherit">{{ p.copy[:110] }}{% if p.copy|length > 110 %}…{% endif %}</a>
+          <details><summary><a href="/post/{{ p.id }}/preview">priekšskatījums</a> · labot</summary>
+            <form method="post" action="/post/{{ p.id }}/copy">
+              <textarea name="copy" rows="3">{{ p.copy }}</textarea>
+              <button class="primary">Saglabāt tekstu</button>
+            </form>
+            {% if p.media %}
+            <div style="display:flex;gap:4px;margin-top:.4rem;flex-wrap:wrap">
+              {% for m in p.media %}
+              <a href="/media/{{ m | basename }}" target="_blank">
+                <img src="/media/{{ m | basename }}" width="72" height="72"
+                     style="border-radius:6px;border:1px solid var(--line)"></a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </details>
+          {%- if p.error %}<div class="muted">{{ p.error }}</div>{% endif %}
+        </td>
+        <td>
+          <form class="inline" method="post" action="/post/{{ p.id }}/approve">
+            <button class="primary" title="Apstiprināt — ieraksts iet rindā">Apstiprināt</button></form>
+          <form class="inline" method="post" action="/post/{{ p.id }}/cancel">
+            <button class="danger" title="Noraidīt">✕</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+
     <table>
       <tr><th>Laiks</th><th>Ieraksts</th><th></th></tr>
       {% for p in ch.upcoming %}

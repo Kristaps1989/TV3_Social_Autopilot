@@ -255,6 +255,13 @@ def dashboard(request: Request):
                 select(Post).where(Post.channel == name, Post.state == "scheduled")
                 .order_by(Post.scheduled_at).limit(8)
             ).scalars().all()
+            # Ieraksti, kas gaida redaktora apstiprinājumu (Play izlases).
+            # Bez šī tos skaitīja Diagnostika, bet neviena lapa nerādīja, un
+            # apstiprināt nebija kur — skaitītājs prasīja darbību, kuras nav.
+            waiting = session.execute(
+                select(Post).where(Post.channel == name, Post.state == "proposed")
+                .order_by(Post.scheduled_at)
+            ).scalars().all()
             recent = session.execute(
                 select(Post).where(Post.channel == name,
                                    Post.state.in_(("published", "failed", "cancelled")))
@@ -282,6 +289,7 @@ def dashboard(request: Request):
                 "display_name": (cfg or {}).get("display_name", name),
                 "paused": get_setting(session, f"pause:{name}") == "on",
                 "upcoming": upcoming,
+                "waiting": waiting,
                 "recent": recent,
                 "today_count": len(published_today),
                 "daily_cap": ((cfg or {}).get("daily_cap") or "∞"),
@@ -368,6 +376,55 @@ def toggle_pause(channel: str):
         key = f"pause:{channel}"
         current = get_setting(session, key)
         set_setting(session, key, "" if current == "on" else "on")
+    finally:
+        session.close()
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/post/{post_id}/approve")
+def approve_post(post_id: int):
+    """Redaktors apstiprina ierakstu, kas gaidīja apstiprinājumu.
+
+    Play izlases (un jebkas cits, kas top stāvoklī «proposed») līdz šim
+    Diagnostikā tika saskaitītas, bet nekur nebija redzamas un nekur nebija
+    apstiprināmas — skaitītājs prasīja darbību, kuras nebija.
+
+    Ja izlaides laiks jau pagājis, kamēr ieraksts gaidīja, to NEPUBLICĒJAM
+    tūlīt: promo ir vakara logam, un no rīta izsūtīta vakara izlase ir
+    sliktāka par nokavētu. Tādā gadījumā meklējam nākamo derīgo laiku.
+    """
+    from urllib.parse import quote
+
+    from app import play, rules_engine, slots
+    from app.rules_engine import Verdict
+
+    session = get_session()
+    try:
+        post = session.get(Post, post_id)
+        if post is None or post.state != "proposed":
+            return RedirectResponse("/", status_code=303)
+        now = utcnow()
+        if post.scheduled_at is None or post.scheduled_at <= now:
+            cfg = (config.load_channels() or {}).get(post.channel) or {}
+            article = post.article
+            # `windows_for` dod tekstu ("19:00-22:30"); sargam vajag laikus
+            windows = [rules_engine.parse_window(w)
+                       for w in (play.windows_for(article)
+                                 if play.is_play_item(article) else [])]
+            slot, why = slots.plan_slot(
+                session, post.channel, cfg,
+                Verdict("eligible", "apstiprināts ar roku", allowed_windows=windows),
+                getattr(article, "section", "") or "", post.format,
+                getattr(article, "title", "") or (post.copy or ""), now,
+                promo=play.is_play_item(article))
+            if slot is None:
+                post.error = f"apstiprināts, bet laika nav: {why}"
+                session.commit()
+                return RedirectResponse(f"/?error={quote(post.error)}", status_code=303)
+            post.scheduled_at = slot
+        post.state = "scheduled"
+        post.error = ""
+        session.commit()
     finally:
         session.close()
     return RedirectResponse("/", status_code=303)

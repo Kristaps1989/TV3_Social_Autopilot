@@ -271,7 +271,10 @@ P2 un P3 arī ir kodā (tie paši slēdži):
   drūmā dienā bez aizliegtajiem žanriem, ne vairāk kā 2 viena žanra; katra kartīte
   ved uz savu Play lapu ar savu `utm_term`, saraksts pirmajā komentārā;
   slots atkāpjas no traģēdijas ieraksta; `selection_requires_approval`
-  atstāj ierakstu stāvoklī «proposed», līdz redaktors apstiprina;
+  atstāj ierakstu stāvoklī «proposed», līdz redaktors to apstiprina
+  sākumlapā blokā «Gaida apstiprinājumu» (ja izlaides laiks pa to laiku
+  pagājis, apstiprināšana to pārceļ uz nākamo vakara logu, nevis izsūta
+  no rīta);
 - **entītiju tilti** (`bridge_for_article`): izklaides vai sporta raksts, kura
   virsrakstā vai tagos ir Play raidījuma nosaukums, saņem rindu «Skaties …
   bez maksas TV3 Play» pirmajā komentārā (FB/IG) vai aprakstā saites

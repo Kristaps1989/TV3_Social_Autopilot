@@ -859,3 +859,64 @@ def test_crawl_stops_adding_rows_it_can_never_publish(session, monkeypatch):
     # kaudze jau ir pilna — nākamais apgājiens jaunas rindas nepievieno
     again = play.crawl(session, fetch=_fetch, now=NOW)
     assert again["new"] == 0 and again["backlog"] >= 2
+
+
+def test_proposed_selection_can_actually_be_approved(session, monkeypatch):
+    """Diagnostika skaitīja «gaida apstiprinājumu», bet neviena lapa tos
+    nerādīja un apstiprināt nebija kur — skaitītājs prasīja darbību, kuras nav."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    art = Article(guid="play-selection-x", url="https://play.tv3.lv/filmas/a-1/",
+                  canonical_url="https://play.tv3.lv/filmas/a-1/", title="Izlase",
+                  section="entertainment", feed_name=play.FEED_NAME,
+                  editor_status="can", published_at=utcnow(),
+                  raw_json={"_play": {"kind": "selection", "genres": ["izlase"]}})
+    session.add(art)
+    session.flush()
+    post = Post(article_id=art.id, channel="fb_tv3lv", format="card_carousel",
+                copy="Izlase", state="proposed", scheduled_at=utcnow() + timedelta(hours=2),
+                extra={"recipe": {"kind": "play_selection"}})
+    session.add(post)
+    session.commit()
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    # gaidošais ieraksts ir redzams sākumlapā
+    page = client.get("/").text
+    assert "Gaida apstiprinājumu" in page and "Apstiprināt" in page
+
+    client.post(f"/post/{post.id}/approve", follow_redirects=False)
+    session.expire_all()
+    assert session.get(Post, post.id).state == "scheduled"
+
+
+def test_approving_a_missed_selection_moves_it_instead_of_publishing_late(session, monkeypatch):
+    """Vakara izlase, apstiprināta no rīta, nedrīkst iziet uzreiz: promo ir
+    vakara logam, un nokavēta izlase no rīta ir sliktāka par pārceltu."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    art = Article(guid="play-selection-y", url="https://play.tv3.lv/filmas/b-2/",
+                  canonical_url="https://play.tv3.lv/filmas/b-2/", title="Izlase 2",
+                  section="entertainment", feed_name=play.FEED_NAME,
+                  editor_status="can", published_at=utcnow(),
+                  raw_json={"_play": {"kind": "selection", "genres": ["izlase"]}})
+    session.add(art)
+    session.flush()
+    stale = utcnow() - timedelta(hours=12)
+    post = Post(article_id=art.id, channel="fb_tv3lv", format="card_carousel",
+                copy="Izlase", state="proposed", scheduled_at=stale, extra={})
+    session.add(post)
+    session.commit()
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    client.post(f"/post/{post.id}/approve", follow_redirects=False)
+    session.expire_all()
+    after = session.get(Post, post.id)
+    assert after.scheduled_at is None or after.scheduled_at > stale
