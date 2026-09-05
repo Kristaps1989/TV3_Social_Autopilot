@@ -920,3 +920,63 @@ def test_approving_a_missed_selection_moves_it_instead_of_publishing_late(sessio
     session.expire_all()
     after = session.get(Post, post.id)
     assert after.scheduled_at is None or after.scheduled_at > stale
+
+
+def test_a_pending_selection_blocks_its_own_titles_from_the_next_one(session, monkeypatch):
+    """Divas izlases pēc kārtas ieteica TIEŠI to pašu piecinieku: kamēr pirmā
+    gaidīja apstiprinājumu, tās nosaukumi otrajai bija neredzami, jo
+    «proposed» neskaitījās kanāla ierakstos."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch)
+    art = Article(guid="play:sel-src", url="https://play.tv3.lv/filmas/x-55/",
+                  canonical_url="https://play.tv3.lv/filmas/x-55/", title="Filma",
+                  section="entertainment", feed_name=play.FEED_NAME,
+                  editor_status="can", published_at=NOW,
+                  raw_json={"_play": {"kind": "movie", "show_id": "55",
+                                      "genres": ["Komēdijas"]}})
+    session.add(art)
+    session.flush()
+    # neapstiprināta izlase, kurā šis nosaukums jau ir
+    session.add(Post(article_id=art.id, channel="fb_play", format="card_carousel",
+                     copy="Izlase", state="proposed", scheduled_at=NOW + timedelta(hours=2),
+                     extra={"items": [{"show_id": "55", "title": "Filma"}]}))
+    session.commit()
+
+    cfg = play.settings({})
+    picked = play.selection_candidates(session, cfg, NOW, "fb_play")
+    assert all(play.play_data(a).get("show_id") != "55" for a in picked)
+
+
+def test_approving_does_not_put_two_selections_in_one_evening(session, monkeypatch):
+    """Vienā vakarā divas promo izlases nav izlase, tā ir atkārtošanās."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    def _sel(guid, state, at):
+        a = Article(guid=guid, url=f"https://play.tv3.lv/filmas/{guid}/",
+                    canonical_url=f"https://play.tv3.lv/filmas/{guid}/",
+                    title=guid, section="entertainment", feed_name=play.FEED_NAME,
+                    editor_status="can", published_at=utcnow(),
+                    raw_json={"_play": {"kind": "selection", "genres": ["izlase"]}})
+        session.add(a)
+        session.flush()
+        p = Post(article_id=a.id, channel="fb_tv3lv", format="card_carousel",
+                 copy=guid, state=state, scheduled_at=at, extra={})
+        session.add(p)
+        session.flush()
+        return p
+
+    taken = utcnow() + timedelta(hours=3)
+    _sel("sel-a", "scheduled", taken)
+    waiting = _sel("sel-b", "proposed", taken + timedelta(minutes=45))
+    session.commit()
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    client.post(f"/post/{waiting.id}/approve", follow_redirects=False)
+    session.expire_all()
+    after = session.get(Post, waiting.id)
+    if after.scheduled_at is not None:
+        assert play._riga_day(after.scheduled_at) != play._riga_day(taken)

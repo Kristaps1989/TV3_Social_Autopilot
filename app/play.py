@@ -733,10 +733,43 @@ def _riga_day(dt: datetime):
 
 
 def channel_posts(session, channel: str, since: datetime) -> list[Post]:
+    """Kanāla ieraksti, kas SKAITĀS — arī tie, kas gaida apstiprinājumu.
+
+    «proposed» te trūka, un tas maksāja divas vienādas izlases: kamēr
+    piektdienas izlase gaidīja redaktoru, tās nosaukumi nākamajai izlasei bija
+    neredzami, un sestdiena paņēma tieši to pašu pieciniekus. Neapstiprināts
+    ieraksts ir nodoms, ne tukšums: tas aizņem gan vietu rindā, gan nosaukumus.
+    """
     return session.execute(
         select(Post).where(Post.channel == channel,
-                           Post.state.in_(("scheduled", "publishing", "published")),
+                           Post.state.in_(("proposed", "scheduled", "publishing",
+                                           "published")),
                            Post.scheduled_at >= since)).scalars().all()
+
+
+def day_is_taken(session, post, when: datetime | None) -> bool:
+    """Vai šajā Rīgas dienā kanālā jau stāv cits Play ieraksts.
+
+    Divas promo izlases vienā vakarā nav izlase, tā ir atkārtošanās. Dienas
+    limits to tur automātiskajā ceļā, bet apstiprināšana ar roku to apgāja.
+    """
+    if when is None:
+        return False
+    day = _riga_day(when)
+    for other in channel_posts(session, post.channel, when - timedelta(days=1)):
+        if other.id == post.id or not is_play_item(other.article):
+            continue
+        if other.scheduled_at and _riga_day(other.scheduled_at) == day:
+            return True
+    return False
+
+
+def next_day_start(when: datetime) -> datetime:
+    """Nākamās Rīgas dienas sākums UTC — no kurienes meklēt nākamo slotu."""
+    tz = ZoneInfo(config.TIMEZONE)
+    local = when.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+    nxt = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return nxt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
 
 def allowed_now(session, article, channel: str, fmt: str = "",

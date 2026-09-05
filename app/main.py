@@ -404,19 +404,30 @@ def approve_post(post_id: int):
         if post is None or post.state != "proposed":
             return RedirectResponse("/", status_code=303)
         now = utcnow()
-        if post.scheduled_at is None or post.scheduled_at <= now:
+        article = post.article
+        promo = play.is_play_item(article)
+        if post.scheduled_at is None or post.scheduled_at <= now or (
+                promo and play.day_is_taken(session, post, post.scheduled_at)):
             cfg = (config.load_channels() or {}).get(post.channel) or {}
-            article = post.article
             # `windows_for` dod tekstu ("19:00-22:30"); sargam vajag laikus
             windows = [rules_engine.parse_window(w)
-                       for w in (play.windows_for(article)
-                                 if play.is_play_item(article) else [])]
-            slot, why = slots.plan_slot(
-                session, post.channel, cfg,
-                Verdict("eligible", "apstiprināts ar roku", allowed_windows=windows),
-                getattr(article, "section", "") or "", post.format,
-                getattr(article, "title", "") or (post.copy or ""), now,
-                promo=play.is_play_item(article))
+                       for w in (play.windows_for(article) if promo else [])]
+            verdict = Verdict("eligible", "apstiprināts ar roku",
+                              allowed_windows=windows)
+            # Vienā vakarā divas promo izlases nav izlase, tā ir atkārtošanās.
+            # Ja dienā jau kaut kas Play stāv, meklējam nākamo dienu — pirmā
+            # apstiprināšana tieši tā salika abas 45 minūšu attālumā.
+            start = now
+            slot = None
+            for _ in range(8):
+                slot, why = slots.plan_slot(
+                    session, post.channel, cfg, verdict,
+                    getattr(article, "section", "") or "", post.format,
+                    getattr(article, "title", "") or (post.copy or ""), start,
+                    promo=promo)
+                if slot is None or not promo or not play.day_is_taken(session, post, slot):
+                    break
+                start = play.next_day_start(slot)
             if slot is None:
                 post.error = f"apstiprināts, bet laika nav: {why}"
                 session.commit()
