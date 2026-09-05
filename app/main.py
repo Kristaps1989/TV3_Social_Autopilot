@@ -557,6 +557,13 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
         from app.pipeline import compose_text
 
         full_text, in_comment = compose_text(post, platform, shown)
+        # Priekšskatījums rādīja pirmajā komentārā VIENU saiti, kaut publicētājs
+        # tur sūta numurētu sarakstu ar saiti katram nosaukumam. Piecu vienību
+        # izlasē tas nozīmēja, ka redaktors pārbauda vienu ceturtdaļu no tā, kas
+        # tiešām iznāks. Te tagad ir tas pats teksts, ko sūta adapteris.
+        from app.pipeline import first_comment_text
+
+        comment_text = first_comment_text(post, platform, shown) if in_comment else ""
         article = post.article
         img_portrait = False
         # Cik lielu daļu augstuma Facebook saites kartīte no attēla nogriež.
@@ -595,7 +602,7 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
             "media_prebranded": media_prebranded,
             "channel_name": cfg.get("display_name", post.channel),
             "full_text": full_text, "link": shown, "target_link": link,
-            "link_in_comment": in_comment,
+            "link_in_comment": in_comment, "comment_text": comment_text,
             "og_image": (article.images or [""])[0] if article else "",
             "img_portrait": img_portrait,
             "link_card_crop": link_card_crop,

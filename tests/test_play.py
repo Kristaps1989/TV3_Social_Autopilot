@@ -980,3 +980,37 @@ def test_approving_does_not_put_two_selections_in_one_evening(session, monkeypat
     after = session.get(Post, waiting.id)
     if after.scheduled_at is not None:
         assert play._riga_day(after.scheduled_at) != play._riga_day(taken)
+
+
+def test_preview_shows_the_whole_first_comment_not_one_link(session, monkeypatch):
+    """Priekšskatījums rādīja vienu saiti, kaut publicētājs sūta numurētu
+    sarakstu ar saiti katram nosaukumam. Piecu vienību izlasē redaktors tā
+    pārbaudīja vienu ceturtdaļu no tā, kas tiešām iznāks."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    art = Article(guid="play-selection-prev", url="https://play.tv3.lv/filmas/a-1/",
+                  canonical_url="https://play.tv3.lv/filmas/a-1/", title="Izlase",
+                  section="entertainment", feed_name=play.FEED_NAME,
+                  editor_status="can", published_at=utcnow(),
+                  raw_json={"_play": {"kind": "selection", "genres": ["izlase"]}})
+    session.add(art)
+    session.flush()
+    items = [{"title": f"Nosaukums {i}", "url": f"https://play.tv3.lv/filmas/f-{i}/"}
+             for i in range(1, 6)]
+    post = Post(article_id=art.id, channel="fb_tv3lv", format="card_carousel",
+                copy="Izlase", state="scheduled", scheduled_at=utcnow() + timedelta(hours=2),
+                link_url="https://play.tv3.lv/filmas/f-1/", extra={"items": items})
+    session.add(post)
+    session.commit()
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    page = client.get(f"/post/{post.id}/preview").text
+    # visi pieci nosaukumi un piecas dažādas saites ar savu utm_term
+    for i in range(1, 6):
+        assert f"Nosaukums {i}" in page
+        assert f"utm_term=" in page
+    assert page.count("play.tv3.lv/filmas/f-") >= 5

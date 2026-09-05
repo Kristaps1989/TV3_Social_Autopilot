@@ -94,14 +94,15 @@ Statuss: <span class="state {{ post.state }}">{{ post.state }}</span>
   {% endif %}
   {% if first_comment %}
   <div class="fc"><div class="avatar" style="width:30px;height:30px;font-size:.5rem">tv<span>3</span></div>
-    <div class="bubble">{{ link[:80] }}…</div></div>
+    <div class="bubble" style="white-space:pre-wrap;word-break:break-all">{{ comment_text or link }}</div></div>
   {% endif %}
 </div>
 {% if first_comment %}
-<p class="muted" style="max-width:520px">Saite ir gan aprakstā, gan
-automātiski tiks publicēta kā <strong>pirmais komentārs</strong> — lasītājam
-viens pieskāriens abos gadījumos, un apraksts ar saiti ir tas, ko var
-pastiprināt maksas kampaņā.</p>
+<p class="muted" style="max-width:520px">Šis ir <strong>pirmais komentārs</strong> tieši tāds, kāds
+tiks publicēts — ne saīsināts paraugs. {% if comment_text and '\n' in comment_text %}Katram nosaukumam
+ir sava saite ar savu <code>utm_term</code>, tāpēc GA4 rāda, kurš no tiem tiešām atveda skatītāju.
+{% else %}Saite ir gan aprakstā, gan komentārā — lasītājam viens pieskāriens abos gadījumos, un
+apraksts ar saiti ir tas, ko var pastiprināt maksas kampaņā.{% endif %}</p>
 {% endif %}
 {% if post.format == 'card_carousel' and platform == 'facebook_page' %}
 <p class="muted" style="max-width:520px">Kartītes publicējas kā
