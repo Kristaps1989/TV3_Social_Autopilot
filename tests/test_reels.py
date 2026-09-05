@@ -138,8 +138,12 @@ def test_resolve_format_prefers_real_video(session, monkeypatch):
     from app import pipeline, reels
 
     monkeypatch.setattr(reels, "available", lambda: True)
-    monkeypatch.setattr(reels, "build_video_reel",
-                        lambda url, out_dir=None: "/data/cards/reel_v.mp4")
+    def _video(url, out_dir=None, report=None, **kw):
+        if report is not None:      # klipa lente ziņo, vai avotā bija skaņa
+            report.update({"kind": "video_reel", "voiced": True, "source_audio": True})
+        return "/data/cards/reel_v.mp4"
+
+    monkeypatch.setattr(reels, "build_video_reel", _video)
     monkeypatch.setattr(reels, "build_reel",
                         lambda *a, **kw: (_ for _ in ()).throw(AssertionError(
                             "slideshow nedrīkst būvēties, ja ir īsts video")))
@@ -990,3 +994,57 @@ def test_reel_report_counts_the_characters_sent_to_tts(monkeypatch, tmp_path):
         cover_voice="Virsraksts.", end_voice="Lasi.",
         synth=lambda text, **kw: "/a.m4a", report=report)
     assert report["voice_chars"] == len("Virsraksts.") + len("Pirmais teksts.") + len("Lasi.")
+
+
+def test_silent_reel_records_why_instead_of_swallowing_it(monkeypatch, tmp_path):
+    """Sintēze nemet kļūdu — klusa lente izskatās gluži kā apzināta izvēle.
+    Iemeslam jāpaliek receptē, citādi «kāpēc nav skaņas» nav atbildams."""
+    from app import reels
+
+    monkeypatch.setattr(reels, "_render_frames",
+                        lambda docs, wd: [str(tmp_path / "f.png")] * len(docs))
+    monkeypatch.setattr(reels, "_assemble", lambda *a, **kw: 12.0)
+
+    def failing(text, section="", errors=None, **kw):
+        if errors is not None:
+            errors.append("HTTP 401: balss ID nav šai atslēgai")
+        return ""
+
+    report: dict = {}
+    reels.build_reel("Virsraksts", "sport", "", [],
+                     out_dir=tmp_path,
+                     sections=[{"title": "A", "body": "Pirmais teikums par notikumu."},
+                               {"title": "B", "body": "Otrais teikums ar faktiem."}],
+                     cover_voice="Virsraksts.", end_voice="Lasi tv3.lv.",
+                     synth=failing, report=report)
+    assert report["voiced"] is False
+    assert "401" in " ".join(report["voice_errors"])
+
+
+def test_diagnostics_names_the_silent_reels(session):
+    """Diagnostikā redz, cik lenšu ir ar skaņu un kāpēc pārējās nav."""
+    from app import diagnostics
+    from app.models import Article, Post, utcnow
+
+    a = Article(guid="g", url="https://tv3.lv/a", canonical_url="https://tv3.lv/a",
+                title="T", section="sport", feed_name="tv3", editor_status="can",
+                published_at=utcnow(), raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb", format="reel", copy="c",
+                     state="published", scheduled_at=utcnow(),
+                     extra={"recipe": {"voiced": True, "voice_used": "Nils"}}))
+    session.add(Post(article_id=a.id, channel="fb", format="reel", copy="c",
+                     state="published", scheduled_at=utcnow(),
+                     extra={"recipe": {"voiced": False, "section": "sport",
+                                       "voice_errors": ["HTTP 401: nederīga atslēga"]}}))
+    session.add(Post(article_id=a.id, channel="fb", format="reel", copy="c",
+                     state="published", scheduled_at=utcnow(),
+                     extra={"recipe": {"kind": "video_reel", "voiced": False}}))
+    session.flush()
+
+    out = diagnostics._reel_voice(session)
+    assert out["reels"] == 3 and out["voiced"] == 1
+    assert out["voices"] == {"Nils": 1}
+    reasons = " ".join(out["reasons"])
+    assert "401" in reasons and "avota klipam nav skaņas" in reasons

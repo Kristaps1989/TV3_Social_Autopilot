@@ -59,6 +59,24 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
 </div>
 {% endif %}
 
+{% set rv = data.reel_voice or {} %}
+{% if rv.reels %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Lenšu skaņa <span class="muted" style="font-weight:400;font-size:.85rem">
+    pēdējās {{ rv.hours }} h</span></h2>
+  <table class="n">
+    <tr><td>Lentes</td><td>{{ rv.reels }} — ar skaņu <strong>{{ rv.voiced }}</strong>,
+      klusas {{ rv.silent | length }}</td></tr>
+    {% if rv.reasons %}
+    <tr><td>Kāpēc klusas</td><td>{% for why, n in rv.reasons.items() %}{{ why }} ({{ n }}){{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+    {% endif %}
+    {% if rv.voices %}
+    <tr><td>Lietotās balsis</td><td>{% for v, n in rv.voices.items() %}{{ v }}: {{ n }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+    {% endif %}
+  </table>
+</div>
+{% endif %}
+
 {% set ai = data.ai_cost or {} %}
 {% if ai %}
 <div class="card" style="margin-bottom:1rem">

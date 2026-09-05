@@ -176,6 +176,7 @@ def report(session, channel: str = "", posts: int = 15,
         "ads_mode": get_setting(session, "ads:mode", "off"),
         "published_24h": mix,
         "queue": _queue_health(session),
+        "reel_voice": _reel_voice(session),
         "ai_cost": _ai_cost(session),
         "video_archive": _video_summary(session),
         "play": _play_summary(session),
@@ -223,6 +224,36 @@ def _ai_cost(session, hours: int = 24) -> dict:
             "cached": total_cached, "total_input": billed,
             "cache_pct": round(100 * total_cached / billed) if billed else 0,
             "by_model": dict(sorted(by_model.items(), key=lambda kv: -kv[1]["calls"]))}
+
+
+def _reel_voice(session, hours: int = 48) -> dict:
+    """Vai publicētajās lentēs tiešām ir skaņa — un kad nav, tad kāpēc.
+
+    Sintēze nemet kļūdu: neizdevusies ieruna nozīmē klusu lenti, un klusa
+    lente izskatās gluži kā apzināta izvēle. Bez šī bloka «kāpēc dažām lentēm
+    nav skaņas» nav atbildams ne redaktoram, ne izstrādātājam.
+    """
+    since = utcnow() - timedelta(hours=hours)
+    rows = session.execute(
+        select(Post).where(Post.format == "reel", Post.created_at >= since)
+    ).scalars().all()
+    out = {"hours": hours, "reels": len(rows), "voiced": 0, "silent": [],
+           "reasons": {}, "voices": {}}
+    for p in rows:
+        recipe = (p.extra or {}).get("recipe") or {}
+        if recipe.get("voiced"):
+            out["voiced"] += 1
+            used = str(recipe.get("voice_used") or "")
+            if used:
+                out["voices"][used] = out["voices"].get(used, 0) + 1
+            continue
+        why = ("avota klipam nav skaņas celiņa" if recipe.get("kind") == "video_reel"
+               else "; ".join(recipe.get("voice_errors") or [])
+               or "ieruna netika sintezēta (atslēga, teksts vai balss)")
+        out["silent"].append({"post": p.id, "section": recipe.get("section", ""),
+                              "why": why[:200]})
+        out["reasons"][why[:120]] = out["reasons"].get(why[:120], 0) + 1
+    return out
 
 
 def _queue_health(session) -> dict:

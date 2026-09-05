@@ -932,7 +932,11 @@ def resolve_format(session, channel: str, cfg: dict, article, ch_dec: dict,
         video = reels.article_video(article)
         if video and reels.available():
             try:
-                return "reel", [reels.build_video_reel(video)], {}
+                vrep: dict = {}
+                media = reels.build_video_reel(video, report=vrep)
+                return "reel", [media], {**vrep, "article": article.id,
+                                         "section": article.section,
+                                         "date": article_date(article)}
             except Exception as e:  # noqa: BLE001
                 log.warning("video reel failed for article %s: %s", article.id, e)
                 from app import cards as _cards

@@ -607,7 +607,8 @@ def _has_audio(path: Path) -> bool:
 
 
 def build_video_reel(video_url: str, out_dir: Path | None = None,
-                     max_seconds: int = MAX_VIDEO_SECONDS) -> str:
+                     max_seconds: int = MAX_VIDEO_SECONDS,
+                     report: dict | None = None) -> str:
     """Real video reel: the article's 9:16 clip, capped at max_seconds,
     normalised to 1080x1920 H.264/AAC, with the branded CTA end card appended
     so every reel closes on 'lasi tv3.lv'. Returns the local file path.
@@ -628,7 +629,16 @@ def build_video_reel(video_url: str, out_dir: Path | None = None,
                     f"fps={FPS},format=yuv420p"),
             "-map", "0:v:0", "-map", "0:a:0?",
             *common_v, *common_a, str(seg0)])
-        if not _has_audio(seg0):
+        source_audio = _has_audio(seg0)
+        if report is not None:
+            # Klipa lente NErunā mūsu balsī — tai ir paša klipa skaņa. Ja
+            # avotā tās nav, lente iznāk klusa, un tas nav mūsu sintēzes
+            # jautājums; bez šī karoga abi klusuma iemesli izskatās vienādi.
+            report.update({"kind": "video_reel", "voiced": source_audio,
+                           "source_audio": source_audio, "source": video_url})
+        if not source_audio:
+            log.warning("video reel bez skaņas: avota klipam %s nav audio celiņa",
+                        video_url[:120])
             fixed = workdir / "seg0a.mp4"
             _run_ffmpeg([
                 "-i", str(seg0), "-f", "lavfi",
@@ -741,7 +751,8 @@ def plan_beats(title: str, sections: list[dict], points: list[str],
 
 
 def voice_beats(beats: list[dict], synth, section: str = "",
-                budget: float = VOICE_MAX_SECONDS) -> tuple[list[str], list[float], int]:
+                budget: float = VOICE_MAX_SECONDS,
+                errors: list | None = None) -> tuple[list[str], list[float], int]:
     """Ieruna kadru pēc kadra — un tikai tiem, kas lentē ietilps.
 
     Agrāk visas nodaļas ierunāja uzreiz un tikai tad `_trim_beats` izmeta
@@ -778,7 +789,7 @@ def voice_beats(beats: list[dict], synth, section: str = "",
             if spent + estimate + reserve > budget:
                 skipped += 1
                 continue
-        path = synth(text, section=section)
+        path = synth(text, section=section, errors=errors)
         secs = media_duration(path) if path else 0.0
         keep.append(beat)
         voices.append(path)
@@ -883,6 +894,11 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
     voices: list[str] = []
     spoken: dict[str, float] = {}   # ieruna -> sekundes, kadru garumam un atskaitei
     chosen: dict = {}               # kura balss un temps — atskaitei
+    # Sintēze nemet kļūdu: neizdevusies ieruna nozīmē klusu lenti, un līdz šim
+    # iemesls pazuda pavisam. Klusa lente izskatās gluži kā apzināta izvēle,
+    # tāpēc iemeslu vācam un liekam receptē — citādi «kāpēc nav skaņas» nav
+    # atbildams ne redaktoram, ne man.
+    voice_errors: list[str] = []
     if voice is None and any(b["text"].strip() for b in beats):
         from app import tts as _tts
 
@@ -893,7 +909,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
         chosen = _tts.voice_choice(rules, section)
         # sadaļa iet līdzi: balsi un tempu var izvēlēties pa sadaļām
         # (izklaidei dzīvāka balss un ātrāks temps nekā pierobežas ziņai)
-        voices, speech, unvoiced = voice_beats(beats, synth, section)
+        voices, speech, unvoiced = voice_beats(beats, synth, section,
+                                               errors=voice_errors)
         if unvoiced:
             log.info("reel skipped %d chapter(s) before synthesis: no room in %ds",
                      unvoiced, VOICE_MAX_SECONDS)
@@ -934,6 +951,7 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                           kinds=[b["kind"] for b in beats])
     if report is not None:
         report.update({"voiced": voiced,
+                       "voice_errors": voice_errors[:5],
                        # cik ilgi tiešām SKAN balss (bez klusumiem un CTA
                        # kadra) — no tā redaktors var izrēķināt īsto tempu
                        # vārdos minūtē, nevis jāuzticas manam vērtējumam.
@@ -957,6 +975,8 @@ def build_reel(title: str, section: str, image_url: str, points: list[str],
                        "voice_chars": sum(len(b["text"].strip()) for b in beats
                                           if b.get("voice")),
                        "narration": [b["text"] for b in beats if b["text"]]})
+    if not voiced and voice_errors:
+        log.warning("lente bez balss: %s", "; ".join(voice_errors[:3]))
     log.info("reel built: %s (%d frames, %.0fs total%s)",
              out.name, total_frames, total, ", ar ierunu" if voiced else "")
     return str(out)
