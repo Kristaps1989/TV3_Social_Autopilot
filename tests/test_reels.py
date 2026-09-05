@@ -1104,3 +1104,27 @@ def test_unknown_silence_is_not_reported_as_a_diagnosis(session):
     session.flush()
     out = diagnostics._reel_voice(session)
     assert "nav pierakstīts" in " ".join(out["reasons"])
+
+
+def test_brand_is_spoken_as_one_word_without_a_pause():
+    """«tv trīs» ar atstarpi ir vārda robeža, un runātājs tajā ietur pauzi —
+    ausij tad skan «TV ... trīs», nevis kanāla vārds. Izrunas pierakstā zīmols
+    ir viens vārds."""
+    from app import tts
+
+    assert tts.spoken_text("Pilnu stāstu lasi tv3.lv.", {}) == \
+        "Pilnu stāstu lasi tēvētrīs punkts lv."
+    assert tts.spoken_text("Skaties TV3 Play bez maksas.", {}) == \
+        "Skaties tēvētrīs pleij bez maksas."
+    # nekur vairs nav atstarpes zīmola vidū
+    for value in tts.PRONUNCIATION.values():
+        assert "tv trīs" not in value
+
+
+def test_the_reel_closing_line_carries_the_fixed_brand():
+    """Beigu kadra teikums ir tas, ko redakcija pamanīja — tas iet caur to pašu
+    vārdnīcu, tāpēc labojums tur jāredz."""
+    from app import reels, tts
+
+    spoken = tts.spoken_text(reels.end_voice_text({}), {})
+    assert "tēvētrīs" in spoken and "tv trīs" not in spoken

@@ -114,9 +114,9 @@ jāizrunā, tāpēc `tts.spoken_text()` pirms SSML pielieto izrunas vārdnīcu:
 
 ```yaml
 tts_pronunciation:
-  "tv3.lv": "tv trīs punkts lv"
-  "tv3 play": "tv trīs pleij"
-  "tv3": "tv trīs"
+  "tv3.lv": "tēvētrīs punkts lv"
+  "tv3 play": "tēvētrīs pleij"
+  "tv3": "tēvētrīs"
 ```
 
 Papildināt var Noteikumos, bez deploy. Garākie ieraksti tiek aizstāti

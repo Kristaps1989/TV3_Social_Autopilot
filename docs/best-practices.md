@@ -89,7 +89,7 @@ atzīmēti uz paša ieraksta, ne uzminēti pēc receptes veida:
 | Kadru nosaka TĀ PAŠA kadra ieruna | `plan_durations`: katram kadram sava sintēze, kadrs = tās garums |
 | Kadrā tik teksta, cik paspēj izlasīt | vismaz `MIN_FRAME_SECONDS`; klusam kadram 5.5 s (punkts 2.8 s) |
 | Balss nelasa to, kas jau ir uz ekrāna | `chapter_voice`: nodaļas virsraksts ir vizuāls marķieris, balss saka tikai tekstu |
-| Ieruna latviski, rakstīta RUNĀŠANAI | sadaļu `body`; izrunas vārdnīca (`tv3.lv` → «tv trīs punkts lv») |
+| Ieruna latviski, rakstīta RUNĀŠANAI | sadaļu `body`; izrunas vārdnīca (`tv3.lv` → «tēvētrīs punkts lv» — viens vārds, citādi runātājs ietur pauzi) |
 | Balss un temps pa sadaļām | `reel_voice_by_section`, `reel_voice_rate_by_section` — izklaidei cita balss un ātrāks temps nekā pierobežas ziņai |
 | Skatītājs redz, cik tālu stāsts | josla kadra augšā skaita VISUS kadrus, ne tikai nodaļas |
 | Vāks runā tikai virsrakstu | atsevišķs āķis atkārtoja to pašu, ko pirmā nodaļa |

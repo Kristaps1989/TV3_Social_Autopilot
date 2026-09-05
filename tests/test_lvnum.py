@@ -95,7 +95,7 @@ def test_the_spoken_layer_applies_it_before_the_pronunciation_table():
 
     out = tts.spoken_text("Vārti 59. minūtē. Lasi tv3.lv", {})
     assert "piecdesmit devītajā minūtē" in out
-    assert "tv trīs punkts lv" in out
+    assert "tēvētrīs punkts lv" in out
     # rakstītais teksts paliek neskarts — priekšskatījumā redaktors grib
     # redzēt to, kas būs uz ekrāna
     assert "59." not in out

@@ -266,10 +266,12 @@ elevenlabs_model: eleven_v3
 # skaitli, tāpēc balss «tv3.lv» pati nolasa kā «tv trešais punkts lv».
 # Šeit pasakām, kā to izrunāt pareizi; papildini, kad kāds vārds skan greizi
 # (rakstības forma ierakstā nemainās — mainās tikai izruna).
+# Zīmols ir VIENS vārds arī izrunas pierakstā: «tv trīs» ar atstarpi ir vārda
+# robeža, un runātājs tajā ietur pauzi — ausij tad skan «TV ... trīs».
 tts_pronunciation:
-  "tv3.lv": "tv trīs punkts lv"
-  "tv3 play": "tv trīs pleij"
-  "tv3": "tv trīs"
+  "tv3.lv": "tēvētrīs punkts lv"
+  "tv3 play": "tēvētrīs pleij"
+  "tv3": "tēvētrīs"
 
 # Plānošanas režīms:
 #   asap     -> ziņu portāla režīms (noklusējums): publicē, tiklīdz gatavs —

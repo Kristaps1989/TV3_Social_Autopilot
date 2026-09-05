@@ -69,10 +69,15 @@ TIMEOUT = 30
 # nevar salabot ne ar promptu, ne ar balss izvēli — teksts modelim jāpasniedz
 # tā, kā tas jāizrunā. Papildināt var Noteikumos (`tts_pronunciation`), bez
 # deploy.
+#
+# Zīmola nosaukums ir VIENS vārds, tāpēc arī izrunas pierakstā tas ir viens
+# vārds: «tv trīs» ar atstarpi dod vārda robežu, un runātājs tajā ietur pauzi —
+# «TV ... trīs». Ausij tie tad ir divi nesaistīti gabali, nevis kanāla vārds.
+# «tēvētrīs» ir tas pats skanējums bez robežas.
 PRONUNCIATION = {
-    "tv3.lv": "tv trīs punkts lv",
-    "tv3 play": "tv trīs pleij",
-    "tv3": "tv trīs",
+    "tv3.lv": "tēvētrīs punkts lv",
+    "tv3 play": "tēvētrīs pleij",
+    "tv3": "tēvētrīs",
 }
 
 

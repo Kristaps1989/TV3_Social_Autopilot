@@ -450,17 +450,19 @@ def test_preview_lets_you_hear_the_reel(session, monkeypatch):
 def test_tv3_domain_is_read_as_three_not_third():
     """Latviski punkts aiz cipara ir kārtas skaitlis: «tv3.lv» balss pati
     nolasīja kā «tv TREŠAIS punkts lv». Domēnā tas ir tikai punkts."""
-    assert tts.spoken_text("Vairāk lasi tv3.lv.") == "Vairāk lasi tv trīs punkts lv."
+    assert tts.spoken_text("Vairāk lasi tv3.lv.") == "Vairāk lasi tēvētrīs punkts lv."
     assert "trešais" not in tts.spoken_text("lasi tv3.lv")
     # arī lielie burti un teksts bez domēna
-    assert tts.spoken_text("Skaties TV3 Play") == "Skaties tv trīs pleij"
-    assert tts.spoken_text("TV3 raidījums") == "tv trīs raidījums"
+    assert tts.spoken_text("Skaties TV3 Play") == "Skaties tēvētrīs pleij"
+    assert tts.spoken_text("TV3 raidījums") == "tēvētrīs raidījums"
+    # zīmols ir VIENS vārds: ar atstarpi runātājs tur ietur pauzi
+    assert "tv trīs" not in tts.spoken_text("Pilnu stāstu lasi tv3.lv.")
 
 
 def test_longer_entries_win_over_shorter():
     """«tv3.lv» nedrīkst tikt sadalīts pa «tv3», atstājot «.lv» karājoties."""
     out = tts.spoken_text("tv3.lv")
-    assert out == "tv trīs punkts lv"
+    assert out == "tēvētrīs punkts lv"
     assert ".lv" not in out
 
 
@@ -469,12 +471,12 @@ def test_pronunciation_can_be_extended_without_a_deploy():
     out = tts.spoken_text("Ziņu aģentūra LETA, utt.", rules)
     assert "leta" in out and "un tā tālāk" in out
     # noklusējumi paliek spēkā līdzās pielāgotajiem
-    assert tts.spoken_text("tv3.lv", rules) == "tv trīs punkts lv"
+    assert tts.spoken_text("tv3.lv", rules) == "tēvētrīs punkts lv"
 
 
 def test_ssml_carries_the_spoken_form():
     doc = tts.build_ssml("Namā iebruka jumts. Lasi tv3.lv.")
-    assert "tv trīs punkts lv" in doc
+    assert "tēvētrīs punkts lv" in doc
     assert "tv3.lv" not in doc
 
 
@@ -486,7 +488,7 @@ def test_written_script_is_left_alone():
         "Namā daļēji iebruka jumts un pagalmā vēl guļ gruveši. Lēmums par "
         "ēkas nākotni joprojām nav pieņemts. Lasi visu tv3.lv.")
     assert "tv3.lv" in script          # rakstiskajā tekstā domēns paliek
-    assert "tv trīs" in tts.spoken_text(script)   # izrunā tas kļūst par skaņu
+    assert "tēvētrīs" in tts.spoken_text(script)   # izrunā tas kļūst par skaņu
 
 
 def test_cache_key_follows_the_spoken_form(keyed, tmp_path, monkeypatch):
@@ -538,7 +540,7 @@ def test_elevenlabs_request_carries_key_model_and_spoken_text(session, monkeypat
 
     monkeypatch.setattr(httpx, "post", fake_post)
     rules = {"tts_provider": "elevenlabs", "reel_voice_name": "balss-id-123",
-             "tts_pronunciation": {"tv3.lv": "tv trīs punkts lv"}}
+             "tts_pronunciation": {"tv3.lv": "tēvētrīs punkts lv"}}
     audio = tts._elevenlabs_audio("Vārti 59. minūtē. Lasi tv3.lv",
                                   tts.voice_name(rules), session=session,
                                   rules=rules)
@@ -547,7 +549,7 @@ def test_elevenlabs_request_carries_key_model_and_spoken_text(session, monkeypat
     assert seen["headers"]["xi-api-key"] == "el-key"
     assert seen["json"]["model_id"] == "eleven_v3"
     assert "piecdesmit devītajā minūtē" in seen["json"]["text"]
-    assert "tv trīs punkts lv" in seen["json"]["text"]
+    assert "tēvētrīs punkts lv" in seen["json"]["text"]
 
 
 def test_elevenlabs_failure_is_reported_not_raised(session, monkeypatch):
