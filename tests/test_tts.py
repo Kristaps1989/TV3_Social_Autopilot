@@ -875,3 +875,32 @@ def test_the_commented_examples_can_actually_be_uncommented():
     assert data["reel_voice_by_section"] == {"entertainment": "male"}
     assert data["reel_voice_rate_by_section"] == {"entertainment": 8}
     assert config.validate_editable("rules", live) is None
+
+
+def test_a_section_line_without_indentation_is_refused_not_ignored():
+    """Otrs pazudušās atkāpes izskats un klusākais no diviem: bez atkāpes
+    YAML padara sadaļas rindu par ATSEVIŠĶU noteikumu. Kartējums kļūst tukšs,
+    rinda nedara neko, un fails ir pilnīgi derīgs — nekas nekrīt, temps
+    nemainās, un no ekrāna iemesls nav redzams."""
+    from app import config
+
+    err = config.validate_editable("rules", """
+reel_voice_rate: 16
+reel_voice_rate_by_section:
+entertainment: 16
+""")
+    assert err and "entertainment" in err and "atkāpe" in err.lower()
+
+    # ar atkāpi tas pats fails ir derīgs
+    assert config.validate_editable("rules", """
+reel_voice_rate: 16
+reel_voice_rate_by_section:
+  entertainment: 16
+""") is None
+
+
+def test_a_misspelled_rule_is_named_instead_of_doing_nothing():
+    from app import config
+
+    err = config.validate_editable("rules", "reel_voice_ratee: 12\n")
+    assert err and "reel_voice_ratee" in err

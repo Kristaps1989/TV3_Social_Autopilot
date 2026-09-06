@@ -426,6 +426,21 @@ def _rules_errors(data: dict) -> str | None:
                 f"{value!r} — visticamāk trūkst atkāpes: sadaļas rindai "
                 f"jāsākas ar diviem tukšumiem nākamajā rindā")
 
+    # Pazudusi atkāpe otrā izskatā, un šis ir klusākais no diviem. Ja sadaļas
+    # rinda uzrakstīta bez atkāpes, YAML to padara par ATSEVIŠĶU noteikumu:
+    # kartējums kļūst tukšs, sadaļas rinda nedara neko, un fails ir pilnīgi
+    # derīgs. Nekas nekrīt, temps nemainās, un no ekrāna iemesls nav redzams.
+    # Tāpēc svešas augšējā līmeņa atslēgas nosaucam vārdā.
+    known = set(_load_yaml(DEFAULT_RULES_DIR / "rules.yaml") or {})
+    strays = [k for k in data if k not in known]
+    if strays:
+        empty = [k for k in _MAPPING_RULES if k in data and data.get(k) is None]
+        hint = (f" Visticamāk trūkst atkāpes un tā pieder pie «{empty[0]}» — "
+                "sadaļas rindai jāsākas ar diviem tukšumiem." if empty
+                else " Pārbaudi rakstību vai atkāpi.")
+        return (f"nezināms noteikums «{strays[0]}» — koda noklusējumos tāda nav, "
+                f"tāpēc tas neko nedara.{hint}")
+
     provider = str(data.get("tts_provider") or "").strip().lower()
     if provider and provider not in tts.SUPPORTED_PROVIDERS:
         return (f"nezināms tts_provider «{provider}» — lentes iznāks klusas. "
