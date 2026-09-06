@@ -226,7 +226,13 @@ story_reuses_reel: true
 # kandidāts ir tilde (tilde.ai) — latviešu balsis ar pielāgojamām izrunas
 # vārdnīcām; tā cena un API nāk caur sarunu ar pārdošanu, tāpēc adapters
 # vēl nav uzrakstīts.
-tts_provider: azure
+#
+# UZMANĪBU: balss nosaukums un pakalpojums ir jāsaskaņo. Azure gaida
+# «lv-LV-EveritaNeural», ElevenLabs — 20 zīmju ID no balsu bibliotēkas. Ja
+# šeit ir azure, bet balss ID ir no ElevenLabs, Azure atbild ar kļūdu un
+# lente iznāk KLUSA bez cita paskaidrojuma. Diagnostikas «Pārbaudīt visas
+# balsis» to tagad pasaka uzreiz.
+tts_provider: elevenlabs
 # azure: female (lv-LV-EveritaNeural) vai male (lv-LV-NilsNeural), vai pilns
 # balss nosaukums. elevenlabs: female/male (priekšdefinētās Rachel/Adam) vai
 # balss ID no Voice Library — latviešu balsij ņem ID no bibliotēkas.

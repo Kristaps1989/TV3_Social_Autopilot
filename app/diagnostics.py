@@ -285,6 +285,11 @@ def _reel_voice(session, hours: int = 48) -> dict:
         from app import tts
 
         out["configured"] = tts.configured_voices()
+        out["provider"] = tts.provider()
+        # Balss ID no viena pakalpojuma un slēdzis uz otru ir klusa lente bez
+        # jebkāda paskaidrojuma. Tas nav jāmeklē — to var pateikt uzreiz.
+        out["mismatch"] = {sec: why for sec, v in out["configured"].items()
+                           if (why := tts.voice_mismatch(out["provider"], v))}
     except Exception:  # noqa: BLE001 — diagnostika nedrīkst gāzt lapu
         out["configured"] = {}
     for p in rows:

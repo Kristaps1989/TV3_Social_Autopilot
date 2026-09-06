@@ -202,6 +202,31 @@ def voice_choice(rules: dict | None = None, section: str = "") -> dict:
 SAMPLE_TEXT = "Šis ir pārbaudes teikums latviešu valodā."
 
 
+# Kā izskatās katra pakalpojuma balss nosaukums. Azure gaida
+# «lv-LV-EveritaNeural», ElevenLabs — 20 zīmju ID. Sajaukt tos ir viegli
+# (abus ieraksta vienā un tajā pašā laukā), un rezultāts ir klusa lente bez
+# jebkāda paskaidrojuma: Azure uz svešu balsi atbild ar 400 un mēs to
+# apēdam. Tāpēc neatbilstību pasakām PIRMS izsaukuma.
+_AZURE_VOICE_RE = re.compile(r"^[a-z]{2}-[A-Z]{2}-\w+$")
+_ELEVEN_VOICE_RE = re.compile(r"^[A-Za-z0-9]{20}$")
+
+
+def voice_mismatch(provider_name: str, voice: str) -> str:
+    """'' ja balss der pakalpojumam; citādi cilvēkam saprotams iemesls."""
+    voice = (voice or "").strip()
+    if not voice:
+        return ""
+    if provider_name == "azure" and _ELEVEN_VOICE_RE.match(voice):
+        return (f"«{voice}» izskatās pēc ElevenLabs balss ID, bet pakalpojums ir "
+                "Azure — Azure tādu balsi nepazīst un atbild ar kļūdu, lente "
+                "iznāk klusa. Vai nu `tts_provider: elevenlabs`, vai Azure balss "
+                "(piem. lv-LV-EveritaNeural).")
+    if provider_name == "elevenlabs" and _AZURE_VOICE_RE.match(voice):
+        return (f"«{voice}» ir Azure balss nosaukums, bet pakalpojums ir "
+                "ElevenLabs — tur balsis ir 20 zīmju ID no balsu bibliotēkas.")
+    return ""
+
+
 def configured_voices(rules: dict | None = None) -> dict[str, str]:
     """Katra balss, ko noteikumi tiešām liks lietot: sadaļa -> balss.
 
@@ -243,6 +268,11 @@ def check_voices(session=None, rules: dict | None = None) -> dict:
         return out
     for section, voice in configured_voices(rules).items():
         errors: list[str] = []
+        wrong = voice_mismatch(out["provider"], voice)
+        if wrong:
+            out["voices"].append({"section": section, "voice": voice,
+                                  "ok": False, "bytes": 0, "error": wrong})
+            continue
         audio = _SYNTHS[out["provider"]](SAMPLE_TEXT, voice, session, errors,
                                          rules, speech_rate(rules, section))
         out["voices"].append({"section": section, "voice": voice,

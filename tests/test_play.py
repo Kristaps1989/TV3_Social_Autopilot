@@ -978,8 +978,14 @@ def test_approving_does_not_put_two_selections_in_one_evening(session, monkeypat
     client.post(f"/post/{waiting.id}/approve", follow_redirects=False)
     session.expire_all()
     after = session.get(Post, waiting.id)
-    if after.scheduled_at is not None:
+    # Divi iznākumi ir pareizi: vai nu pārcelts uz citu dienu, vai palicis
+    # neapstiprināts ar pateiktu iemeslu. Nepareizs ir tikai viens — ieplānots
+    # tajā pašā vakarā blakus pirmajam.
+    if after.state == "scheduled":
         assert play._riga_day(after.scheduled_at) != play._riga_day(taken)
+    else:
+        assert after.state == "proposed" and after.error
+        assert "laika nav" in after.error
 
 
 def test_preview_shows_the_whole_first_comment_not_one_link(session, monkeypatch):

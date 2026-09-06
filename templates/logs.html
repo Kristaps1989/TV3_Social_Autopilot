@@ -70,8 +70,11 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     {% if rv.reasons %}
     <tr><td>Kāpēc klusas</td><td>{% for why, n in rv.reasons.items() %}{{ why }} ({{ n }}){{ ' · ' if not loop.last }}{% endfor %}</td></tr>
     {% endif %}
+    {% if rv.mismatch %}
+    <tr><td>Balss nesaskan</td><td><strong>{% for sec, why in rv.mismatch.items() %}{{ sec }}: {{ why }}{% if not loop.last %}<br>{% endif %}{% endfor %}</strong></td></tr>
+    {% endif %}
     {% if rv.configured %}
-    <tr><td>Noteikumos izvēlētās</td><td>{% for sec, v in rv.configured.items() %}{{ sec }} → <code>{{ v }}</code>{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+    <tr><td>Noteikumos izvēlētās</td><td>{% if rv.provider %}<code>{{ rv.provider }}</code> · {% endif %}{% for sec, v in rv.configured.items() %}{{ sec }} → <code>{{ v }}</code>{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
     {% endif %}
     {% if rv.voices %}
     <tr><td>Tiešām lietotās</td><td>{% for v, n in rv.voices.items() %}{{ v }}: {{ n }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>

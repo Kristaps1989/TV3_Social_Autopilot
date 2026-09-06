@@ -1128,3 +1128,51 @@ def test_the_reel_closing_line_carries_the_fixed_brand():
 
     spoken = tts.spoken_text(reels.end_voice_text({}), {})
     assert "tēvētrīs" in spoken and "tv trīs" not in spoken
+
+
+def test_voice_from_the_wrong_provider_is_named_before_the_call():
+    """Balss ID no ElevenLabs ar slēdzi uz Azure: Azure atbild ar kļūdu, un
+    lente iznāk klusa bez cita paskaidrojuma. To var pateikt jau iepriekš."""
+    from app import tts
+
+    why = tts.voice_mismatch("azure", "cgSgspJ2msm6clMCkdW9")
+    assert "ElevenLabs" in why and "Azure" in why
+    assert tts.voice_mismatch("azure", "lv-LV-EveritaNeural") == ""
+    assert tts.voice_mismatch("elevenlabs", "cgSgspJ2msm6clMCkdW9") == ""
+    assert "Azure balss" in tts.voice_mismatch("elevenlabs", "lv-LV-NilsNeural")
+
+
+def test_voice_check_reports_the_mismatch_without_calling_the_service(monkeypatch):
+    """Nesaskaņotu balsi nav vērts pat sūtīt — atbilde jau ir zināma."""
+    from app import tts
+
+    monkeypatch.setattr(tts, "_key", lambda session=None, rules=None: "k")
+    called = []
+    monkeypatch.setitem(tts._SYNTHS, "azure",
+                        lambda *a, **k: (called.append(1), b"x")[1])
+    out = tts.check_voices(rules={"reel_voice": True, "tts_provider": "azure",
+                                  "reel_voice_name": "cgSgspJ2msm6clMCkdW9"})
+    assert out["broken"] == ["(visām pārējām)"] and called == []
+    assert "ElevenLabs" in out["voices"][0]["error"]
+
+
+def test_diagnostics_flags_the_provider_voice_mismatch(session, monkeypatch):
+    from app import config, diagnostics
+    from app.models import Article, Post, utcnow
+
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    monkeypatch.setattr(config, "load_rules",
+                        lambda: {"reel_voice": True, "tts_provider": "azure",
+                                 "reel_voice_name": "cgSgspJ2msm6clMCkdW9"})
+    a = Article(guid="g3", url="https://tv3.lv/c", canonical_url="https://tv3.lv/c",
+                title="T", section="news", feed_name="tv3", editor_status="can",
+                published_at=utcnow(), raw_json={})
+    session.add(a)
+    session.flush()
+    session.add(Post(article_id=a.id, channel="fb", format="reel", copy="c",
+                     state="published", scheduled_at=utcnow(),
+                     extra={"recipe": {"voiced": False, "voice_errors": []}}))
+    session.flush()
+    out = diagnostics._reel_voice(session)
+    assert out["provider"] == "azure"
+    assert "ElevenLabs" in out["mismatch"]["(visām pārējām)"]
