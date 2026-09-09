@@ -92,15 +92,35 @@ Threads tokens last 60 days. The daily maintenance job refreshes them
 automatically ~2 weeks before expiry and alerts (log/Slack) if a refresh
 fails or any token has < 7 days left.
 
-## X (no button — env vars only)
+## X (one button, like Facebook and Threads)
 
-X requires a paid API tier and offers no practical OAuth shortcut:
+X does have an OAuth shortcut — OAuth 2.0 Authorization Code with PKCE. The
+old four-key setup (`X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`,
+`X_ACCESS_TOKEN_SECRET`) still works and takes precedence for nobody: when an
+OAuth 2.0 token exists, the adapter uses it.
 
 1. Log in to developer.x.com **as the @TV3Zinas account**, subscribe to a
    tier that covers ~1,200 posts/month.
-2. Create an app, permissions **Read and Write**.
-3. Generate and set all four values: `X_API_KEY`, `X_API_SECRET`,
-   `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`.
+2. App settings → **User authentication set up**: App permissions
+   *Read and write*, Type of App *Web App*, Callback URI
+   `https://<your-app>.up.railway.app/connect/x/callback`.
+3. Keys and tokens → copy the **OAuth 2.0 Client ID** (and Client Secret if
+   the app is confidential) into Konti → X.
+4. Press **«Pieslēgties ar X kontu»**, log in, approve. Done.
+
+Two details that otherwise cost a day:
+
+- **`tweet.write` alone is not enough.** Posting text and uploading the image
+  are separate permissions; without `media.write` the text goes out and the
+  image comes back 403. Both are requested.
+- **The access token lives two hours.** `offline.access` gives a refresh
+  token, and the system rotates it on use and once a day. Without it the
+  connection dies silently after lunch — so the connect page says so when the
+  refresh token is missing.
+
+OAuth 2.0 also changes which endpoints are used: media goes through
+`/2/media/upload` (v2), because v1.1 `upload.twitter.com` does not accept
+bearer tokens. The old key path keeps using v1.1 unchanged.
 
 ## Security model
 

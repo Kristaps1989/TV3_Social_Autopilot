@@ -30,6 +30,9 @@ log = logging.getLogger(__name__)
 TWEETS_URL = "https://api.twitter.com/2/tweets"
 UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
 MEDIA_META_URL = "https://upload.twitter.com/1.1/media/metadata/create.json"
+# OAuth 2.0 ceļš iet uz v2: v1.1 upload.twitter.com Bearer marķieri nepieņem.
+V2_UPLOAD = "https://api.x.com/2/media/upload"
+V2_META = "https://api.x.com/2/media/metadata"
 # X pieļauj līdz četriem attēliem vienā tvītā
 MAX_IMAGES = 4
 # chunked upload: X pieņem gabalus līdz 5 MB; 4 MB atstāj rezervi
@@ -67,15 +70,27 @@ class XAdapter(Adapter):
     def __init__(self):
         from app import credentials
 
+        # Divi ceļi. Jaunais: viena poga administrācijā, OAuth 2.0 marķieris,
+        # kas pats atjaunojas. Vecais: četras OAuth 1.0a atslēgas, ielīmētas ar
+        # roku. Jaunais ir priekšā, bet veco nelaužam — kam tas strādā, tam
+        # jāturpina strādāt bez pieskaršanās.
+        self.bearer = credentials.x_access_token()
         self.api_key = credentials.get("x_api_key")
         self.api_secret = credentials.get("x_api_secret")
         self.access_token = credentials.get("x_access_token")
         self.access_secret = credentials.get("x_access_secret")
 
     def configured(self) -> bool:
-        return all([self.api_key, self.api_secret, self.access_token, self.access_secret])
+        return bool(self.bearer) or all(
+            [self.api_key, self.api_secret, self.access_token, self.access_secret])
+
+    @property
+    def oauth2(self) -> bool:
+        return bool(self.bearer)
 
     def _auth(self, method: str, url: str, extra_params: dict | None = None) -> dict:
+        if self.bearer:
+            return {"Authorization": f"Bearer {self.bearer}"}
         return {"Authorization": oauth1_header(
             method, url, consumer_key=self.api_key, consumer_secret=self.api_secret,
             token=self.access_token, token_secret=self.access_secret,
@@ -100,6 +115,15 @@ class XAdapter(Adapter):
 
     def _upload_media(self, image: str) -> str:
         payload = self._read(image)
+        if self.oauth2:
+            # v2 atbild ar {"data": {"id": ...}}, v1.1 — ar media_id_string
+            resp = httpx.post(V2_UPLOAD, headers=self._auth("POST", V2_UPLOAD),
+                              files={"media": payload},
+                              data={"media_category": "tweet_image"}, timeout=60)
+            self._check(resp, "media upload")
+            body = resp.json()
+            return str((body.get("data") or body).get("id")
+                       or body.get("media_id_string"))
         resp = httpx.post(UPLOAD_URL, headers=self._auth("POST", UPLOAD_URL),
                           files={"media": payload}, timeout=60)
         self._check(resp, "media upload")
@@ -114,6 +138,33 @@ class XAdapter(Adapter):
         self._check(resp, what)
         return resp.json() if resp.content else {}
 
+    def _upload_video_v2(self, payload: bytes) -> str:
+        """Tas pats trīssoļu ceļš uz v2 galapunktiem (OAuth 2.0).
+
+        v1.1 upload.twitter.com Bearer marķieri nepieņem, tāpēc OAuth 2.0
+        pieslēgumam ir savi galapunkti: /initialize, /{id}/append, /{id}/finalize.
+        """
+        init = httpx.post(f"{V2_UPLOAD}/initialize",
+                          headers=self._auth("POST", V2_UPLOAD),
+                          json={"total_bytes": len(payload),
+                                "media_type": "video/mp4",
+                                "media_category": "tweet_video"}, timeout=60)
+        self._check(init, "video INIT")
+        media_id = str((init.json().get("data") or {}).get("id"))
+        for index, start in enumerate(range(0, len(payload), CHUNK_BYTES)):
+            resp = httpx.post(f"{V2_UPLOAD}/{media_id}/append",
+                              headers=self._auth("POST", V2_UPLOAD),
+                              data={"segment_index": str(index)},
+                              files={"media": payload[start:start + CHUNK_BYTES]},
+                              timeout=120)
+            self._check(resp, f"video APPEND {index}")
+        fin = httpx.post(f"{V2_UPLOAD}/{media_id}/finalize",
+                         headers=self._auth("POST", V2_UPLOAD), timeout=60)
+        self._check(fin, "video FINALIZE")
+        data = fin.json().get("data") or {}
+        self._wait_processed(media_id, data.get("processing_info") or {})
+        return media_id
+
     def _upload_video(self, video: str) -> str:
         """Chunked upload: INIT → APPEND pa gabaliem → FINALIZE → STATUS.
 
@@ -121,6 +172,8 @@ class XAdapter(Adapter):
         neizdodas, tāpēc gaidām, kamēr STATUS saka succeeded.
         """
         payload = self._read(video)
+        if self.oauth2:
+            return self._upload_video_v2(payload)
         init = self._upload_form({"command": "INIT", "total_bytes": str(len(payload)),
                                   "media_type": "video/mp4",
                                   "media_category": "tweet_video"}, "video INIT")
@@ -152,6 +205,12 @@ class XAdapter(Adapter):
                 raise PublishError("X video apstrāde pārsniedza laika limitu",
                                    retryable=True)
             time.sleep(min(int(info.get("check_after_secs") or 5), 30))
+            if self.oauth2:
+                resp = httpx.get(V2_UPLOAD, params={"media_id": media_id},
+                                 headers=self._auth("GET", V2_UPLOAD), timeout=30)
+                self._check(resp, "video STATUS")
+                info = (resp.json().get("data") or {}).get("processing_info") or {}
+                continue
             params = {"command": "STATUS", "media_id": media_id}
             resp = httpx.get(UPLOAD_URL, params=params,
                              headers=self._auth("GET", UPLOAD_URL, params),
@@ -166,6 +225,12 @@ class XAdapter(Adapter):
         bez tvīta — nav nekāda.
         """
         try:
+            if self.oauth2:
+                httpx.post(V2_META, headers=self._auth("POST", V2_META),
+                           json={"id": media_id,
+                                 "metadata": {"alt_text": {"text": alt_text[:1000]}}},
+                           timeout=30)
+                return
             httpx.post(MEDIA_META_URL,
                        headers=self._auth("POST", MEDIA_META_URL),
                        json={"media_id": media_id,

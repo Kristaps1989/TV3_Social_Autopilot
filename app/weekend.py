@@ -696,13 +696,13 @@ def build_evergreen(session, day) -> Post | None:
                      _local_slot(day, 9))
 
 
-def build_weekend_guide(session, day) -> Post | None:
+def build_weekend_guide(session, day, now: datetime | None = None) -> Post | None:
     """«Nedēļas nogales gids» (Pk 17:00): izklaides izlase brīvdienām —
     vienīgā franšīze ar tiešu TV3 ētera un Go3 sinerģiju, un vienīgā, kas
     apzināti izceļ izklaides sadaļu, kas darba dienās paliek ziņu ēnā."""
     from app import cards
 
-    articles = week_top(session, section="entertainment")
+    articles = week_top(session, section="entertainment", now=now)
     if len(articles) < 3 or not cards.renderer_available():
         return None
     title = "Nedēļas nogales gids"
@@ -715,7 +715,7 @@ def build_weekend_guide(session, day) -> Post | None:
                             ribbon="NOGALES GIDS")
 
 
-def build_question(session, day) -> Post | None:
+def build_question(session, day, now: datetime | None = None) -> Post | None:
     """«Trešdienas jautājums» (19:00): viens jautājums no nedēļas lasītākā
     raksta. Vienīgā franšīze, kuras mērķis ir komentāri — jēgpilnas sarunas
     signāls Facebook ranžēšanā sver vairāk nekā reakcijas. Atbilde ir rakstā,
@@ -725,7 +725,7 @@ def build_question(session, day) -> Post | None:
     # sarunas jautājums par traģēdiju ir necieņa pret cietušajiem un tiešs
     # zīmola risks — tādus rakstus šis formāts neaiztiek
     # tikai raksts ar attēlu: bez tā kadrs ir plakans krāsas laukums
-    articles = [a for a in week_top(session, limit=6)
+    articles = [a for a in week_top(session, limit=6, now=now)
                 if playful_safe(a) and _any_image(a)]
     if not articles or not cards.renderer_available():
         return None
@@ -796,14 +796,14 @@ def build_year_ago(session, day, now: datetime | None = None) -> Post | None:
                      _local_slot(day, 15))
 
 
-def build_number(session, day) -> Post | None:
+def build_number(session, day, now: datetime | None = None) -> Post | None:
     """«Nedēļas skaitlis» (Ot 12:00): viens pārsteidzošs skaitlis no nedēļas
     TOP raksta uz brendētas kartes, konteksts — rakstā. Ja AI pārliecinošu
     skaitli neatrod, diena paliek tukša: labāk nekas nekā vājš ieraksts."""
     from app import cards
 
     # bojāgājušo skaits nekad nav «nedēļas skaitlis»
-    articles = [a for a in week_top(session, limit=6) if playful_safe(a)][:3]
+    articles = [a for a in week_top(session, limit=6, now=now) if playful_safe(a)][:3]
     if not articles or not cards.renderer_available():
         return None
     for art in articles:
@@ -859,14 +859,14 @@ def plan_for(session, day, weekday: int, now: datetime) -> dict:
         plan["monday_story"] = ("monday", 7,
                                 lambda: build_monday_story(session, day, now))
     elif weekday == 1:    # otrdiena
-        plan["number"] = ("number", 10, lambda: build_number(session, day))
+        plan["number"] = ("number", 10, lambda: build_number(session, day, now))
     elif weekday == 2:    # trešdiena
-        plan["question"] = ("question", 16, lambda: build_question(session, day))
+        plan["question"] = ("question", 16, lambda: build_question(session, day, now))
     elif weekday == 3:    # ceturtdiena
         plan["yearago"] = ("yearago", 10,
                            lambda: build_year_ago(session, day, now))
     elif weekday == 4:    # piektdiena
-        plan["guide"] = ("guide", 12, lambda: build_weekend_guide(session, day))
+        plan["guide"] = ("guide", 12, lambda: build_weekend_guide(session, day, now))
     elif weekday == 5:    # sestdiena
         plan["top5_sport"] = ("top5", 7,
                               lambda: build_top5(session, day, "sport"))

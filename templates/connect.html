@@ -382,32 +382,59 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
     </h2>
     <div class="meta">
       {% if status.x.connected %}
-        Visas 4 atslēgas saglabātas · avots: {{ 'admin UI' if status.x.source == 'admin' else 'vides mainīgie' }}
+        {% if x_oauth %}Pieslēgts ar X kontu{{ ' ' + status.x.label if status.x.label }}
+          {%- if status.x.expires_at %} · marķieris derīgs līdz {{ status.x.expires_at | local }}
+          (atjaunojas pats){% endif %}
+        {% else %}Vecais veids: 4 atslēgas · avots: {{ 'admin UI' if status.x.source == 'admin' else 'vides mainīgie' }}
+        {% endif %}
       {% else %}
-        X OAuth pogu nepiedāvā — 4 atslēgas jāizveido developer.x.com un jāielīmē šeit.
+        Ievadi lietotnes Client ID, tad pieslēdzies ar X kontu — vienā solī.
       {% endif %}
     </div>
-    <form method="post" action="/connect/x">
-      <label class="muted" style="display:block">API Key</label>
-      <input type="password" name="api_key" autocomplete="off"
-             placeholder="{{ 'saglabāta — atstāj tukšu, ja nemaina' if status.x.connected else 'Consumer Keys → API Key' }}">
-      <label class="muted" style="display:block;margin-top:.4rem">API Key Secret</label>
-      <input type="password" name="api_secret" autocomplete="off"
-             placeholder="{{ 'saglabāta — atstāj tukšu, ja nemaina' if status.x.connected else 'Consumer Keys → Secret' }}">
-      <label class="muted" style="display:block;margin-top:.4rem">Access Token</label>
-      <input type="password" name="access_token" autocomplete="off"
-             placeholder="{{ 'saglabāts — atstāj tukšu, ja nemaina' if status.x.connected else 'Authentication Tokens → Access Token' }}">
-      <label class="muted" style="display:block;margin-top:.4rem">Access Token Secret</label>
-      <input type="password" name="access_secret" autocomplete="off"
-             placeholder="{{ 'saglabāts — atstāj tukšu, ja nemaina' if status.x.connected else 'Authentication Tokens → Secret' }}">
-      <div style="margin-top:.5rem"><button class="primary">Saglabāt atslēgas</button></div>
+
+    <form method="post" action="/connect/x/app" style="margin-bottom:.6rem">
+      <label class="muted" style="display:block">X lietotnes Client ID (OAuth 2.0)</label>
+      <input type="text" name="client_id" value="{{ x_client_id }}"
+             placeholder="developer.x.com → App → Keys and tokens → OAuth 2.0 Client ID">
+      <label class="muted" style="display:block;margin-top:.4rem">Client Secret
+        (tikai «confidential» lietotnei)</label>
+      <input type="password" name="client_secret" autocomplete="off"
+             placeholder="{{ 'saglabāts — atstāj tukšu, ja nemaina' if x_client_secret_ready else 'nav obligāts' }}">
+      <div style="margin-top:.5rem"><button class="primary">Saglabāt lietotnes datus</button></div>
     </form>
+    {% if x_client_id %}
+      <a class="btn" href="/connect/x/start"><button class="primary" type="button">
+        {{ 'Pārslēgt / atjaunot savienojumu' if x_oauth else 'Pieslēgties ar X kontu' }}
+      </button></a>
+    {% endif %}
     {% if status.x.connected %}
     <form method="post" action="/connect/x/disconnect" style="margin-top:.4rem"
-          onsubmit="return confirm('Noņemt X atslēgas?')">
+          onsubmit="return confirm('Atvienot X kontu un noņemt atslēgas?')">
       <button class="danger">Atvienot</button>
     </form>
     {% endif %}
+
+    <details style="margin-top:.6rem">
+      <summary class="muted">Vecais veids: 4 atslēgas ar roku (OAuth 1.0a)</summary>
+      <p class="muted">Vajadzīgs tikai tad, ja OAuth 2.0 lietotni izveidot nevar.
+        Ja abi ir aizpildīti, sistēma lieto OAuth 2.0.</p>
+      <form method="post" action="/connect/x">
+        <label class="muted" style="display:block">API Key</label>
+        <input type="password" name="api_key" autocomplete="off"
+               placeholder="Consumer Keys → API Key">
+        <label class="muted" style="display:block;margin-top:.4rem">API Key Secret</label>
+        <input type="password" name="api_secret" autocomplete="off"
+               placeholder="Consumer Keys → Secret">
+        <label class="muted" style="display:block;margin-top:.4rem">Access Token</label>
+        <input type="password" name="access_token" autocomplete="off"
+               placeholder="Authentication Tokens → Access Token">
+        <label class="muted" style="display:block;margin-top:.4rem">Access Token Secret</label>
+        <input type="password" name="access_secret" autocomplete="off"
+               placeholder="Authentication Tokens → Secret">
+        <div style="margin-top:.5rem"><button>Saglabāt atslēgas</button></div>
+      </form>
+    </details>
+
     <form method="post" action="/connect/x-ads" style="margin-top:.6rem">
       <label class="muted" style="display:block">X Ads konta ID (nav obligāti —
         4. fāze; vajag apstiprinātu Ads API piekļuvi)</label>
@@ -416,8 +443,12 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
       <button style="margin-top:.4rem">Saglabāt</button>
     </form>
     <p class="muted">developer.x.com (pieteikties <b>kā @TV3Zinas</b>) → maksas līmenis →
-    App permissions <b>“Read and Write”</b> (jāuzstāda PIRMS Access Token izveides) →
-    Keys and tokens → izveido API Key/Secret un Access Token/Secret.</p>
+    App settings → User authentication set up: <b>Read and write</b>, App type
+    <b>Web App</b>, Callback URI <code>{{ redirect_x }}</code> → Keys and tokens →
+    <b>OAuth 2.0 Client ID</b>. Tad šeit viena poga: X login un apstiprinājums.
+    Tvītam un attēlam ir <b>atsevišķas</b> tiesības, tāpēc prasām
+    <code>tweet.write</code> un <code>media.write</code> kopā — bez otrās teksts
+    iet ārā, bet attēls atbild ar 403.</p>
   </div>
 
   <div class="card">

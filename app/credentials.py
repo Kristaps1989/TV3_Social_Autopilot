@@ -42,6 +42,8 @@ ENV_FALLBACK = {
     "x_access_token": "X_ACCESS_TOKEN",
     "x_access_secret": "X_ACCESS_TOKEN_SECRET",
     "x_ads_account_id": "X_ADS_ACCOUNT_ID",
+    "x_client_id": "X_CLIENT_ID",
+    "x_client_secret": "X_CLIENT_SECRET",
     "google_ads_customer_id": "GOOGLE_ADS_CUSTOMER_ID",
     "google_ads_developer_token": "GOOGLE_ADS_DEVELOPER_TOKEN",
     "google_ads_client_id": "GOOGLE_ADS_CLIENT_ID",
@@ -260,6 +262,136 @@ def refresh_threads_token(session) -> bool:
     return True
 
 
+# --- X (Twitter) OAuth 2.0 ------------------------------------------------
+#
+# Agrāk X pieslēgšana prasīja ar roku ielīmēt ČETRAS vērtības no izstrādātāju
+# portāla (OAuth 1.0a lietotāja atslēgas). Tas ir tas pats, ko citur atrisina
+# viena poga: redaktors ieiet ar savu X kontu un apstiprina. Šeit ir tā poga —
+# OAuth 2.0 Authorization Code ar PKCE, tāpat kā Facebook un Threads.
+#
+# Vienreizējs solis paliek: kādam X izstrādātāju portālā jāizveido lietotne un
+# jāielīmē tās client_id (un client_secret, ja lietotne ir «confidential»). Tas
+# ir tas pats, ko sistēma jau prasa Meta un Threads lietotnēm.
+
+X_AUTHORIZE = "https://x.com/i/oauth2/authorize"
+X_TOKEN = "https://api.x.com/2/oauth2/token"
+X_ME = "https://api.x.com/2/users/me"
+# `media.write` NAV iekļauts parastajā publicēšanas komplektā, un bez tā
+# tvīta izveide strādā, bet attēla augšupielāde atbild ar 403. Tieši tāpēc
+# tas te ir atsevišķi nosaukts.
+X_SCOPES = "tweet.read tweet.write users.read media.write offline.access"
+# Piekļuves marķieris dzīvo divas stundas; `offline.access` dod atsvaidzinātāju.
+# Atjaunojam ar rezervi, lai ieraksts nekristu tieši uz robežas.
+X_REFRESH_MARGIN = timedelta(minutes=10)
+
+
+def x_app() -> tuple[str, str]:
+    """X lietotnes dati: ievadīti administrācijā (DB) vai no vides."""
+    return get("x_client_id"), get("x_client_secret")
+
+
+def x_auth_url(session, redirect_uri: str, state: str) -> str:
+    """Autorizācijas adrese + PKCE pārbaudītājs, kas paliek gaidīt atbildi."""
+    import base64
+    import hashlib
+    from urllib.parse import urlencode
+
+    client_id, _ = x_app()
+    verifier = secrets.token_urlsafe(64)[:128]
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    put(session, "x_pkce_verifier", verifier,
+        expires_at=utcnow() + timedelta(minutes=15))
+    return X_AUTHORIZE + "?" + urlencode({
+        "response_type": "code", "client_id": client_id,
+        "redirect_uri": redirect_uri, "scope": X_SCOPES, "state": state,
+        "code_challenge": challenge, "code_challenge_method": "S256"})
+
+
+def _x_token_auth(client_id: str, client_secret: str) -> tuple[dict, tuple | None]:
+    """(papildu ķermeņa lauki, basic auth). Lietotne ar noslēpumu autorizējas
+    ar HTTP Basic; publiska lietotne sūta client_id ķermenī."""
+    if client_secret:
+        return {}, (client_id, client_secret)
+    return {"client_id": client_id}, None
+
+
+def x_exchange_code(session, code: str, redirect_uri: str) -> dict:
+    """Kods -> marķieri. Atgriež {'token', 'refresh', 'expires'}."""
+    client_id, client_secret = x_app()
+    row = info(session, "x_pkce_verifier")
+    verifier = (row.value if row else "") or ""
+    if not verifier:
+        raise RuntimeError("PKCE pārbaudītājs pazuda vai novecoja — sāc no jauna")
+    extra, auth = _x_token_auth(client_id, client_secret)
+    r = httpx.post(X_TOKEN, timeout=30, auth=auth, data={
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": redirect_uri, "code_verifier": verifier, **extra})
+    put(session, "x_pkce_verifier", "")   # vienreizējs
+    if r.status_code != 200:
+        raise RuntimeError(f"X marķiera apmaiņa {r.status_code}: {r.text[:200]}")
+    data = r.json()
+    return {"token": data["access_token"],
+            "refresh": data.get("refresh_token", ""),
+            "expires": utcnow() + timedelta(seconds=int(data.get("expires_in", 7200)))}
+
+
+def x_handle(token: str) -> str:
+    """@lietotājvārds, lai administrācijā būtu redzams, KURŠ konts pieslēgts."""
+    try:
+        r = httpx.get(X_ME, timeout=15,
+                      headers={"Authorization": f"Bearer {token}"})
+        if r.status_code == 200:
+            return "@" + str((r.json().get("data") or {}).get("username") or "")
+    except Exception as e:  # noqa: BLE001 — vārds ir ērtība, ne prasība
+        log.debug("X users/me failed: %s", e)
+    return ""
+
+
+def refresh_x_token(session) -> bool:
+    """Atjauno piekļuves marķieri ar atsvaidzinātāju (tas arī tiek nomainīts)."""
+    row = info(session, "x_oauth_refresh")
+    if not (row and row.value):
+        return False
+    client_id, client_secret = x_app()
+    extra, auth = _x_token_auth(client_id, client_secret)
+    r = httpx.post(X_TOKEN, timeout=30, auth=auth, data={
+        "grant_type": "refresh_token", "refresh_token": row.value, **extra})
+    if r.status_code != 200:
+        log.warning("X token refresh failed: %s", r.text[:200])
+        return False
+    data = r.json()
+    label = (info(session, "x_oauth_token") or Credential(key="x")).label or ""
+    put(session, "x_oauth_token", data["access_token"], label=label,
+        expires_at=utcnow() + timedelta(seconds=int(data.get("expires_in", 7200))))
+    if data.get("refresh_token"):
+        put(session, "x_oauth_refresh", data["refresh_token"])
+    return True
+
+
+def x_access_token(session=None) -> str:
+    """Derīgs X piekļuves marķieris ('' ja pieslēguma nav).
+
+    Marķieris dzīvo divas stundas, tāpēc to atjaunojam pats brīdī, kad tas
+    ir vajadzīgs — citādi publicēšana kristu ik pēc divām stundām, un iemesls
+    izskatītos pēc nejaušas 401.
+    """
+    own = session is None
+    if own:
+        session = get_session()
+    try:
+        row = info(session, "x_oauth_token")
+        if not (row and row.value):
+            return ""
+        if row.expires_at and row.expires_at - X_REFRESH_MARGIN <= utcnow():
+            refresh_x_token(session)
+            row = info(session, "x_oauth_token")
+        return (row.value if row else "") or ""
+    finally:
+        if own:
+            session.close()
+
+
 # --- Maintenance ----------------------------------------------------------
 
 def maintain_tokens(session) -> list[str]:
@@ -274,6 +406,16 @@ def maintain_tokens(session) -> list[str]:
                 log.info("threads token refreshed")
             else:
                 warnings.append(f"Threads token expires in {days_left}d and refresh failed")
+    # X marķieris dzīvo tikai divas stundas. Parasti to atjauno publicēšana,
+    # bet klusā dienā (nav ko publicēt) atsvaidzinātājs var nostāvēt tik ilgi,
+    # ka X to atsauc, un pieslēgums nomirst klusi. Tāpēc pagriežam to arī te.
+    row = info(session, "x_oauth_token")
+    if row and row.value:
+        if not get("x_oauth_refresh", session):
+            warnings.append("X pieslēgts bez offline.access — marķieris beigsies "
+                            "pēc 2 h; pieslēdz X vēlreiz")
+        elif not refresh_x_token(session):
+            warnings.append("X marķiera atjaunošana neizdevās — pieslēdz X vēlreiz")
     for key, name in (("fb_page_token", "Facebook"), ("threads_token", "Threads")):
         row = info(session, key)
         if row and row.value and row.expires_at:
@@ -302,8 +444,13 @@ def connection_status(session) -> dict[str, dict]:
         "facebook": _status(["fb_page_id", "fb_page_token"], "fb_page_token"),
         "instagram": _status(["ig_user_id", "fb_page_token"], "ig_user_id"),
         "threads": _status(["threads_user_id", "threads_token"], "threads_token"),
-        "x": _status(["x_api_key", "x_api_secret", "x_access_token", "x_access_secret"],
-                     "x_access_token"),
+        # Divi ceļi: jaunais (viena poga, OAuth 2.0) un vecais (četras
+        # atslēgas ar roku). Pietiek ar vienu — statusam jārāda tas, kas
+        # tiešām strādā, ne tas, kuru mēs iesakām.
+        "x": (_status(["x_oauth_token"], "x_oauth_token")
+              if get("x_oauth_token", session)
+              else _status(["x_api_key", "x_api_secret", "x_access_token",
+                            "x_access_secret"], "x_access_token")),
         "google_ads": _status(["google_ads_customer_id", "google_ads_developer_token",
                                "google_ads_client_id", "google_ads_client_secret",
                                "google_ads_refresh_token"], "google_ads_customer_id"),

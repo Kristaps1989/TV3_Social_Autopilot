@@ -1004,6 +1004,12 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "pixel_id": credentials.get("meta_pixel_id", session),
             "ads_issues": ads_issues,
             "x_ads_account_id": credentials.get("x_ads_account_id", session),
+            "redirect_x": f"{public_base(request)}/connect/x/callback",
+            "x_client_id": credentials.get("x_client_id", session),
+            "x_client_secret_ready": bool(credentials.get("x_client_secret", session)),
+            # ar kuru ceļu X tiešām ir pieslēgts: no tā atkarīgs gan teksts,
+            # gan tas, kurus galapunktus lieto adapteris
+            "x_oauth": bool(credentials.get("x_oauth_token", session)),
             "google_ads_status": status.get("google_ads") or {},
             "google_ads": _google_ads_context(session),
             "error": error, "connected": connected,
@@ -1077,6 +1083,79 @@ def disconnect_instagram():
         session.close()
 
 
+@app.post("/connect/x/app")
+def connect_x_app(client_id: str = Form(""), client_secret: str = Form("")):
+    """X lietotnes dati — vienreizējs solis, tāpat kā Meta un Threads lietotnēm.
+
+    Pēc tā X pieslēgšana ir viena poga: redaktors ieiet ar savu kontu un
+    apstiprina. Agrāk te bija jāielīmē četras OAuth 1.0a atslēgas.
+    """
+    session = get_session()
+    try:
+        if client_id.strip():
+            credentials.put(session, "x_client_id", client_id.strip())
+        if client_secret.strip():
+            credentials.put(session, "x_client_secret", client_secret.strip())
+        return RedirectResponse("/connect?connected=X+lietotnes+dati+saglabāti",
+                                status_code=303)
+    finally:
+        session.close()
+
+
+@app.get("/connect/x/start")
+def connect_x_start(request: Request):
+    """Aizsūta uz X autorizāciju (OAuth 2.0 ar PKCE)."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if not credentials.x_app()[0]:
+            return RedirectResponse(
+                f"/connect?error={quote('Vispirms ievadi X lietotnes Client ID')}",
+                status_code=303)
+        state = credentials.new_state(session)
+        url = credentials.x_auth_url(
+            session, f"{public_base(request)}/connect/x/callback", state)
+        return RedirectResponse(url, status_code=303)
+    finally:
+        session.close()
+
+
+@app.get("/connect/x/callback")
+def connect_x_callback(request: Request, code: str = "", state: str = "",
+                       error: str = "", error_description: str = ""):
+    """X atbilde: kods -> marķieri -> saglabāts konts ar @vārdu."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if error:
+            detail = error_description or error
+            return RedirectResponse(f"/connect?error={quote(detail[:250])}",
+                                    status_code=303)
+        if not credentials.check_state(session, state):
+            return RedirectResponse(
+                f"/connect?error={quote('Autorizācijas state nesakrita — mēģini vēlreiz')}",
+                status_code=303)
+        try:
+            got = credentials.x_exchange_code(
+                session, code, f"{public_base(request)}/connect/x/callback")
+        except Exception as e:  # noqa: BLE001 — skaidra ziņa administrācijai
+            return RedirectResponse(f"/connect?error={quote(str(e)[:250])}",
+                                    status_code=303)
+        handle = credentials.x_handle(got["token"])
+        credentials.put(session, "x_oauth_token", got["token"], label=handle,
+                        expires_at=got["expires"])
+        credentials.put(session, "x_oauth_refresh", got["refresh"])
+        note = f"X pieslēgts{' ' + handle if handle else ''}"
+        if not got["refresh"]:
+            note += " — bet bez offline.access marķieris beigsies pēc 2 h"
+        return RedirectResponse(f"/connect?connected={quote(note)}",
+                                status_code=303)
+    finally:
+        session.close()
+
+
 @app.post("/connect/x")
 def connect_x(api_key: str = Form(""), api_secret: str = Form(""),
               access_token: str = Form(""), access_secret: str = Form("")):
@@ -1098,7 +1177,8 @@ def connect_x(api_key: str = Form(""), api_secret: str = Form(""),
 def disconnect_x():
     session = get_session()
     try:
-        for key in ("x_api_key", "x_api_secret", "x_access_token", "x_access_secret"):
+        for key in ("x_api_key", "x_api_secret", "x_access_token", "x_access_secret",
+                    "x_oauth_token", "x_oauth_refresh"):
             credentials.put(session, key, "", label="")
         return RedirectResponse("/connect?connected=X+atslēgas+noņemtas",
                                 status_code=303)
