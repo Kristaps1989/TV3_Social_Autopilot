@@ -140,6 +140,16 @@ def run_decisions(session, limit: int = 20) -> int:
                                            outcome="blocked",
                                            reason="video arhīvs: dienas limits kanālā"))
                     continue
+                # Par vienu notikumu arhīvā mēdz būt divi trīs klipi. Plūsmā tie
+                # iznāk viens aiz otra kā atkārtojums; skatītājam pietiek ar
+                # vienu, un pārējos viņš atrod tv3.lv/video — tieši uz turieni
+                # saite ved.
+                twin = videos.recent_story_clip(session, article, channel)
+                if twin is not None:
+                    session.add(Evaluation(
+                        article_id=article.id, channel=channel, outcome="blocked",
+                        reason=f"video arhīvs: par šo pašu stāstu jau bija «{twin.title[:60]}»"))
+                    continue
             format_notes: list[str] = []
             format_trace: dict = {}
             fmt, card_media, recipe = resolve_format(session, channel, cfg,

@@ -465,3 +465,73 @@ def test_play_investigation_reads_inline_data_sitemap_and_apis(session, monkeypa
     assert client.get("/logs/site-probe/auto", params={"site": "play"}).json()["site"] == "play"
     assert client.get("/logs/site-probe/auto", params={"site": "x"}).status_code == 400
     assert "Izpētīt play.tv3.lv (JSON)" in client.get("/logs").text
+
+
+# --- viens stāsts, viens klips -----------------------------------------------
+
+def _clip(session, vid, title, lead="", article="", published=None):
+    from app.models import Article
+
+    a = Article(guid=f"video:{vid}", url=f"https://tv3.lv/video/{vid}/",
+                canonical_url=f"https://tv3.lv/video/{vid}/", title=title,
+                lead=lead, section="news", feed_name=videos.FEED_NAME,
+                editor_status="can", published_at=published or utcnow(),
+                raw_json={"_video": True, "_video_id": str(vid),
+                          "_video_article": article,
+                          "_video_url": f"https://cdn/{vid}.m3u8"})
+    session.add(a)
+    session.flush()
+    return a
+
+
+def test_two_clips_about_one_event_are_recognised(session):
+    """Īstie virsraksti no plūsmas: divi klipi par vienu ietves remontu
+    Ilģuciemā izgāja viens aiz otra kā atkārtojums."""
+    a = _clip(session, 198176358,
+              "Jaunsaules ielā Ilģuciemā remonts pabeigts – bet ietves palikušas nesavienotas")
+    b = _clip(session, 198176359,
+              "Ilģuciemā salaboja ietvi Jaunsaules ielā - tikai tā beidzas nekurienē")
+    assert videos.same_story(a, b)
+
+    # dažādi stāsti, kas dala pilsētas vārdu, NEsaplūst — nepublicēt atsevišķu
+    # stāstu ir sliktāk nekā publicēt otru klipu par to pašu
+    c = _clip(session, 3, "Rīgas domes sēdē lems par jauno budžetu nākamgad")
+    d = _clip(session, 4, "Rīgas domes deputāti apstiprina satiksmes plānu")
+    assert not videos.same_story(c, d)
+
+    # viens un tas pats raksts ir drošs signāls arī bez virsrakstu sakritības
+    e = _clip(session, 5, "Pavisam cits teksts", article="https://tv3.lv/zinas/x/")
+    f = _clip(session, 6, "Vēl viens cits", article="https://tv3.lv/zinas/x/")
+    assert videos.same_story(e, f)
+
+
+def test_the_second_clip_of_a_story_is_not_scheduled(session, monkeypatch):
+    """Skatītājam pietiek ar vienu — pārējos viņš atrod tv3.lv/video."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    first = _clip(session, 198176358,
+                  "Jaunsaules ielā Ilģuciemā remonts pabeigts – bet ietves palikušas nesavienotas")
+    second = _clip(session, 198176359,
+                   "Ilģuciemā salaboja ietvi Jaunsaules ielā - tikai tā beidzas nekurienē")
+    session.add(Post(article_id=first.id, channel="fb_video", format="reel",
+                     copy="c", state="published", scheduled_at=utcnow(), extra={}))
+    session.commit()
+
+    twin = videos.recent_story_clip(session, second, "fb_video")
+    assert twin is not None and twin.id == first.id
+    # citā kanālā tas pats stāsts arī skaitās — plūsmas ir dažādas, stāsts viens
+    assert videos.recent_story_clip(session, second, "") is not None
+
+
+def test_an_old_clip_no_longer_blocks_a_new_take(session, monkeypatch):
+    """Atdzišana ir 48 h: pēc nedēļas jauns skatījums uz to pašu vietu ir
+    jauns stāsts, ne atkārtojums."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    first = _clip(session, 198176358,
+                  "Jaunsaules ielā Ilģuciemā remonts pabeigts – bet ietves palikušas nesavienotas")
+    second = _clip(session, 198176359,
+                   "Ilģuciemā salaboja ietvi Jaunsaules ielā - tikai tā beidzas nekurienē")
+    session.add(Post(article_id=first.id, channel="fb_video", format="reel",
+                     copy="c", state="published",
+                     scheduled_at=utcnow() - timedelta(days=7), extra={}))
+    session.commit()
+    assert videos.recent_story_clip(session, second, "fb_video") is None

@@ -19,6 +19,12 @@ piesaistīti rakstiem. Šis dokuments ir plāns un ieviestā uzvedība.
 - **Papildu plūsma, ne konkurents.** Klipi bez raksta aizpilda tukšumus
   (vakari, nedēļas nogales, klusas stundas starp ziņām), bet neaizņem ziņu
   vietu: garš pusperiods rindas prioritātē, savs dienas limits kanālā.
+- **Viens stāsts — viens klips.** Par vienu notikumu arhīvā mēdz būt divi
+  trīs klipi (cits kadrs, cita saruna). Plūsmā tie iznāk viens aiz otra kā
+  atkārtojums, tāpēc 48 stundu laikā iziet tikai pirmais; pārējos skatītājs
+  atrod tv3.lv/video, un tieši uz turieni saite ved. To pašu stāstu atpazīst
+  divi signāli: klipi piesaistīti vienam rakstam, vai virsrakstu celmi
+  pietiekami sakrīt (latviešu galotnes tāpēc tiek nogrieztas).
 
 ## Divi ceļi
 

@@ -732,6 +732,76 @@ def posted_today(session, channel: str, now: datetime | None = None) -> int:
     return count
 
 
+# Cik ilgi viens stāsts skaitās «jau rādīts». Arhīvā par vienu notikumu mēdz
+# būt divi trīs klipi (cits kadrs, cita saruna), un plūsmā tie iznāk viens aiz
+# otra kā atkārtojums. Skatītājam pietiek ar vienu — pārējos viņš atradīs
+# tv3.lv/video, un tieši uz turieni saite ved.
+STORY_COOLDOWN_HOURS = 48
+# Kad divus klipus saukt par vienu stāstu. Latviešu galotnes salīdzināšanu
+# sabojā («ietves» pret «ietvi»), tāpēc vārdus griežam līdz celmam. Sliekšņi
+# nāk no īstiem virsrakstiem: viens stāsts deva trīs kopīgus celmus un ~0,43
+# pārklājumu, bet divi dažādi Rīgas domes stāsti — divus un 0,33. Robeža ir
+# starp tiem, un tā ir apzināti stingra: nepublicēt atsevišķu stāstu ir
+# sliktāk nekā publicēt otru klipu par to pašu.
+STORY_STEM = 5
+STORY_MIN_SHARED = 3
+STORY_WORD_OVERLAP = 0.4
+_STORY_STOPWORDS = {
+    "un", "ar", "par", "no", "uz", "bet", "ka", "kas", "kā", "tas", "tā", "ir",
+    "nav", "jau", "vēl", "arī", "pēc", "pirms", "līdz", "video", "foto", "tv3",
+    "tikai", "kur", "kad", "kāpēc", "vai",
+}
+
+
+def _story_words(text: str) -> set[str]:
+    words = re.findall(r"\w{4,}", (text or "").lower(), flags=re.UNICODE)
+    return {w[:STORY_STEM] for w in words if w not in _STORY_STOPWORDS}
+
+
+def same_story(a, b) -> bool:
+    """Vai divi klipi stāsta VIENU stāstu.
+
+    Divi signāli. Pirmais ir drošs: abi klipi piesaistīti vienam rakstam — tad
+    tas pēc definīcijas ir viens notikums. Otrais ir spriedums pēc virsrakstu
+    celmiem, un tieši tā izskatījās divi ieraksti par vienu ietves remontu
+    Ilģuciemā: dažādi vārdi, viens un tas pats notikums.
+    """
+    if a is None or b is None or a.id == b.id:
+        return False
+    art_a = str((a.raw_json or {}).get("_video_article") or "")
+    art_b = str((b.raw_json or {}).get("_video_article") or "")
+    if art_a and art_a == art_b:
+        return True
+    wa = _story_words(f"{a.title} {a.lead or ''}")
+    wb = _story_words(f"{b.title} {b.lead or ''}")
+    if not wa or not wb:
+        return False
+    shared = wa & wb
+    if len(shared) < STORY_MIN_SHARED:
+        return False
+    return len(shared) / min(len(wa), len(wb)) >= STORY_WORD_OVERLAP
+
+
+def recent_story_clip(session, article, channel: str = "",
+                      hours: int = STORY_COOLDOWN_HOURS,
+                      now: datetime | None = None):
+    """Klips par TO PAŠU stāstu, kas nesen jau aizgāja ('' ja tāda nav)."""
+    now = now or utcnow()
+    since = now - timedelta(hours=hours)
+    q = select(Post).where(
+        Post.state.in_(("proposed", "scheduled", "publishing", "published")),
+        Post.scheduled_at >= since)
+    if channel:
+        q = q.where(Post.channel == channel)
+    for post in session.execute(q).scalars().all():
+        other = post.article
+        if other is None or other.id == article.id or not is_video_item(other):
+            continue
+        if same_story(article, other):
+            return other
+    return None
+
+
 def over_daily_cap(session, channel: str, rules: dict | None = None) -> bool:
     cap = int(settings(rules).get("daily_cap") or 0)
     return bool(cap) and posted_today(session, channel) >= cap
