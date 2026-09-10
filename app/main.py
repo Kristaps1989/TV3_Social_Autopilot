@@ -67,7 +67,10 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent
 # Pages reachable without a session: healthcheck, the auth pages, rendered
 # card images (unguessable names; platforms must be able to fetch them) and
 # the /r/<code> short links, which every reader on Facebook follows.
-PUBLIC_PATHS = {"/health", "/login", "/setup"}
+# Meta atzvani (deauthorize/delete) nāk no servera, nevis no pārlūka, tāpēc
+# sesijas sīkdatnes tiem nav; tos autentificē signed_request paraksts.
+PUBLIC_PATHS = {"/health", "/login", "/setup",
+                "/connect/threads/uninstall", "/connect/threads/delete"}
 
 
 @app.middleware("http")
@@ -994,6 +997,8 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "threads_app_id": th_app_id,
             "redirect_fb": f"{public_base(request)}/connect/facebook/callback",
             "redirect_th": f"{public_base(request)}/connect/threads/callback",
+            "th_uninstall": f"{public_base(request)}/connect/threads/uninstall",
+            "th_delete": f"{public_base(request)}/connect/threads/delete",
             "ga4_connected": ga4.configured(),
             "ga4_property": credentials.get("ga4_property_id", session),
             "ga4_sa_label": (ga4_sa.label if ga4_sa and ga4_sa.value else ""),
@@ -1610,6 +1615,55 @@ def connect_threads_callback(request: Request, code: str = "", state: str = "",
         return RedirectResponse("/connect?connected=threads", status_code=303)
     finally:
         session.close()
+
+
+# Meta prasa aizpildīt visus trīs atzvanus, citādi Threads use case iestatījumus
+# nevar saglabāt. Šie divi ir īsti: kad lietotājs Threads pusē atsauc piekļuvi,
+# mūsu tokens ir miris, tāpēc to uzreiz izmetam.
+
+@app.post("/connect/threads/uninstall")
+def threads_uninstall(signed_request: str = Form("")):
+    _, secret = credentials.threads_app()
+    try:
+        credentials.parse_signed_request(signed_request, secret)
+    except ValueError as e:
+        log.warning("Threads deauth atzvans noraidīts: %s", e)
+        return Response(status_code=400)
+    session = get_session()
+    try:
+        for key in ("threads_user_id", "threads_token"):
+            credentials.put(session, key, "", label="")
+        log.warning("Threads piekļuve atsaukta konta pusē — savienojums noņemts")
+        return Response(status_code=200)
+    finally:
+        session.close()
+
+
+@app.post("/connect/threads/delete")
+def threads_delete(request: Request, signed_request: str = Form("")):
+    """Datu dzēšanas pieprasījums. Mēs par Threads lietotāju glabājam tikai
+    konta id un tokenu, tāpēc dzēšana ir tūlītēja; Meta grib atbildē saiti un
+    apstiprinājuma kodu, ko cilvēks var uzrādīt."""
+    from fastapi.responses import JSONResponse
+
+    _, secret = credentials.threads_app()
+    try:
+        credentials.parse_signed_request(signed_request, secret)
+    except ValueError as e:
+        log.warning("Threads dzēšanas atzvans noraidīts: %s", e)
+        return Response(status_code=400)
+    session = get_session()
+    try:
+        for key in ("threads_user_id", "threads_token"):
+            credentials.put(session, key, "", label="")
+    finally:
+        session.close()
+    import secrets
+
+    code = secrets.token_hex(8)
+    log.warning("Threads datu dzēšana izpildīta, kods %s", code)
+    return JSONResponse({"url": f"{public_base(request)}/connect",
+                         "confirmation_code": code})
 
 
 @app.get("/overview", response_class=HTMLResponse)

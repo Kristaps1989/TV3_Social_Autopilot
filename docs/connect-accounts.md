@@ -89,6 +89,11 @@ assign the Page, generate a never-expiring token with `pages_manage_posts` +
    the post (`threads_link_in_reply`); all four are "Ready for testing" in
    Development mode, so no App Review is needed for the tester account.
 2. Redirect URI: `https://<your-app>.up.railway.app/connect/threads/callback`.
+   Meta will not save the form unless the other two callbacks are filled in
+   too: Uninstall `…/connect/threads/uninstall`, Delete
+   `…/connect/threads/delete`. Both are real endpoints — they verify Meta's
+   `signed_request` and drop the stored token. Confirm each URL from the
+   dropdown after pasting, otherwise the field stays empty.
 3. Set `THREADS_APP_ID` / `THREADS_APP_SECRET` in Railway.
 4. `/connect` → **Savienot ar Threads** → log in as the TV3 sports account.
 

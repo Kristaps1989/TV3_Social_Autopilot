@@ -235,6 +235,31 @@ def threads_auth_url(redirect_uri: str, state: str) -> str:
             f"&scope={THREADS_SCOPES}&response_type=code")
 
 
+def parse_signed_request(signed: str, secret: str) -> dict:
+    """Meta `signed_request` (deauthorize/delete atzvani) -> derīga krava.
+
+    Paraksts ir base64url(HMAC-SHA256(payload, app secret)). Ja tas nesakrīt,
+    kravu neatgriežam — citādi jebkurš svešs POST varētu izmest mūsu tokenu.
+    """
+    import base64
+    import hashlib
+    import hmac
+    import json
+
+    def _b64(part: str) -> bytes:
+        return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+    try:
+        sig_part, payload_part = signed.split(".", 1)
+        expected = hmac.new(secret.encode(), payload_part.encode(),
+                            hashlib.sha256).digest()
+        if not hmac.compare_digest(_b64(sig_part), expected):
+            raise ValueError("paraksts nesakrīt")
+        return json.loads(_b64(payload_part))
+    except (ValueError, KeyError, UnicodeDecodeError) as e:
+        raise ValueError(f"nederīgs signed_request: {e}") from e
+
+
 def threads_exchange_code(code: str, redirect_uri: str) -> tuple[str, str, datetime]:
     """Auth code -> (user_id, long-lived token, expiry). Long-lived tokens
     last 60 days and must be refreshed (see maintain_tokens)."""

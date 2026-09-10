@@ -374,7 +374,11 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
     <code>threads_basic</code>, <code>threads_content_publish</code>,
     <code>threads_manage_replies</code> un <code>threads_read_replies</code>
     (pēdējās divas vajadzīgas atbildei ar saiti zem ieraksta) un Redirect URI:
-    <code>{{ redirect_th }}</code>.</p>
+    <code>{{ redirect_th }}</code>. Meta prasa aizpildīt arī pārējos divus
+    atzvanus, citādi formu nevar saglabāt — <em>Uninstall Callback URL</em>:
+    <code>{{ th_uninstall }}</code>, <em>Delete Callback URL</em>:
+    <code>{{ th_delete }}</code>. Katru saiti pēc ielīmēšanas apstiprini
+    (nospied uz piedāvājuma), citādi lauks paliek tukšs.</p>
   </div>
 
   <div class="card">
