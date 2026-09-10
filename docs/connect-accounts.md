@@ -82,8 +82,12 @@ assign the Page, generate a never-expiring token with `pages_manage_posts` +
 
 ## Threads (same Meta app)
 
-1. In the same app add the **Threads API** use case with `threads_basic` +
-   `threads_content_publish`, and its own app-level credentials.
+1. In the same app add the **Threads API** use case with `threads_basic`,
+   `threads_content_publish`, `threads_manage_replies` and
+   `threads_read_replies`, and its own app-level credentials. The two reply
+   permissions are what lets the adapter put the tv3.lv link in a reply under
+   the post (`threads_link_in_reply`); all four are "Ready for testing" in
+   Development mode, so no App Review is needed for the tester account.
 2. Redirect URI: `https://<your-app>.up.railway.app/connect/threads/callback`.
 3. Set `THREADS_APP_ID` / `THREADS_APP_SECRET` in Railway.
 4. `/connect` → **Savienot ar Threads** → log in as the TV3 sports account.

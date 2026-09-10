@@ -220,11 +220,19 @@ def threads_app() -> tuple[str, str]:
     return get("threads_app_id"), get("threads_app_secret")
 
 
+# Pamata publicēšanai pietiek ar pirmajām divām; atbildes (saite komentārā,
+# `threads_link_in_reply`) prasa arī reply atļaujas. Threads dokumentācija tās
+# šķir citādi nekā publicēšanu, tāpēc prasām abas — izstrādes režīmā tās ir
+# «Ready for testing», tāpēc papildu App Review nav vajadzīgs.
+THREADS_SCOPES = ("threads_basic,threads_content_publish,"
+                  "threads_manage_replies,threads_read_replies")
+
+
 def threads_auth_url(redirect_uri: str, state: str) -> str:
     app_id, _ = threads_app()
     return (f"https://threads.net/oauth/authorize?client_id={app_id}"
             f"&redirect_uri={redirect_uri}&state={state}"
-            f"&scope=threads_basic,threads_content_publish&response_type=code")
+            f"&scope={THREADS_SCOPES}&response_type=code")
 
 
 def threads_exchange_code(code: str, redirect_uri: str) -> tuple[str, str, datetime]:
