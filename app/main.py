@@ -632,6 +632,10 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
                                 and prebranded(str(post.media[0])))
         return templates.TemplateResponse(request, "preview.html", {
             "post": post, "article": article, "platform": platform,
+            # Saites kartīti veido platforma, ne mēs — bet katrai savu. Vārds
+            # «Facebook» zem Threads ieraksta lika domāt, ka rāda nepareizo kanālu.
+            "platform_label": {"facebook_page": "Facebook", "threads": "Threads",
+                               "x": "X", "instagram": "Instagram"}.get(platform, platform),
             "media_prebranded": media_prebranded,
             "channel_name": cfg.get("display_name", post.channel),
             "full_text": full_text, "link": shown, "target_link": link,

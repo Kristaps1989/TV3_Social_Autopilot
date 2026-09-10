@@ -177,3 +177,28 @@ def test_preview_explains_the_custom_picture(session, monkeypatch):
     assert "object-position:center 22%" in body
     assert "savu 1.91:1 griezumu" in body
     assert "automātiski kļūs par photo" not in body
+
+
+def test_preview_names_the_right_platform_not_facebook(session, monkeypatch):
+    """Zem Threads ieraksta rakstīja «Facebook saites kartīte» — izskatījās,
+    it kā priekšskatījums rādītu nepareizo kanālu."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    from fastapi.testclient import TestClient
+
+    from app import imageinfo
+    from app.main import app
+
+    monkeypatch.setattr(imageinfo, "image_size", lambda art, url: (1000, 1400))
+    monkeypatch.setattr(imageinfo, "orientation", lambda art: "portrait")
+    monkeypatch.setattr(config, "load_channels", lambda: {
+        "th": {"platform": "threads", "display_name": "Threads — tv3.lv",
+               "formats": ["link", "photo"]}})
+    a = _article(session)
+    post = _post(session, a)
+    post.channel = "th"
+    session.commit()
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    body = client.get(f"/post/{post.id}/preview").text
+    assert "Threads saites kartīte" in body
+    assert "Facebook saites kartīte" not in body

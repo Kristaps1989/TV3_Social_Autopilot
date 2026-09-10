@@ -143,7 +143,7 @@ verificēts Business Manager), ieraksts aizies ar Facebook griezumu un
 {% endif %}</div>
 {% elif post.format == 'link' and link_card_crop > 0.10 %}
 <div class="notice err" style="max-width:520px;background:#fef3c7;color:#92400e">
-⚠️ Facebook saites kartīte no šī attēla nogriež
+⚠️ {{ platform_label }} saites kartīte no šī attēla nogriež
 <strong>{{ (link_card_crop * 100) | round | int }}%</strong> augstuma (kā redzams
 augstāk) — parasti tieši augšu, kur ziņu kadrā ir galvas.
 {% if link_picture_state == 'rejected' %}
