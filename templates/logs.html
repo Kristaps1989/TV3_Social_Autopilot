@@ -25,6 +25,21 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
       {% endfor %}
       </table></td></tr>
     {% endif %}
+    {% if data.channel_drift %}
+    <tr><td>Novecojuši kanāli</td><td>
+      <strong>Serverī esošais channels.yaml atšķiras no koda.</strong> Šo failu automātiski
+      nesinhronizē vispār, tāpēc kanāls te var palikt tāds, kāds bija pirmajā palaišanā —
+      ar vecām sadaļām vai formātiem.
+      <table class="n" style="margin-top:.4rem">
+      {% for block, keys in data.channel_drift.items() %}
+        <tr><td style="white-space:nowrap"><code>{{ block }}</code></td>
+          <td>{{ keys | join(', ') }}</td>
+          <td><form method="post" action="/channels/reset/{{ block }}" class="inline"
+                onsubmit="return confirm('Pārrakstīt kanālu «{{ block }}» ar koda versiju? Ieslēgums un pauze paliek.')">
+            <button>Pieņemt koda vērtības</button></form></td></tr>
+      {% endfor %}
+      </table></td></tr>
+    {% endif %}
     <tr><td>Attēlu renderētājs</td><td>{{ 'strādā ✓' if data.renderer_available else 'NAV — karuseļi un foto grafikas nevar tapt' }}</td></tr>
     <tr><td>Lentes (ffmpeg)</td><td>{{ 'strādā ✓' if data.reels_available else 'NAV — lentes nevar tapt' }}</td></tr>
     <tr><td>Reklāmu režīms</td><td>{{ data.ads_mode }}</td></tr>

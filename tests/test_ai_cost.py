@@ -119,6 +119,23 @@ def test_rule_drift_names_every_stale_block_not_just_play(tmp_path, monkeypatch)
     assert "video_archive" not in config.rule_drift()
 
 
+def test_channel_drift_catches_a_channel_frozen_at_first_boot(tmp_path, monkeypatch):
+    """channels.yaml netiek sinhronizēts nemaz: Threads kanāls uz servera var
+    palikt tikai ar sporta sadaļu, kamēr kodā tas jau sen ņem visas."""
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    blocks = config._yaml_blocks(
+        (config.DEFAULT_RULES_DIR / "channels.yaml").read_text(encoding="utf-8"))
+    stale = blocks["threads_sport"].replace("  sections: []", "  sections: [sport]")
+    (tmp_path / "channels.yaml").write_text(stale + "\n", encoding="utf-8")
+
+    drift = config.rule_drift("channels.yaml")
+    assert "sections" in drift["threads_sport"]
+
+    assert config.reset_rule_block("threads_sport", keep=("active",),
+                                   name="channels.yaml") is True
+    assert config.rule_drift("channels.yaml") == {}
+
+
 def test_system_prompt_is_identical_for_every_article(session, monkeypatch):
     """Kešs ir prefiksa sakritība. Kamēr platformu pamācības pielika pēc
     DERĪGAJIEM kanāliem, katra kanālu kombinācija bija savs prefikss ar savu

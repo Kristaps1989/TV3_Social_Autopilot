@@ -149,7 +149,8 @@ def _yaml_blocks(text: str) -> dict[str, str]:
     jaunu atslēgu bez tiem pievienot nozīmētu pievienot mīklu.
     """
     lines = text.splitlines()
-    keys = [i for i, l in enumerate(lines) if re.match(r"^[a-z_]+:", l)]
+    # Cipari atslēgā ir īsti: kanālus sauc fb_tv3lv, x_tv3zinas, ga4_...
+    keys = [i for i, l in enumerate(lines) if re.match(r"^[a-z0-9_]+:", l)]
 
     def comment_start(i: int) -> int:
         """Kur sākas komentāri, kas pieder ŠAI atslēgai.
@@ -227,17 +228,21 @@ def missing_rules() -> list[str]:
         return []
 
 
-def rule_drift() -> dict[str, list[str]]:
-    """Kuras noteikumu atslēgas serverī atšķiras no repo faila, pa blokiem.
+def rule_drift(name: str = "rules.yaml") -> dict[str, list[str]]:
+    """Kuras atslēgas serverī atšķiras no repo faila, pa blokiem.
 
     `sync_missing_rules` pieliek tikai jaunas AUGŠĒJĀ līmeņa atslēgas. Bloks,
     kas kopijā jau ir, paliek tāds, kāds tika uzsēts pirmajā palaišanā — tāpēc
     izmaiņas tā iekšienē uz servera nenonāk nekad. Tā pazuda gan Play
     `min_seconds`, gan tv3.lv/video klipu API adrese, un abas reizes no ārpuses
     tas izskatījās pēc tukša rezultāta, ne pēc novecojušas konfigurācijas.
+
+    `channels.yaml` netiek sinhronizēts nemaz, tāpēc tur klusums ir vēl
+    dziļāks: kanāls, kas kodā jau sen ņem visas sadaļas, uz servera var
+    joprojām būt tikai sports.
     """
-    editable = RULES_DIR / "rules.yaml"
-    default = DEFAULT_RULES_DIR / "rules.yaml"
+    editable = RULES_DIR / name
+    default = DEFAULT_RULES_DIR / name
     if not editable.exists() or editable.resolve() == default.resolve():
         return {}
     try:
@@ -258,7 +263,8 @@ def rule_drift() -> dict[str, list[str]]:
     return out
 
 
-def reset_rule_block(key: str, keep: tuple[str, ...] = ()) -> bool:
+def reset_rule_block(key: str, keep: tuple[str, ...] = (),
+                     name: str = "rules.yaml") -> bool:
     """Pārraksta VIENU noteikumu bloku rediģējamajā kopijā ar repo versiju.
 
     `sync_missing_rules` pieliek tikai TRŪKSTOŠAS atslēgas. Bloks, kas kopijā
@@ -269,9 +275,11 @@ def reset_rule_block(key: str, keep: tuple[str, ...] = ()) -> bool:
 
     `keep` nosauc apakšatslēgas, kuru DZĪVĀ vērtība paliek (piem., `enabled`):
     slēdzi, ko redaktors ir ieslēdzis, atgriešana pie koda nedrīkst izslēgt.
+    `name` ļauj to pašu darīt ar `channels.yaml` (tur `keep` ir `active` un
+    pauzes slēdzis).
     """
-    editable = RULES_DIR / "rules.yaml"
-    default = DEFAULT_RULES_DIR / "rules.yaml"
+    editable = RULES_DIR / name
+    default = DEFAULT_RULES_DIR / name
     if not editable.exists() or editable.resolve() == default.resolve():
         return False
     blocks = _yaml_blocks(default.read_text(encoding="utf-8"))

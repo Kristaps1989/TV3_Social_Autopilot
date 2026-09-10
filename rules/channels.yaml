@@ -105,14 +105,18 @@ ig_tv3lv:
   format_weights: {photo: 1.0, photo_album: 1.0, story: 0.6}
   click_weight: 0.5
 
+# Atslēga vēsturiska (kanāls sākumā bija domāts tikai sportam); publicējam
+# no tv3.lv konta, tāpēc saturs ir visas sadaļas. Atslēgu nepārsaucam, jo
+# channels.yaml rediģējamā kopija netiek sinhronizēta — jauna atslēga uz
+# servera dotu DIVUS Threads kanālus un dubultus ierakstus.
 threads_sport:
   platform: threads
-  display_name: "Threads — Sports"
-  feeds: [sport_all]
+  display_name: "Threads — tv3.lv"
+  feeds: [news_all, sport_all, entertainment_all, photo_posts]
   min_gap_minutes: 30
   daily_cap: 0               # bez dienas limita
   quiet_hours: ["00:00-07:00"]
-  sections: [sport]
+  sections: []               # visas sadaļas, ne tikai sports
   # photo posts carry the branded title image (same as FB/X); reel un
   # card_carousel — tā pati lente/galerija, ko uzbūvē Facebook kanālam
   # (Threads API prot VIDEO un CAROUSEL); photo_album = raksta galerija

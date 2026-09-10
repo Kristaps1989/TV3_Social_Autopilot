@@ -372,6 +372,15 @@ def reset_rule_block(key: str):
     return RedirectResponse("/logs", status_code=303)
 
 
+@app.post("/channels/reset/{key}")
+def reset_channel_block(key: str):
+    """Tas pats kanālam. channels.yaml netiek sinhronizēts nemaz, tāpēc bloks
+    uz servera var būt tik vecs, cik pirmā palaišana — piem., Threads tikai ar
+    sporta sadaļu. `active` un pauzi atgriešana neaiztiek."""
+    config.reset_rule_block(key, keep=("active", "paused"), name="channels.yaml")
+    return RedirectResponse("/logs", status_code=303)
+
+
 @app.post("/toggle/pause/{channel}")
 def toggle_pause(channel: str):
     session = get_session()
