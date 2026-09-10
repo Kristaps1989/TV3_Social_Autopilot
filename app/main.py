@@ -360,6 +360,27 @@ def voice_check():
         session.close()
 
 
+@app.get("/logs/threads-check")
+def threads_check():
+    """Viens īsts lasīšanas izsaukums katrai Threads atļaujai.
+
+    App Review prasa pierādījumu, ka atļauja tiešām lietota, un mūsu kods
+    skatījumus ņem pēc grafika — bez šīs pogas atliek gaidīt. Tā pati poga
+    atbild uz jautājumu, vai tokenā atļauja vispār ir: bez tās izsaukums
+    atgriež tukšumu, ko no «nav datu» atšķirt nevar.
+    """
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.responses import JSONResponse
+
+    from app import diagnostics
+
+    session = get_session()
+    try:
+        return JSONResponse(jsonable_encoder(diagnostics.threads_check(session)))
+    finally:
+        session.close()
+
+
 @app.post("/rules/reset/{key}")
 def reset_rule_block(key: str):
     """Atgriež VIENU noteikumu bloku rediģējamajā rules.yaml pie koda versijas.

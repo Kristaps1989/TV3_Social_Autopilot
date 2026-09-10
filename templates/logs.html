@@ -40,6 +40,11 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
       {% endfor %}
       </table></td></tr>
     {% endif %}
+    <tr><td>Threads atļaujas</td><td>
+      <a class="button" href="/logs/threads-check" target="_blank">Pārbaudīt Threads izsaukumus</a>
+      <span class="muted">— pa vienam īstam lasīšanas izsaukumam katrai atļaujai (konts,
+        skatījumi, atbildes) uz pēdējo publicēto ierakstu. Neko nepublicē. Bez atļaujas
+        izsaukums atgriež tukšumu, ko no «nav datu» atšķirt nevar.</span></td></tr>
     <tr><td>Attēlu renderētājs</td><td>{{ 'strādā ✓' if data.renderer_available else 'NAV — karuseļi un foto grafikas nevar tapt' }}</td></tr>
     <tr><td>Lentes (ffmpeg)</td><td>{{ 'strādā ✓' if data.reels_available else 'NAV — lentes nevar tapt' }}</td></tr>
     <tr><td>Reklāmu režīms</td><td>{{ data.ads_mode }}</td></tr>

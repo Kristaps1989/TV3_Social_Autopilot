@@ -124,6 +124,29 @@ class ThreadsAdapter(Adapter):
         return self._post(f"{self.user_id}/threads_publish",
                           {"creation_id": container}).get("id", "")
 
+    def profile(self) -> dict:
+        """Konta id un lietotājvārds (threads_basic). Konti lapa ar to parāda,
+        KURŠ konts ir pieslēgts — bez tā pieslēgts personīgais profils izskatās
+        tieši tāpat kā pieslēgts TV3."""
+        r = httpx.get(f"{API}/me", timeout=30,
+                      params={"fields": "id,username", "access_token": self.token})
+        if r.status_code != 200:
+            raise PublishError(f"Threads /me {r.status_code}: {r.text[:200]}",
+                               retryable=r.status_code >= 500)
+        return r.json()
+
+    def fetch_replies(self, platform_post_id: str, limit: int = 10) -> list[dict]:
+        """Atbildes zem MŪSU ieraksta (threads_read_replies). Redaktors tās
+        redz Diagnostikā: lasītāju jautājumi pie svaiga stāsta ir redakcijas
+        signāls, un spamu zem TV3 ieraksta kāds pamana tikai tad, ja to rāda."""
+        r = httpx.get(f"{API}/{platform_post_id}/replies", timeout=30,
+                      params={"fields": "id,text,username,timestamp",
+                              "limit": limit, "access_token": self.token})
+        if r.status_code != 200:
+            log.warning("Threads replies %s: %s", r.status_code, r.text[:200])
+            return []
+        return r.json().get("data", []) or []
+
     def fetch_insights(self, platform_post_id: str) -> dict | None:
         """Threads mediju ieskats: views + likes (klikšķus dod GA4 utm)."""
         try:

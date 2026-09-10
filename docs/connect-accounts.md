@@ -100,6 +100,12 @@ assign the Page, generate a never-expiring token with `pages_manage_posts` +
 3. Set `THREADS_APP_ID` / `THREADS_APP_SECRET` in Railway.
 4. `/connect` → **Savienot ar Threads** → log in as the TV3 sports account.
 
+`/logs/threads-check` (button in Diagnostics) fires one real read call per
+Threads permission — profile, insights and replies on the most recently
+published Threads post — and prints the service's own answer for each. Use it
+to satisfy Meta's "required API test calls" step and to tell a missing
+permission apart from an empty result. It publishes nothing.
+
 Threads tokens last 60 days. The daily maintenance job refreshes them
 automatically ~2 weeks before expiry and alerts (log/Slack) if a refresh
 fails or any token has < 7 days left.

@@ -318,6 +318,52 @@ def _reel_voice(session, hours: int = 48) -> dict:
     return out
 
 
+def threads_check(session) -> dict:
+    """Palaiž pa vienam ĪSTAM lasīšanas izsaukumam katrai Threads atļaujai.
+
+    Divi iemesli. Meta App Review prasa, lai katra prasītā atļauja būtu reāli
+    izmantota, pirms iesniegumu var pabeigt — bet skatījumus un atbildes mūsu
+    kods paņem pēc grafika, tāpēc gaidīšana ir vienīgais rīks. Un otrs: kad
+    atļaujas tokenā trūkst, izsaukums atgriež tukšumu, kas izskatās tieši tāpat
+    kā «nav datu». Te ir pakalpojuma paša atbilde katram.
+
+    Neko nepublicē: publicēšanu un atbildi uzraksta parastā ieraksta
+    apstiprināšana, ne diagnostika.
+    """
+    from adapters import get_adapter
+
+    adapter = get_adapter("threads")
+    out: dict = {"configured": adapter.configured(), "checks": {}}
+    if not adapter.configured():
+        out["error"] = "Threads nav pieslēgts — sāc ar Konti lapu"
+        return out
+
+    def run(name: str, fn):
+        try:
+            out["checks"][name] = {"ok": True, "result": fn()}
+        except Exception as e:  # noqa: BLE001 — pārbaudei kļūda IR rezultāts
+            out["checks"][name] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:300]}
+
+    run("threads_basic", adapter.profile)
+
+    post = session.execute(
+        select(Post).where(Post.platform_post_id != "",
+                           Post.state == "published",
+                           Post.channel.in_([n for n, c in config.load_channels().items()
+                                             if (c or {}).get("platform") == "threads"]))
+        .order_by(desc(Post.published_at)).limit(1)).scalars().first()
+    if post is None:
+        out["error"] = ("nav neviena publicēta Threads ieraksta — skatījumus un "
+                        "atbildes nav kam prasīt; publicē vienu un atgriezies")
+        return out
+
+    out["post"] = {"id": post.id, "platform_post_id": post.platform_post_id,
+                   "published_at": post.published_at}
+    run("threads_manage_insights", lambda: adapter.fetch_insights(post.platform_post_id))
+    run("threads_read_replies", lambda: adapter.fetch_replies(post.platform_post_id))
+    return out
+
+
 def _queue_health(session) -> dict:
     """Kāpēc nekas netiek plānots: lemjamā rinda un pēdējie sargu iemesli."""
     from app import pipeline
