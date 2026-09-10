@@ -131,6 +131,10 @@ class ThreadsAdapter(Adapter):
                              params={"metric": "views,likes",
                                      "access_token": self.token}, timeout=30)
             if resp.status_code != 200:
+                # Klusa None nozīmētu «nav datu»; patiesībā parasti trūkst
+                # threads_manage_insights atļaujas, un to gribam redzēt logā.
+                log.warning("Threads insights %s: %s", resp.status_code,
+                            resp.text[:200])
                 return None
             values = {d["name"]: (d["values"][0]["value"] if d.get("values") else 0)
                       for d in resp.json().get("data", [])}

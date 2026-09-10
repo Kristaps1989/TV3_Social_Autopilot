@@ -83,11 +83,14 @@ assign the Page, generate a never-expiring token with `pages_manage_posts` +
 ## Threads (same Meta app)
 
 1. In the same app add the **Threads API** use case with `threads_basic`,
-   `threads_content_publish`, `threads_manage_replies` and
-   `threads_read_replies`, and its own app-level credentials. The two reply
+   `threads_content_publish`, `threads_manage_replies`, `threads_read_replies`
+   and `threads_manage_insights`, and its own app-level credentials. The reply
    permissions are what lets the adapter put the tv3.lv link in a reply under
-   the post (`threads_link_in_reply`); all four are "Ready for testing" in
-   Development mode, so no App Review is needed for the tester account.
+   the post (`threads_link_in_reply`); `threads_manage_insights` is what makes
+   `fetch_insights` return views and likes instead of nothing. If Threads
+   refuses a scope that is not granted yet, the authorize page fails with a
+   scope error — narrow the list with the `THREADS_SCOPES` env var (or a
+   `threads_scopes` credential row) instead of shipping a release.
 2. Redirect URI: `https://<your-app>.up.railway.app/connect/threads/callback`.
    Meta will not save the form unless the other two callbacks are filled in
    too: Uninstall `…/connect/threads/uninstall`, Delete

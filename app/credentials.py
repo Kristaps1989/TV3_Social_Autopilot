@@ -29,6 +29,7 @@ ENV_FALLBACK = {
     "meta_login_config_id": "META_LOGIN_CONFIG_ID",
     "threads_app_id": "THREADS_APP_ID",
     "threads_app_secret": "THREADS_APP_SECRET",
+    "threads_scopes": "THREADS_SCOPES",
     "fb_page_id": "FB_PAGE_ID",
     "fb_page_token": "FB_PAGE_ACCESS_TOKEN",
     "threads_user_id": "THREADS_USER_ID",
@@ -221,18 +222,24 @@ def threads_app() -> tuple[str, str]:
 
 
 # Pamata publicēšanai pietiek ar pirmajām divām; atbildes (saite komentārā,
-# `threads_link_in_reply`) prasa arī reply atļaujas. Threads dokumentācija tās
-# šķir citādi nekā publicēšanu, tāpēc prasām abas — izstrādes režīmā tās ir
-# «Ready for testing», tāpēc papildu App Review nav vajadzīgs.
+# `threads_link_in_reply`) prasa reply atļaujas, un ieraksta skatījumi
+# (fetch_insights) — threads_manage_insights. Ja Threads kādu no tām vēl
+# neizsniedz, autorizācijas lapa atgriež kļūdu par scope; tad īsāku sarakstu
+# var ielikt bez izlaiduma — THREADS_SCOPES vidē vai `threads_scopes` atslēgā.
 THREADS_SCOPES = ("threads_basic,threads_content_publish,"
-                  "threads_manage_replies,threads_read_replies")
+                  "threads_manage_replies,threads_read_replies,"
+                  "threads_manage_insights")
+
+
+def threads_scopes() -> str:
+    return get("threads_scopes") or THREADS_SCOPES
 
 
 def threads_auth_url(redirect_uri: str, state: str) -> str:
     app_id, _ = threads_app()
     return (f"https://threads.net/oauth/authorize?client_id={app_id}"
             f"&redirect_uri={redirect_uri}&state={state}"
-            f"&scope={THREADS_SCOPES}&response_type=code")
+            f"&scope={threads_scopes()}&response_type=code")
 
 
 def parse_signed_request(signed: str, secret: str) -> dict:

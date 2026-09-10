@@ -65,7 +65,16 @@ def test_signed_request_checks_signature():
         credentials.parse_signed_request("nav-punkta", "secret")
 
 
-def test_threads_scopes_cover_replies():
+def test_threads_scopes_cover_replies_and_insights():
     url = credentials.threads_auth_url("https://x.test/cb", "st")
-    assert "threads_content_publish" in url
-    assert "threads_manage_replies" in url
+    for scope in ("threads_content_publish", "threads_manage_replies",
+                  "threads_manage_insights"):
+        assert scope in url
+
+
+def test_threads_scopes_can_be_narrowed_without_a_release(session, monkeypatch):
+    monkeypatch.setenv("THREADS_SCOPES", "threads_basic")
+    assert credentials.threads_scopes() == "threads_basic"
+    credentials.put(session, "threads_scopes", "threads_basic,threads_content_publish")
+    assert "threads_content_publish" in credentials.threads_auth_url("https://x.test/cb", "st")
+    assert "threads_manage_insights" not in credentials.threads_auth_url("https://x.test/cb", "st")
