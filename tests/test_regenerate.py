@@ -460,3 +460,31 @@ def test_the_share_renderer_does_not_shift_its_positional_arguments():
     doc = cards.build_share_html("T", "news", "https://cdn/f.jpg",
                                  kicker="K", width=1080, height=1350)
     assert "width:1080px" in doc and "height:1350px" in doc
+
+
+def test_empty_render_names_the_renderer_not_just_the_symptom(session, monkeypatch):
+    """«Attēls netika uzzīmēts» lika meklēt kļūdu ierakstā, kaut gan visbiežāk
+    serverī vienkārši neuzstartē Chromium."""
+    from app import cards, regenerate as regen
+
+    art = _art(session, "render-empty", "Virsraksts")
+    art.images = ["https://tv3.lv/i.jpg"]
+    session.flush()
+    post = Post(article_id=art.id, channel="fb_tv3lv", format="photo",
+                state="scheduled", scheduled_at=utcnow())
+    session.add(post)
+    session.flush()
+
+    from app import pipeline
+
+    monkeypatch.setattr(pipeline, "photo_base_image", lambda a: "")
+    monkeypatch.setattr(cards, "renderer_check",
+                        lambda max_age=600.0: (False, "Chromium nav instalēts"))
+    ok, message = regen.regenerate(session, post)
+    assert ok is False
+    assert "Chromium nav instalēts" in message
+
+    monkeypatch.setattr(cards, "renderer_check", lambda max_age=600.0: (True, ""))
+    ok, message = regen.regenerate(session, post)
+    assert ok is False
+    assert "zīmētājs strādā" in message

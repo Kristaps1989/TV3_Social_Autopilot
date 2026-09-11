@@ -235,7 +235,14 @@ def regenerate(session, post) -> tuple[bool, str]:
         cards.record_render_failure(kind or post.format, e)
         return False, f"Renderēšana neizdevās: {e}"
     if not media:
-        return False, "Renderēšana neizdevās — attēls netika uzzīmēts."
+        # «Attēls netika uzzīmēts» neko nepasaka par iemeslu, un tieši tas te
+        # visbiežāk ir vainīgs: Chromium serverī neuzstartē, renderētājs klusi
+        # atgriež tukšumu, un redaktors meklē kļūdu ierakstā, ne vidē.
+        works, why = cards.renderer_check()
+        if not works:
+            return False, f"Renderēšana neizdevās — attēlu zīmētājs nestrādā: {why}"
+        return False, ("Renderēšana neizdevās — attēls netika uzzīmēts, lai gan "
+                       "zīmētājs strādā. Visticamāk rakstam nav derīga attēla.")
     post.media = media
     # recepte tiek rakstīta atpakaļ, jo pārzīmēšana to var precizēt — piem.,
     # reels ar balsi, kas iepriekš bija kluss (atslēga pieslēgta pa vidu)
