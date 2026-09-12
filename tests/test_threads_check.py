@@ -68,3 +68,33 @@ def test_without_a_published_post_it_says_so(session, fake):
     out = diagnostics.threads_check(session)
     assert "publicē vienu" in out["error"]
     assert "threads_basic" in out["checks"]        # kontu pārbaudīt var vienmēr
+
+
+def test_reply_button_writes_the_link_once(session, fake, monkeypatch):
+    """Publicēšana atbildi raksta tikai ar ieslēgtu threads_link_in_reply un
+    tikai media formātam. Ja ieraksts jau aizgājis bez tās, saiti zem tā
+    tomēr var pielikt — bet ne divreiz."""
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.main import app
+
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    monkeypatch.setattr(config, "load_channels",
+                        lambda: {"threads_sport": {"platform": "threads"}})
+    sent = []
+    fake.comment = lambda pid, text: sent.append((pid, text)) or "reply-1"
+
+    post = _published(session)
+    post.link_url = "https://tv3.lv/zinas/raksts"
+    session.commit()
+
+    client = TestClient(app)
+    client.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    r = client.post("/logs/threads-reply", follow_redirects=False)
+    assert r.status_code == 303 and "saved=" in r.headers["location"]
+    assert sent and "tv3.lv" in sent[0][1]
+
+    r = client.post("/logs/threads-reply", follow_redirects=False)
+    assert "error=" in r.headers["location"]
+    assert len(sent) == 1

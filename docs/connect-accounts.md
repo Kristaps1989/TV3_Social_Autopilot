@@ -106,6 +106,12 @@ published Threads post — and prints the service's own answer for each. Use it
 to satisfy Meta's "required API test calls" step and to tell a missing
 permission apart from an empty result. It publishes nothing.
 
+Next to it, **Pielikt saiti atbildē** writes the tv3.lv link as a reply under
+the most recently published Threads post. Publishing does that by itself only
+when `threads_link_in_reply` is on *and* the post is a media format, so this is
+the way to add the link to a post that already went out without it — and the
+only way to exercise `threads_manage_replies` on demand. One reply per post.
+
 Threads tokens last 60 days. The daily maintenance job refreshes them
 automatically ~2 weeks before expiry and alerts (log/Slack) if a refresh
 fails or any token has < 7 days left.

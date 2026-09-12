@@ -318,6 +318,17 @@ def _reel_voice(session, hours: int = 48) -> dict:
     return out
 
 
+def latest_threads_post(session):
+    """Pēdējais publicētais Threads ieraksts — tam prasām skatījumus, atbildes
+    un zem tā uzrakstām saiti, ja tā ierakstā nav aizgājusi."""
+    return session.execute(
+        select(Post).where(Post.platform_post_id != "",
+                           Post.state == "published",
+                           Post.channel.in_([n for n, c in config.load_channels().items()
+                                             if (c or {}).get("platform") == "threads"]))
+        .order_by(desc(Post.published_at)).limit(1)).scalars().first()
+
+
 def threads_check(session) -> dict:
     """Palaiž pa vienam ĪSTAM lasīšanas izsaukumam katrai Threads atļaujai.
 
@@ -346,12 +357,7 @@ def threads_check(session) -> dict:
 
     run("threads_basic", adapter.profile)
 
-    post = session.execute(
-        select(Post).where(Post.platform_post_id != "",
-                           Post.state == "published",
-                           Post.channel.in_([n for n, c in config.load_channels().items()
-                                             if (c or {}).get("platform") == "threads"]))
-        .order_by(desc(Post.published_at)).limit(1)).scalars().first()
+    post = latest_threads_post(session)
     if post is None:
         out["error"] = ("nav neviena publicēta Threads ieraksta — skatījumus un "
                         "atbildes nav kam prasīt; publicē vienu un atgriezies")

@@ -381,6 +381,53 @@ def threads_check():
         session.close()
 
 
+@app.post("/logs/threads-reply")
+def threads_reply():
+    """Uzraksta saiti atbildē zem pēdējā publicētā Threads ieraksta.
+
+    Parasti to izdara publicēšana pati, bet tikai tad, kad `threads_link_in_reply`
+    ir ieslēgts UN ieraksts ir media formātā. Ja ieraksts jau ir aizgājis bez
+    tās (vai ja attēls nesanāca un ieraksts kļuva par saites ierakstu), saite
+    zem tā tomēr pieder — un citādi to var pielikt tikai ar roku Threads pusē.
+
+    Divreiz vienam ierakstam atbildi nerakstām.
+    """
+    from urllib.parse import quote
+
+    from adapters import get_adapter
+    from app import diagnostics, shortlinks
+    from app.pipeline import add_utm, first_comment_text, utm_campaign
+
+    session = get_session()
+    try:
+        post = diagnostics.latest_threads_post(session)
+        if post is None:
+            return RedirectResponse("/logs?error=Nav+neviena+publicēta+Threads+ieraksta",
+                                    status_code=303)
+        if (post.extra or {}).get("threads_reply_id"):
+            return RedirectResponse("/logs?error=Šim+ierakstam+atbilde+jau+ir",
+                                    status_code=303)
+        rules = config.load_rules()
+        link = (add_utm(post.link_url, "threads", post.id, hook=post.hook_type or "",
+                        campaign=utm_campaign(post)) if post.link_url else "")
+        shown = shortlinks.display_link(post.id, link, rules, post.article)
+        if not shown:
+            return RedirectResponse("/logs?error=Ierakstam+nav+saites,+ko+likt+atbildē",
+                                    status_code=303)
+        try:
+            reply_id = get_adapter("threads").comment(
+                post.platform_post_id, first_comment_text(post, "threads", shown, rules))
+        except Exception as e:  # noqa: BLE001
+            log.warning("threads reply failed for post %s: %s", post.id, e)
+            return RedirectResponse(f"/logs?error={quote(str(e)[:200])}", status_code=303)
+        post.extra = {**(post.extra or {}), "threads_reply_id": reply_id}
+        session.commit()
+        return RedirectResponse("/logs?saved=Atbilde+ar+saiti+uzrakstīta",
+                                status_code=303)
+    finally:
+        session.close()
+
+
 @app.post("/rules/reset/{key}")
 def reset_rule_block(key: str):
     """Atgriež VIENU noteikumu bloku rediģējamajā rules.yaml pie koda versijas.
@@ -2082,7 +2129,8 @@ def _differs_from_default(kind: str) -> bool:
 
 @app.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request, channel: str = "", level: str = "",
-              q: str = "", lines: int = 200, simulate: str = ""):
+              q: str = "", lines: int = 200, simulate: str = "",
+              saved: str = "", error: str = ""):
     """Diagnostika: kāpēc plūsmā ir tieši šie formāti + pēdējie žurnāla
     ieraksti. Tas pats, ko rāda `scripts/format_report.py`, tikai lapā."""
     from app import diagnostics
@@ -2098,6 +2146,7 @@ def logs_page(request: Request, channel: str = "", level: str = "",
             "channels": list(config.load_channels()),
             "channel": channel, "level": level, "q": q, "lines": lines,
             "simulate": bool(simulate),
+            "saved": saved, "error": error,
         })
     finally:
         session.close()

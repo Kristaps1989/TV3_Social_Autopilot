@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Diagnostika</h1>
+{% if saved %}<p class="notice">{{ saved }}</p>{% endif %}
+{% if error %}<p class="notice err">{{ error }}</p>{% endif %}
 <p class="muted">Kāpēc plūsmā ir tieši šie formāti un ko sistēma pēdējā laikā
 darīja. Tie paši dati, ko dod <code>scripts/format_report.py</code> — te tos
 var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
@@ -42,9 +44,15 @@ var apskatīt un lejupielādēt, nekāpjot Railway konsolē.</p>
     {% endif %}
     <tr><td>Threads atļaujas</td><td>
       <a class="button" href="/logs/threads-check" target="_blank">Pārbaudīt Threads izsaukumus</a>
+      <form method="post" action="/logs/threads-reply" class="inline"
+            onsubmit="return confirm('Uzrakstīt atbildi ar tv3.lv saiti zem pēdējā publicētā Threads ieraksta?')">
+        <button>Pielikt saiti atbildē</button></form>
       <span class="muted">— pa vienam īstam lasīšanas izsaukumam katrai atļaujai (konts,
         skatījumi, atbildes) uz pēdējo publicēto ierakstu. Neko nepublicē. Bez atļaujas
-        izsaukums atgriež tukšumu, ko no «nav datu» atšķirt nevar.</span></td></tr>
+        izsaukums atgriež tukšumu, ko no «nav datu» atšķirt nevar. Otrā poga uzraksta
+        saiti atbildē zem pēdējā ieraksta — tikai tad, ja publicēšana to nav izdarījusi
+        pati (<code>threads_link_in_reply</code> izslēgts vai ieraksts nav media formātā).
+        Vienam ierakstam divas reizes ne.</span></td></tr>
     <tr><td>Attēlu renderētājs</td><td>{{ 'strādā ✓' if data.renderer_available else 'NAV — karuseļi un foto grafikas nevar tapt' }}</td></tr>
     <tr><td>Lentes (ffmpeg)</td><td>{{ 'strādā ✓' if data.reels_available else 'NAV — lentes nevar tapt' }}</td></tr>
     <tr><td>Reklāmu režīms</td><td>{{ data.ads_mode }}</td></tr>
