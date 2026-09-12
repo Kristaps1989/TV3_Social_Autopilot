@@ -9,10 +9,14 @@ app's /media endpoint (PUBLIC_BASE_URL).
 """
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from adapters.base import Adapter, PublishError, is_video, public_image_url
 from app import credentials
+
+log = logging.getLogger(__name__)
 
 GRAPH = "https://graph.facebook.com/v21.0"
 
@@ -110,6 +114,10 @@ class InstagramAdapter(Adapter):
                 timeout=30,
             )
             if resp.status_code != 200:
+                # Tāpat kā Threads: klusa None nozīmētu «nav datu», bet parasti
+                # lapas tokenam vienkārši trūkst instagram_manage_insights.
+                log.warning("Instagram insights %s: %s", resp.status_code,
+                            resp.text[:200])
                 return None
             values = {d["name"]: (d["values"][0]["value"] if d.get("values") else 0)
                       for d in resp.json().get("data", [])}
