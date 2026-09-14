@@ -194,6 +194,17 @@ kā foto ierakstus.
 </div>
 {% endif %}
 
+{% if post.state == 'scheduled' %}
+<form method="post" action="/post/{{ post.id }}/publish-now"
+      style="max-width:520px;margin:0 0 1rem"
+      onsubmit="return confirm('Publicēt šo ierakstu tagad?')">
+  <input type="hidden" name="back" value="preview">
+  <button class="primary">▶ Publicēt tagad</button>
+  <span class="muted">— pārceļ ierakstu uz tagad; publicētājs to paņem
+    nākamās minūtes laikā.</span>
+</form>
+{% endif %}
+
 {% if threads_live %}
 <div class="card" style="max-width:520px;margin:0 0 1rem">
   <h3 style="margin-top:0">Threads: skatījumi un atbildes</h3>

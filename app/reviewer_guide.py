@@ -122,13 +122,45 @@ GUIDES: list[tuple[str, dict]] = [
                   "the time it is scheduled to publish. Open any row to see the "
                   "full preview."),
         "points": [
-            ("Column «Kanāls»",
-             "«Channel» — «Threads — tv3.lv» is TV3's Threads profile."),
-            ("States «ieplānots» / «publicēts»",
-             "«Scheduled» / «published». A published row links to the live "
-             "thread on threads.net."),
-            ("Button «Priekšskatījums»",
-             "«Preview» — opens the post screen described above."),
+            ("Section heading per channel",
+             "One block per connected channel. «Threads — tv3.lv» is TV3's "
+             "Threads profile."),
+            ("Table «Laiks» / «Ieraksts»",
+             "«Time» / «Post» — when the post is due and its first line. The "
+             "post text is a link: it opens the preview screen."),
+            ("Link «priekšskatījums · labot»",
+             "«Preview · edit» — expands an inline editor for the copy and "
+             "links to the full preview."),
+            ("Button «▶»",
+             "«Publish now» (tooltip «Publicēt tagad»). Moves the post to the "
+             "current time; the publisher picks it up within a minute and "
+             "calls POST /{user-id}/threads_publish. The same action has a "
+             "labelled button on the preview screen. Disabled here."),
+            ("Button «✕»",
+             "«Cancel» — removes the post from the queue. Disabled here."),
+            ("Button «Apstiprināt»",
+             "«Approve» — only on posts awaiting editorial approval; moves "
+             "them into the scheduled queue. Disabled here."),
+        ],
+    }),
+    ("/why", {
+        "title": "Story lookup — preparing a post for a specific article",
+        "permissions": ["threads_content_publish"],
+        "intro": ("Search for one tv3.lv story and see what the tool decided "
+                  "about it. An editor also uses this screen to prepare a post "
+                  "for a story the automation did not pick up."),
+        "points": [
+            ("Search field + «Meklēt»",
+             "«Search» — paste a tv3.lv article URL to look it up."),
+            ("Table «Lēmumi»",
+             "«Decisions» — why the story was or was not posted to each "
+             "channel. Internal rules, no Meta API involved."),
+            ("Block «Uztaisīt formātu ar roku»",
+             "«Build a format manually». The editor picks a channel "
+             "(threads_tv3lv is the TV3 Threads profile) and a post format, "
+             "then presses «Uztaisīt» («Build»). This creates the draft that "
+             "is later published with POST /{user-id}/threads and "
+             "threads_publish. Disabled in this read-only session."),
         ],
     }),
 ]

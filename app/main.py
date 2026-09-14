@@ -640,7 +640,11 @@ def regenerate_post(post_id: int):
 
 
 @app.post("/post/{post_id}/publish-now")
-def publish_now(post_id: int):
+def publish_now(post_id: int, back: str = Form("")):
+    """Pārceļ ierakstu uz tagad; publicētājs to paņem nākamajā minūtē.
+
+    `back` ļauj palikt turpat, kur poga tika nospiesta (priekšskatījumā),
+    nevis vienmēr atgriezties rindā."""
     session = get_session()
     try:
         post = session.get(Post, post_id)
@@ -649,6 +653,14 @@ def publish_now(post_id: int):
             session.commit()
     finally:
         session.close()
+    if back == "preview":
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            f"/post/{post_id}/preview?ok=1&msg="
+            + quote("Ieraksts pārcelts uz tagad — publicētājs to paņem "
+                    "nākamās minūtes laikā"),
+            status_code=303)
     return RedirectResponse("/", status_code=303)
 
 
