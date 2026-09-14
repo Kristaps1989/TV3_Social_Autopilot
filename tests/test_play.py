@@ -344,7 +344,8 @@ def _third_show(session):
     return a
 
 
-def test_selection_carousel_is_built_on_selection_days_and_waits_for_approval(session, monkeypatch):
+def test_selection_carousel_is_built_on_selection_days_and_goes_straight_to_the_queue(
+        session, monkeypatch):
     monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
     _enabled(monkeypatch)
     play.crawl(session, fetch=_fetch, now=NOW)
@@ -363,7 +364,10 @@ def test_selection_carousel_is_built_on_selection_days_and_waits_for_approval(se
     _third_show(session)
     session.commit()
     post = play.build_selection(session, friday, NOW)
-    assert post is not None and post.state == "proposed" and post.hook_type == "playselection"
+    # noklusējumā izlase iet plūsmā pati; sargi (drūma diena, traģēdija
+    # blakus, 16+ logs, kvotas) strādā arī bez cilvēka
+    assert post is not None and post.state == "scheduled"
+    assert post.hook_type == "playselection"
     assert post.channel == "fb_tv3lv" and post.format == "card_carousel"
     assert rendered["title"] == "Piektdienas vakaram: TV3 Play"
     assert rendered["label"] == "TV3 PLAY · BEZ MAKSAS"
@@ -1073,3 +1077,18 @@ def test_genre_filter_matches_by_stem_not_exact_name():
     assert play.genre_matches(A(), ["romant"]) is True
     assert play.genre_matches(A(), ["trille"]) is False
     assert play.genre_matches(A(), []) is True
+
+
+def test_selection_still_waits_when_the_editor_asks_for_approval(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch, selection_requires_approval=True)
+    play.crawl(session, fetch=_fetch, now=NOW)
+    _third_show(session)
+    from app import cards
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    monkeypatch.setattr(cards, "render_cards",
+                        lambda *a, **k: [f"data/cards/p{i}.png" for i in range(len(a[3]))])
+    session.commit()
+    post = play.build_selection(session, datetime(2026, 9, 4).date(), NOW)
+    assert post is not None and post.state == "proposed"

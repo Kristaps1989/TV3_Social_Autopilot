@@ -332,3 +332,17 @@ Divi apzināti lēmumi:
   ar trilleriem iekšā ir sliktāk nekā izlaista otrdiena. Iemesls nonāk žurnālā,
   un `/logs/play-audit` rāda `themes` rindu ar `titles_available` katrai dienai
   — tā «šodien izlases nav» atšķiras no «šodien nav tēmas dienas».
+
+
+## Apstiprināšana vairs nav noklusējums
+
+`selection_requires_approval` kodā tagad ir `false`: izlase aiziet plūsmā pati.
+Apstiprināšana bija pirmā mēneša piesardzība, nevis drošības mehānisms — sargi,
+kas tiešām aiztur ierakstu, strādā arī bez cilvēka: drūma diena, traģēdija
+plūsmā ap slotu, 16+/18+ logs, dienas kvota, nosaukumu atdzišana un plūsmas
+daļas griesti.
+
+Ar to pazūd arī pastāvīgā noviržu rinda: serverī un kodā tagad ir viena un tā
+pati vērtība. Turklāt «Pieņemt koda vērtības» šo slēdzi vairs neaiztiek (tāpat
+kā `enabled`) — atgriešanās pie koda nedrīkst klusi ieslēgt apstiprināšanu
+atpakaļ tam, kas to apzināti izslēdza.

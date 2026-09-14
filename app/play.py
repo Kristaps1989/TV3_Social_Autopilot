@@ -95,7 +95,7 @@ DEFAULTS = {
     "selection_build_hour": 17,       # būvē no 17:00, publicē vakara logā
     "selection_hour": 19,
     "selection_size": 5,
-    "selection_requires_approval": True,   # pirmajā mēnesī redaktors apstiprina
+    "selection_requires_approval": False,  # sargi strādā arī bez cilvēka
     # P2: entītiju tilti — raksts par raidījumu/personu ved uz Play nosaukumu
     "bridges": True,
     "bridge_sections": ["entertainment", "sport"],
@@ -1139,7 +1139,7 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
                              card_titles=[it["title"] for it in items], items=items,
                              recipe={"kind": "play_selection", "theme": theme,
                                      "articles": [a.id for a in used]})
-    if cfg.get("selection_requires_approval", True):
+    if cfg.get("selection_requires_approval", False):
         post.state = "proposed"
     session.commit()
     set_setting(session, f"play:selection:{day.isoformat()}", str(post.id))

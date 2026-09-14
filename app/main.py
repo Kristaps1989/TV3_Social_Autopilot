@@ -436,7 +436,9 @@ def reset_rule_block(key: str):
     nenonāk paši — Diagnostika tos nosauc, un šī poga tos pieņem vienā
     klikšķī. Ieslēgts slēdzis paliek ieslēgts.
     """
-    config.reset_rule_block(key, keep=("enabled",))
+    # Slēdži, ko redaktors apzināti pārslēdz, atgriešanu pie koda pārdzīvo:
+    # «pieņemt koda vērtības» nedrīkst klusi atgriezt apstiprināšanu.
+    config.reset_rule_block(key, keep=("enabled", "selection_requires_approval"))
     return RedirectResponse("/logs", status_code=303)
 
 
