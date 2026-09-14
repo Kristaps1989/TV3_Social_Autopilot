@@ -120,6 +120,15 @@ short_link_base: ""
 # bez šiem signāliem).
 page_meta: true
 
+# Redakcijas tagi, kas rakstu NEPASAKA (valsts, reģions, sadaļa). CMS tagus
+# atdod alfabēta secībā, tāpēc «ASV» stāvēja pirms «Karš Ukrainā» un kļuva
+# par hashtagu rakstam, kurā ASV bija tikai fons. Šie iet saraksta beigās
+# un birkā nonāk tikai tad, ja nekā konkrētāka nav. Tukšs = koda saraksts.
+hashtag_generic: [ASV, Latvija, Lietuva, Igaunija, Baltija, Eiropa, ES,
+  Eiropas Savienība, Pasaule, Krievija, Ķīna, Vācija, Francija, Lielbritānija,
+  Polija, Itālija, Spānija, Somija, Zviedrija, Rīga, Ziņas, Sports, Politika,
+  Ekonomika, Izklaide, Ārzemes, Ārvalstis, Sabiedrība, Kultūra, Video]
+
 # TV3 Play (play.tv3.lv) promo — seriāli, filmas, raidījumi no Play
 # sitemapiem (docs/play-strategy.md). IZSLĒGTS pēc noklusējuma: ieslēdz
 # enabled: true, kad esi gatavs. Ētikas sargi: nekad blakus traģēdijai vai

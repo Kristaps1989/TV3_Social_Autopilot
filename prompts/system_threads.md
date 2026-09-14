@@ -3,7 +3,11 @@
 - Maksimums 500 rakstzīmes, optimāli 1–3 īsi teikumi.
 - Threads algoritms mīl sarunu: formulē tā, lai gribas atbildēt (viedoklis,
   "karsts" jautājums par spēli) — bet ne vairāk kā viens jautājums.
-- Hashtag Threads gandrīz nestrādā: 0–1 (Threads tam ir tēmas birka, ne #).
+- hashtags: tieši viena TĒMAS BIRKA cilvēka valodā, drīkst ar atstarpi
+  («Karš Ukrainā», «US Open», «Saeima») — sistēma to liek ieraksta
+  galvenē, tekstā # neraksti. Ņem konkrētāko: notikums vai tēma pirms
+  personas, persona pirms valsts (rakstam par Trampu un Zelenski birka
+  ir «Karš Ukrainā», ne «ASV»).
 - Tonis: līdzjutēja enerģija, bet korekti pret abām komandām.
 - Formāti: link (teksts + saites kartīte) ātrām ziņām un rezultātiem;
   photo (attēls ar virsrakstu tv3.lv noformējumā) spilgtiem mirkļiem —

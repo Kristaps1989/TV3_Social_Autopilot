@@ -22,6 +22,11 @@ class PlatformSpec:
     # ko platformas adapteris prot publicēt (channels.yaml `formats:` izvēlas
     # no šiem; pārējo formātu ieraksts adapterī pārtop par tuvāko)
     formats: tuple[str, ...] = field(default_factory=tuple)
+    # Platformai hashtagu vietā ir TĒMAS BIRKA: viena, ar atstarpēm («Karš
+    # Ukrainā»), ko rāda ieraksta galvenē, nevis tekstā. Tekstā `#Tags`
+    # tur izskatās pēc kļūdas — Threads to pārvērš birkā un atstāj tekstā
+    # kailu vārdu bez #.
+    topic_tag: bool = False
 
 
 PLATFORM_SPECS: dict[str, PlatformSpec] = {
@@ -40,7 +45,7 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
     ),
     "threads": PlatformSpec(
         max_chars=500, ideal_max_chars=500, max_hashtags=1, max_emoji=2,
-        link_char_cost=None, link_in_copy=True,
+        link_char_cost=None, link_in_copy=True, topic_tag=True,
         formats=("link", "text_only", "photo", "photo_album", "card_carousel",
                  "reel"),
     ),
@@ -173,7 +178,11 @@ def sanitize_copy(copy: str, hashtags: list[str], platform: str,
             copy = copy[: first + 1] + copy[first + 1:].replace("?", ".")
             fixes.append("max one question")
 
-    hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags if h and h.strip("#")]
+    if spec.topic_tag:
+        hashtags = [t for t in (topic_tag_text(h) for h in hashtags) if t]
+    else:
+        hashtags = [h if h.startswith("#") else f"#{h}"
+                    for h in hashtags if h and h.strip("#")]
     if len(hashtags) > spec.max_hashtags:
         hashtags = hashtags[: spec.max_hashtags]
         fixes.append(f"kept only {spec.max_hashtags} hashtags")
@@ -181,7 +190,8 @@ def sanitize_copy(copy: str, hashtags: list[str], platform: str,
     budget = spec.max_chars
     if reserve_link_chars and spec.link_in_copy:
         budget -= (spec.link_char_cost or 30) + 1  # link + separating space
-    tags_len = sum(len(h) + 1 for h in hashtags)
+    # tēmas birka tekstā nestāv, tāpēc vietu tā neprasa
+    tags_len = 0 if spec.topic_tag else sum(len(h) + 1 for h in hashtags)
     budget -= max(0, reserve_chars)
     limit = max(60, min(budget - tags_len, spec.ideal_max_chars))
     if effective_length(copy, spec) > limit:
@@ -191,6 +201,23 @@ def sanitize_copy(copy: str, hashtags: list[str], platform: str,
     return copy.strip(), hashtags, fixes
 
 
+# Unicode diapazons ā-ž ietver arī lielos burtus (Č, Š…), tāpēc burti uzskaitīti
+_LOW, _UP = "a-zāčēģīķļņšūž", "A-ZĀČĒĢĪĶĻŅŠŪŽ"
+_CAMEL_SPLIT = re.compile(rf"(?<=[{_LOW}0-9])(?=[{_UP}])|(?<=[{_UP}])(?=[{_UP}][{_LOW}])")
+
+
+def topic_tag_text(tag: str) -> str:
+    """Hashtags -> tēmas birka: «#KaršUkrainā» -> «Karš Ukrainā», «#USOpen»
+    -> «US Open». Threads birkā nedrīkst būt punkts un &; garumu turam
+    lasāmu."""
+    text = (tag or "").strip().lstrip("#").strip()
+    if " " not in text:
+        text = _CAMEL_SPLIT.sub(" ", text)
+    text = re.sub(r"[.&]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:40]
+
+
 def assemble_post_text(copy: str, hashtags: list[str], link: str, platform: str,
                        disclosure: str = "") -> str:
     """disclosure: ES MI akta atruna. Tā stāv paraksta beigās atsevišķā rindā,
@@ -198,7 +225,7 @@ def assemble_post_text(copy: str, hashtags: list[str], link: str, platform: str,
     vai ierakstu vispār lasīs."""
     spec = PLATFORM_SPECS.get(platform) or PLATFORM_SPECS["facebook_page"]
     parts = [copy]
-    if hashtags:
+    if hashtags and not spec.topic_tag:   # birka iet API parametrā, ne tekstā
         parts.append(" ".join(hashtags))
     if link and spec.link_in_copy:
         parts.append(link)

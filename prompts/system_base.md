@@ -30,3 +30,7 @@ iespējas vairāk klikšķu uz tv3.lv rakstu, saglabājot TV3 uzticamību.
   rakstu pareizais formāts ir saites ieraksts.
 - Katrā kanālā tas pats raksts drīkst nākt citā āķī (hook_type) — tas ir
   starpplatformu tests, ko sistēma mēra pēc klikšķiem uz tv3.lv.
+- Hashtagi/birkas: konkrētākais uzvar — notikums vai tēma («Karš
+  Ukrainā», «Dziesmu svētki») pirms personas, persona pirms valsts vai
+  sadaļas. «ASV», «Latvija», «Sports» tikai tad, ja nekā konkrētāka nav.
+  Redakcijas tagu sarakstā pirmais ir atbilstīgākais.

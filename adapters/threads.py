@@ -56,6 +56,17 @@ class ThreadsAdapter(Adapter):
                 if e.retryable or "alt_text" not in str(e):
                     raise
                 log.warning("Threads noraidīja alt_text, sūtām bez: %s", e)
+        if data.get("topic_tag"):
+            # birka ir vēlama, ieraksts — obligāts: ja API to noraida
+            # (nederīga zīme, atļauja), publicējam bez birkas
+            try:
+                return self._post(f"{self.user_id}/threads", data)["id"]
+            except PublishError as e:
+                if e.retryable or "topic" not in str(e).lower():
+                    raise
+                log.warning("Threads noraidīja topic_tag %r, sūtām bez: %s",
+                            data["topic_tag"], e)
+                data = {k: v for k, v in data.items() if k != "topic_tag"}
         return self._post(f"{self.user_id}/threads", data)["id"]
 
     def _media_container(self, url: str, extra: dict, alt_text: str = "") -> str:
@@ -68,26 +79,31 @@ class ThreadsAdapter(Adapter):
     def publish(self, *, text: str, link: str, images: list[str], fmt: str,
                 card_links: list[str] | None = None,
                 card_titles: list[str] | None = None,
-                alt_text: str = "") -> str:
+                alt_text: str = "", topic_tag: str = "") -> str:
         del card_links, card_titles  # Threads karuselim nav kartīšu saišu
         urls = [u for u in (public_image_url(i) for i in images) if u]
+        # Tēmas birka (viena, drīkst ar atstarpēm) iet konteinera parametrā
+        # `topic_tag` un parādās ieraksta galvenē «tv3.lv > Karš Ukrainā».
+        # Tekstā `#Tags` Threads pārvērstu birkā un atstātu kailu vārdu.
+        top = {"topic_tag": topic_tag} if topic_tag else {}
         if fmt in ("photo_album", "card_carousel") and len(urls) >= 2:
             children = [self._media_container(u, {"is_carousel_item": "true"},
                                               alt_text)
                         for u in urls[:CAROUSEL_MAX]]
             container = self._container({"media_type": "CAROUSEL",
                                          "children": ",".join(children),
-                                         "text": text})
+                                         "text": text, **top})
             self._wait_processed(container)
         elif fmt in ("photo", "photo_album", "card_carousel", "reel", "story",
                      "video") and urls:
-            container = self._media_container(urls[0], {"text": text}, alt_text)
+            container = self._media_container(urls[0], {"text": text, **top},
+                                              alt_text)
             if is_video(urls[0]):
                 self._wait_processed(container)
             else:
                 time.sleep(2)  # Threads iesaka īsu pauzi pirms publicēšanas
         else:
-            data = {"media_type": "TEXT", "text": text}
+            data = {"media_type": "TEXT", "text": text, **top}
             if link:
                 data["link_attachment"] = link
             container = self._container(data)

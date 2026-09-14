@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app import pagemeta, shortlinks
+from app import config, pagemeta, shortlinks
 from app.models import Article
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -456,3 +456,53 @@ def test_editor_name_preferred_over_agency():
 def test_word_count_from_json_ld():
     m = pagemeta.parse(FULL)
     assert m["word_count"] == 1313
+
+
+def test_editorial_tags_are_ranked_by_relevance_not_alphabet(session, monkeypatch):
+    """CMS tagus atdod alfabēta secībā: «ASV» stāvēja pirms «Karš Ukrainā» un
+    kļuva par hashtagu rakstam par Trampu un Zelenski, kurā ASV ir fons."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    article = make_article(session, lead="Prezidenti Baltajā namā runāja par drošības garantijām.")
+    article.title = ("Zelenskis pēc tikšanās ar Trampu: karš Ukrainā nebeigsies "
+                     "ar uguns pārtraukšanu")
+    article.raw_json = {"_page_meta": {"tags": [
+        "ASV", "Donalds Tramps", "Karš Ukrainā", "Volodimirs Zelenskis"]}}
+    ranked = pagemeta.ranked_tags(article)
+    assert ranked[0] == "Karš Ukrainā"          # divi vārdi virsrakstā
+    assert ranked[-1] == "ASV"                  # vispārīgs — pēdējais
+    assert pagemeta.hashtags(article) == ["KaršUkrainā", "DonaldsTramps"]
+    assert pagemeta.topic_tags(article) == ["Karš Ukrainā"]
+    assert "Karš Ukrainā, " in pagemeta.prompt_lines(article)
+
+
+def test_generic_tag_still_used_when_it_is_all_there_is(session, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    article = make_article(session)
+    article.title = "Robots-tēlnieks veido marmora skulptūras"
+    article.raw_json = {"_page_meta": {"tags": ["Itālija"]}}
+    assert pagemeta.hashtags(article) == ["Itālija"]
+    assert pagemeta.topic_tags(article) == ["Itālija"]
+
+
+def test_threads_post_publishes_with_the_topic_tag_parameter(session, monkeypatch):
+    from app import pipeline
+    from app.models import Post, utcnow
+
+    calls = {}
+
+    class FakeAdapter:
+        def publish(self, *, text, link, images, fmt, **kw):
+            calls["text"], calls["kw"] = text, kw
+            return "th-1"
+
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    monkeypatch.setattr(pipeline, "get_adapter", lambda platform: FakeAdapter())
+    article = make_article(session)
+    post = Post(article_id=article.id, channel="threads_tv3lv", format="link",
+                copy="Ziņa", hashtags=["Karš Ukrainā"], link_url=URL,
+                state="scheduled", scheduled_at=utcnow())
+    session.add(post)
+    session.commit()
+    assert pipeline.publish_due(session) == 1
+    assert calls["kw"]["topic_tag"] == "Karš Ukrainā"
+    assert "Karš" not in calls["text"]          # birka galvenē, ne tekstā

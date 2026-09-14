@@ -174,3 +174,33 @@ def test_comment_is_reply_to_post(monkeypatch):
     assert data["media_type"] == "TEXT"
     assert data["reply_to_id"] == "post-77"
     assert data["text"] == "Saite: https://tv3.lv/x"
+
+
+def test_topic_tag_goes_into_the_container(monkeypatch):
+    adapter, calls = make_adapter(monkeypatch, simple_posts)
+    adapter.publish(text="Ziņa", link="https://tv3.lv/a", images=[], fmt="link",
+                    topic_tag="Karš Ukrainā")
+    path, data = calls["post"][0]
+    assert data["topic_tag"] == "Karš Ukrainā"
+    assert data["media_type"] == "TEXT"
+
+    adapter.publish(text="Ziņa", link="", images=["cards/a.png"], fmt="photo",
+                    topic_tag="Karš Ukrainā")
+    image = [d for p, d in calls["post"] if d.get("media_type") == "IMAGE"][0]
+    assert image["topic_tag"] == "Karš Ukrainā"
+
+
+def test_rejected_topic_tag_falls_back_to_a_post_without_it(monkeypatch):
+    """Birka ir vēlama, ieraksts — obligāts."""
+    def posts(path, data):
+        if data.get("topic_tag"):
+            return FakeResp({"error": {"message": "Invalid topic_tag", "code": 100}},
+                            code=400, text="Invalid topic_tag")
+        return simple_posts(path, data)
+
+    adapter, calls = make_adapter(monkeypatch, posts)
+    out = adapter.publish(text="Ziņa", link="", images=[], fmt="text_only",
+                          topic_tag="Bad.Tag")
+    assert out == "pub-c-text"
+    assert [("topic_tag" in d) for p, d in calls["post"]
+            if d.get("media_type") == "TEXT"] == [True, False]

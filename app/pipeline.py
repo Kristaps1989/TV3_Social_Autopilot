@@ -14,6 +14,7 @@ from adapters import get_adapter
 from adapters.base import PublishError
 from app import config, credentials, disclosure, pagemeta, play, shortlinks, tts, videos
 from app.best_practices import (PLATFORM_SPECS, add_utm, alt_text, assemble_post_text,
+                                topic_tag_text,
                                 sanitize_copy)
 from app.decide import decide
 from app.formats import choose_format, mix_deficit, recent_format_shares
@@ -167,7 +168,7 @@ def run_decisions(session, limit: int = 20) -> int:
             copy, hashtags, fixes = sanitize_copy(
                 ch_dec.get("copy") or article.title,
                 # kad AI hashtagus nedod, ņemam redakcijas pašas birkas
-                ch_dec.get("hashtags") or pagemeta.hashtags(article),
+                ch_dec.get("hashtags") or fallback_tags(article, platform),
                 platform, article.sensitivity, reserve_link_chars=True,
                 # MI atrunai vieta jāatvēl PIRMS apgriešanas, citādi tvīts
                 # ar to pārsniedz limitu tieši tad, kad teksts ir garš
@@ -1360,6 +1361,28 @@ def first_comment_text(post, platform: str, shown_link: str,
     return f"{text}\n\n{bridge}" if bridge and text else (bridge or text)
 
 
+def fallback_tags(article, platform: str, rules: dict | None = None) -> list[str]:
+    """Redakcijas tagi, kad AI birkas nedod: hashtagi («KaršUkrainā») tur,
+    kur platforma lieto #, un cilvēka teksts («Karš Ukrainā») tur, kur
+    platformai ir tēmas birka (Threads)."""
+    spec = PLATFORM_SPECS.get(platform)
+    if spec and spec.topic_tag:
+        return pagemeta.topic_tags(article, rules=rules)
+    return pagemeta.hashtags(article, rules=rules)
+
+
+def topic_tag_for(post, platform: str) -> str:
+    """Tēmas birka API parametram — tikai platformām, kam tāda ir."""
+    spec = PLATFORM_SPECS.get(platform)
+    if not spec or not spec.topic_tag:
+        return ""
+    for tag in post.hashtags or []:
+        text = topic_tag_text(tag)
+        if text:
+            return text
+    return ""
+
+
 def compose_text(post, platform: str, shown_link: str,
                  rules: dict | None = None) -> tuple[str, bool]:
     """(post text, whether the link also goes out as the first comment).
@@ -1589,6 +1612,9 @@ def publish_due(session) -> int:
                 else:
                     card_titles = [post.article.title] * n
             extra_kwargs = {}
+            topic = topic_tag_for(post, platform)
+            if topic:
+                extra_kwargs["topic_tag"] = topic
             if card_links:
                 extra_kwargs["card_links"] = card_links
             if card_titles:

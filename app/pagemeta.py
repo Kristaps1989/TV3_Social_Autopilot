@@ -674,24 +674,93 @@ def tags(article, limit: int = 6) -> list[str]:
 
 
 _TAG_WORD_RE = re.compile(r"[^0-9A-Za-zĀ-ž]+")
+_TAG_STEM = 5
+
+# Tagi, kas rakstu nepasaka: valsts, reģions, sadaļa. Redakcija tos liek
+# gandrīz katram ārzemju rakstam, un CMS tos atdod ALFABĒTA secībā — tāpēc
+# «ASV» stāvēja pirms «Karš Ukrainā» un kļuva par hashtagu rakstam, kurā
+# ASV bija tikai fons. Rules.yaml `hashtag_generic` šo sarakstu pārraksta.
+DEFAULT_GENERIC_TAGS = (
+    "ASV", "Latvija", "Lietuva", "Igaunija", "Baltija", "Eiropa", "ES",
+    "Eiropas Savienība", "Pasaule", "Krievija", "Ķīna", "Vācija", "Francija",
+    "Lielbritānija", "Polija", "Itālija", "Spānija", "Somija", "Zviedrija",
+    "Rīga", "Ziņas", "Sports", "Politika", "Ekonomika", "Izklaide",
+    "Ārzemes", "Ārvalstis", "Sabiedrība", "Kultūra", "Video",
+)
 
 
-def hashtags(article, limit: int = 2) -> list[str]:
+def _tag_stems(text: str) -> set[str]:
+    return {w.lower()[:_TAG_STEM] for w in _TAG_WORD_RE.split(text or "")
+            if len(w) >= 4}
+
+
+def ranked_tags(article, rules: dict | None = None) -> list[str]:
+    """Redakcijas tagi pēc atbilstības rakstam, nevis CMS (alfabēta) secībā.
+
+    Pirmais ir tags, kura vārdi ir virsrakstā vai ievadā — tas ir tas, PAR
+    KO raksts ir. Vispārīgie (valsts, sadaļa — `hashtag_generic`) iet pēdējie
+    un noder tikai tad, ja nekā cita nav. Vienādu punktu gadījumā paliek
+    redakcijas secība, lai rezultāts būtu paredzams.
+    """
+    from app import config
+
+    raw = [str(t).strip() for t in (meta(article).get("tags") or []) if str(t).strip()]
+    if not raw:
+        return []
+    rules = config.load_rules() if rules is None else rules
+    generic = {str(g).lower() for g in
+               (rules.get("hashtag_generic") or DEFAULT_GENERIC_TAGS)}
+    title = _tag_stems(getattr(article, "title", "") or "")
+    lead = _tag_stems(getattr(article, "lead", "") or "")
+
+    def score(tag: str) -> int:
+        stems = _tag_stems(tag)
+        pts = 2 * len(stems & title) + len(stems & lead)
+        if tag.lower() in generic:
+            pts -= 3
+        return pts
+
+    order = sorted(range(len(raw)), key=lambda i: (-score(raw[i]), i))
+    out: list[str] = []
+    for i in order:
+        if raw[i] not in out:
+            out.append(raw[i])
+    return out
+
+
+def _short_tags(article, rules: dict | None = None) -> list[tuple[str, list[str]]]:
+    """(tags, vārdi) tiem ranžētajiem tagiem, kas der par birku: 1–3 vārdi.
+    Garāks tags kā hashtags vai tēmas birka vairs nelasās."""
+    out = []
+    for tag in ranked_tags(article, rules):
+        words = [w for w in _TAG_WORD_RE.split(tag) if w]
+        if words and len(words) <= 3:
+            out.append((tag, words))
+    return out
+
+
+def hashtags(article, limit: int = 2, rules: dict | None = None) -> list[str]:
     """Redakcijas tagi kā hashtagi ("Gāzes sprādziens" -> "GāzesSprādziens").
 
     Šos atslēgvārdus rakstam ir uzlicis cilvēks redakcijā, un portāls pats
     ar tiem strādā — precīzāk un konsekventāk nekā jebkas, ko modelis
-    izdomā uz vietas. Vairāk par trim vārdiem garš tags kā hashtags vairs
-    nelasās, tāpēc tādus izlaižam.
+    izdomā uz vietas. Secība — pēc atbilstības (`ranked_tags`).
     """
     out: list[str] = []
-    for tag in meta(article).get("tags") or []:
-        words = [w for w in _TAG_WORD_RE.split(str(tag)) if w]
-        if not words or len(words) > 3:
-            continue
+    for _tag, words in _short_tags(article, rules):
         text = "".join(w[:1].upper() + w[1:] for w in words)
         if 3 <= len(text) <= 24 and text not in out:
             out.append(text)
+    return out[:limit]
+
+
+def topic_tags(article, limit: int = 1, rules: dict | None = None) -> list[str]:
+    """Tie paši tagi kā cilvēka teksts («Karš Ukrainā») — Threads tēmas birkai,
+    kas atstarpes pieļauj un ko rāda ieraksta galvenē, ne tekstā."""
+    out: list[str] = []
+    for tag, _words in _short_tags(article, rules):
+        if 3 <= len(tag) <= 40 and tag not in out:
+            out.append(tag)
     return out[:limit]
 
 
@@ -753,8 +822,10 @@ def prompt_lines(article) -> str:
     if data.get("author"):
         lines.append(f"Autors: {data['author']}")
     if data.get("tags"):
-        lines.append("Redakcijas tagi (labākais hashtag avots): "
-                     + ", ".join(str(t) for t in data["tags"][:8]))
+        # atbilstības secībā, lai modelis pirmo redz to, par ko raksts ir
+        lines.append("Redakcijas tagi (labākais hashtag avots; pirmais ir "
+                     "atbilstīgākais — ņem tēmu vai notikumu, nevis valsti): "
+                     + ", ".join(ranked_tags(article)[:8]))
     if data.get("categories"):
         lines.append("CMS kategorijas: " + ", ".join(str(c) for c in data["categories"]))
     if has_gallery(article):

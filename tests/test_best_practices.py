@@ -143,3 +143,24 @@ def test_publish_sends_alt_text(session, monkeypatch):
     pipeline.publish_due(session)
 
     assert "Vētra tuvojas Latvijai" in seen.get("alt_text", "")
+
+
+def test_threads_gets_a_topic_tag_instead_of_a_hashtag_in_text():
+    """Threads `#Tags` tekstā pārvērš birkā un atstāj kailu vārdu bez # —
+    izskatās pēc kļūdas. Birka iet API parametrā, teksts paliek tīrs."""
+    from app.best_practices import assemble_post_text, sanitize_copy, topic_tag_text
+
+    assert topic_tag_text("#KaršUkrainā") == "Karš Ukrainā"
+    assert topic_tag_text("USOpen") == "US Open"
+    assert topic_tag_text("Karš Ukrainā") == "Karš Ukrainā"
+    assert topic_tag_text("#ASV") == "ASV"
+    assert topic_tag_text("R&B.") == "RB"
+
+    copy, tags, _ = sanitize_copy("Ziņa", ["#KaršUkrainā", "#ASV"], "threads")
+    assert tags == ["Karš Ukrainā"]                       # viena, cilvēka valodā
+    text = assemble_post_text(copy, tags, "https://tv3.lv/a", "threads")
+    assert "Karš" not in text and "#" not in text          # birka nav tekstā
+
+    _, x_tags, _ = sanitize_copy("Ziņa", ["KaršUkrainā"], "x")
+    assert x_tags == ["#KaršUkrainā"]                      # X paliek hashtags
+    assert "#KaršUkrainā" in assemble_post_text("Ziņa", x_tags, "", "x")
