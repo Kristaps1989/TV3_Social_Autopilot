@@ -432,3 +432,29 @@ ads_inform_format: true
 # stundas, un vakardienas ziņa šodienas stāstā ir sliktāka par neko.
 # false = publicē arī novecojušo (tikai plānošana ievēro svaigumu).
 stale_publish_guard: true
+
+# Kuros kanālos iet franšīzes (nosauktie, atkārtojamie formāti). Grafiku
+# zīmējam VIENU reizi un liekam visos sarakstā — karuselis Threads un
+# Instagram ir tas pats fails, tikai cita plūsma. Pirmais kanāls kodā ir
+# fiksēts (Facebook, stāstiem fb_stories); te ir pārējie.
+#
+# Divi filtri strādā paši: neaktīvs kanāls (channels.yaml `active: false`,
+# piem. Instagram, kamēr nav pieslēgts) izkrīt, un kanāls, kura `formats`
+# šo formātu nesatur, arī — tāpēc saišu franšīzes Instagramā nenonāk, kaut
+# arī te ir uzskaitītas.
+#
+# X (x_tv3zinas) sarakstos NAV apzināti: tur katrs ieraksts ar saiti maksā
+# $0.20. Pieliec to, ja gribi, un vispirms uzliec kanālam `daily_cap`.
+franchise_channels:
+  digest: [threads_sport, ig_tv3lv]        # nedēļas / sporta TOP 5 (karuselis)
+  mondaytop5: [threads_sport, ig_tv3lv]    # nogales TOP 5 (karuselis)
+  quiz: [threads_sport, ig_tv3lv]          # nedēļas QUIZ (karuselis)
+  digestreel: [ig_tv3lv, threads_sport]    # «Nedēļa 30 sekundēs» (lente)
+  number: [threads_sport, ig_tv3lv]        # nedēļas skaitlis (foto)
+  question: [threads_sport, ig_tv3lv]      # trešdienas jautājums (foto)
+  mondaystory: [ig_tv3lv]                  # stāsts (story)
+  dailystory: [ig_tv3lv]                   # dienas stāsts (story)
+  icymi: [threads_sport]                   # nepamanītais raksts (saite)
+  evergreen: [threads_sport]               # arhīva raksts (saite)
+  yearago: [threads_sport]                 # pirms gada (saite)
+  guide: [threads_sport]                   # nogales gids (saite)

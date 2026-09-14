@@ -249,13 +249,46 @@ def digest_link(articles: list[Article], fallback: str = "https://tv3.lv") -> st
     return fallback
 
 
+def channels_for(marker: str, fmt: str, primary: str,
+                 rules: dict | None = None) -> list[str]:
+    """Kanāli, kuros šī franšīze iet. Pirmais vienmēr ir `primary`.
+
+    Franšīzes bija iekodētas uz Facebook, kaut grafika der visur: karuselis
+    Threads un Instagram ir tas pats fails, tikai cita plūsma. Sarakstu dod
+    `franchise_channels` noteikumos (marķieris -> kanāli).
+
+    Divi filtri, kas taupa redakcijai domāšanu: neaktīvs kanāls izkrīt pats
+    (`config.load_channels` to neatdod), un kanāls, kura `formats` šo formātu
+    nesatur, arī — saites ieraksts Instagramā nav ieraksts, tas ir klikšķis
+    nekurienē.
+    """
+    rules = config.load_rules() if rules is None else rules
+    wanted = list((rules.get("franchise_channels") or {}).get(marker) or [])
+    live = config.load_channels()
+    out = [primary] if primary in live else []
+    for name in wanted:
+        cfg = live.get(name)
+        if name in out or cfg is None:
+            continue
+        if fmt not in (cfg.get("formats") or []):
+            log.info("franšīze %s: %s neiet uz %s (formāts nav kanāla sarakstā)",
+                     marker, fmt, name)
+            continue
+        out.append(name)
+    return out
+
+
 def _schedule(session, article: Article, fmt: str, copy: str, media: list,
               link: str, marker: str, at: datetime,
               card_links: list[str] | None = None,
               card_titles: list[str] | None = None,
               channel: str = CHANNEL,
               recipe: dict | None = None,
-              items: list[dict] | None = None) -> Post:
+              items: list[dict] | None = None,
+              fan_out: bool = True) -> Post:
+    """Ieplāno franšīzes ierakstu. Atgriež PIRMO (primāro) ierakstu; pārējie
+    kanāli dabū to pašu grafiku un to pašu laiku. `fan_out=False` kad izsaucējs
+    kanālus izvēlas pats (Play izlase)."""
     from app import cards, runtime
 
     # Franšīzes ieraksti ir ATSKATOŠI pēc būtības: «nedēļas TOP», «nedēļas
@@ -276,13 +309,19 @@ def _schedule(session, article: Article, fmt: str, copy: str, media: list,
         extra["card_titles"] = card_titles
     if items:
         extra["items"] = items
-    post = Post(article_id=article.id, channel=channel, format=fmt, copy=copy,
-                media=media, link_url=link, hook_type=marker,
-                state="scheduled", scheduled_at=at, extra=extra,
-                dry_run=runtime.is_dry_run(session))
-    session.add(post)
+    names = (channels_for(marker, fmt, channel) if fan_out else [channel])
+    posts = []
+    for name in names:
+        post = Post(article_id=article.id, channel=name, format=fmt, copy=copy,
+                    media=media, link_url=link, hook_type=marker,
+                    state="scheduled", scheduled_at=at, extra=dict(extra),
+                    dry_run=runtime.is_dry_run(session))
+        session.add(post)
+        posts.append(post)
     session.flush()
-    return post
+    if len(posts) > 1:
+        log.info("franšīze %s: %s", marker, ", ".join(p.channel for p in posts))
+    return posts[0]
 
 
 def _local_slot(day, hour: int) -> datetime:

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
-from app import weekend
+from app import cards, config, weekend
 from app.models import Article, Post, PostMetrics, utcnow
 
 SAT = datetime(2026, 8, 29, 8, 0)   # sestdiena 11:00 Rīgā
@@ -173,7 +173,8 @@ def test_evergreen_picks_old_still_read_article(session, monkeypatch):
     created = weekend.run(session, SUN)
     assert created == 1
     post = session.execute(select(Post).where(
-        Post.hook_type == "evergreen")).scalars().one()
+        Post.hook_type == "evergreen",
+        Post.channel == weekend.CHANNEL)).scalars().one()
     assert post.article_id == old.id
     # datums tekstā ir tā raksta ĪSTAIS publicēšanas datums; mēneša nosaukumu
     # rēķinām tāpat kā kods, citādi tests salūst, mainoties kalendāra dienai
@@ -653,7 +654,8 @@ def test_wednesday_question_is_a_photo_post_linking_to_the_article(
 
     assert weekend.run(session, datetime(2026, 9, 2, 16, 0)) == 1
     post = session.execute(select(Post).where(
-        Post.hook_type == "question")).scalars().one()
+        Post.hook_type == "question",
+        Post.channel == weekend.CHANNEL)).scalars().one()
     # foto ieraksts -> saite gan tekstā, gan pirmajā komentārā (pipeline)
     assert post.format == "photo" and post.article_id == art.id
     assert post.link_url == art.canonical_url
@@ -696,7 +698,8 @@ def test_year_ago_picks_the_anniversary_and_skips_sensitive(session, monkeypatch
 
     assert weekend.run(session, THU) == 1
     post = session.execute(select(Post).where(
-        Post.hook_type == "yearago")).scalars().one()
+        Post.hook_type == "yearago",
+        Post.channel == weekend.CHANNEL)).scalars().one()
     assert post.article_id == hit.id and post.format == "link"
     assert post.scheduled_at == datetime(2026, 9, 3, 12, 0)   # 15:00 Rīgā
     assert "Šajā dienā pirms gada" in post.copy
@@ -726,7 +729,8 @@ def test_number_card_publishes_only_with_a_real_number(session, monkeypatch):
     _only(session, "number")
     assert weekend.run(session, TUE) == 1
     post = session.execute(select(Post).where(
-        Post.hook_type == "number")).scalars().one()
+        Post.hook_type == "number",
+        Post.channel == weekend.CHANNEL)).scalars().one()
     assert post.format == "photo" and post.article_id == art.id
     assert post.link_url == art.canonical_url
     assert post.scheduled_at == datetime(2026, 9, 1, 9, 0)    # 12:00 Rīgā
@@ -826,3 +830,45 @@ def test_every_carousel_card_gets_its_own_utm_term(session, monkeypatch):
     assert all(a.canonical_url in u for u in links)
     assert "utm_term=quiz-karte1" in links[0]
     assert "utm_term=quiz-karte3" in links[2]
+
+
+def test_franchises_go_to_every_configured_channel_with_one_render(session, monkeypatch):
+    """Franšīzes bija iekodētas uz Facebook, kaut grafika der visur. Tagad
+    kanālus dod noteikumi, un grafiku zīmējam vienu reizi."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    for i in range(5):
+        _article(session, f"fx-{i}", f"Notikums numur {i}", sessions=900 - i)
+    renders = []
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+
+    def fake_cards(*a, **k):
+        renders.append(1)
+        return ["c0.png", "c1.png"]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    weekend.save_settings(session, {"top5": True, "reel": False, "icymi": False,
+                                    "quiz": False, "evergreen": False})
+    weekend.run(session, SUN)
+    posts = session.execute(select(Post).where(
+        Post.hook_type == "digest")).scalars().all()
+    assert {p.channel for p in posts} == {"fb_tv3lv", "threads_sport"}
+    assert len(renders) == 1
+    assert all(p.media == posts[0].media for p in posts)
+    assert len({p.scheduled_at for p in posts}) == 1
+
+
+def test_a_channel_that_cannot_do_the_format_is_left_out(monkeypatch):
+    """Saites ieraksts Instagramā nav ieraksts — tas ir klikšķis nekurienē.
+    Neaktīvs kanāls izkrīt pats, jo load_channels to neatdod."""
+    monkeypatch.setattr(config, "load_channels", lambda: {
+        "fb_tv3lv": {"formats": ["link", "card_carousel"]},
+        "ig_tv3lv": {"formats": ["photo", "card_carousel"]},
+        "threads_sport": {"formats": ["link", "card_carousel"]}})
+    rules = {"franchise_channels": {"icymi": ["ig_tv3lv", "threads_sport"],
+                                    "quiz": ["ig_tv3lv", "threads_sport"]}}
+    assert weekend.channels_for("icymi", "link", "fb_tv3lv", rules) == [
+        "fb_tv3lv", "threads_sport"]
+    assert weekend.channels_for("quiz", "card_carousel", "fb_tv3lv", rules) == [
+        "fb_tv3lv", "ig_tv3lv", "threads_sport"]
+    # nezināms marķieris -> tikai primārais kanāls
+    assert weekend.channels_for("cits", "link", "fb_tv3lv", rules) == ["fb_tv3lv"]

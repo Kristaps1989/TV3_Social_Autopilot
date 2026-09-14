@@ -1161,7 +1161,8 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
                                  card_links=[it["url"] for it in items],
                                  card_titles=[it["title"] for it in items], items=items,
                                  recipe={"kind": "play_selection", "theme": theme,
-                                         "articles": [a.id for a in used]})
+                                         "articles": [a.id for a in used]},
+                                 fan_out=False)
         if cfg.get("selection_requires_approval", False):
             post.state = "proposed"
         posts.append(post)
