@@ -23,6 +23,34 @@ prasa redzēt vienā ierakstā:
 
 Tātad jālabo ir video, ne apraksti.
 
+Visām piecām atļaujām atteikuma teksts ir **burtiski viens un tas pats** —
+pārbaudīts katrā formā atsevišķi (threads_basic, threads_content_publish,
+threads_manage_replies, threads_read_replies, threads_manage_insights). Viens
+jauns ieraksts salabo visas piecas; atsevišķi video katrai nevajag.
+
+## Divi punkti, kas formā palikuši neizpildīti
+
+Katras atļaujas formā labajā pusē ir kontrolsaraksts. Divas rindas ir bez
+ķeksīša, un abas bloķē iesniegšanu:
+
+- **«Upload screencast showing the end-to-end user experience»** — jaunais
+  video (scenārijs zemāk).
+- **«Agree that you will comply with allowed usage»** — rūtiņa *«If approved,
+  I agree that any data I receive through … will be used in accordance with
+  the allowed usage»* formas apakšā. Tā ir neatzīmēta **visām piecām**
+  atļaujām. Bez tās iesniegums neaiziet, lai cik labs būtu video. Atzīmē to
+  katrā formā, pirms spied Save.
+
+Pārējās divas rindas ir zaļas: API izsaukumi ir izdarīti («Completed»), un
+atļauju savstarpējās prasības (threads_basic priekš pārējām) ir izpildītas.
+
+## Sīkums, ko vērts salabot aprakstos
+
+`threads_basic` apraksts sākas ar «Threads_Autopilot is an internal editorial
+publishing tool…». Lietotne tagad saucas **TV3 Social Autopilot**. Nosaukums
+aprakstā vairs nesakrīt ne ar lietotni, ne ar video; nomaini to. Pārējos
+četros aprakstos nosaukums neparādās.
+
 ## Angļu valoda — kā atrisināts
 
 Saskarne ir latviešu, jo to lieto TV3 redakcija. Pārsaukt visu angliski nozīmē
@@ -228,9 +256,14 @@ beigās jāpieliek rindkopa par pieteikšanās plūsmu (augstāk):
 
 ## Iesniegšanas secība
 
-1. Uzliec pārbaudītāja paroli (Konti → Pārbaudītāja pieeja).
-2. Ieraksti video pēc scenārija augstāk.
-3. Katrai piecām atļaujām: pielabo aprakstu, pieliec rindkopu par
-   pieteikšanās plūsmu, augšupielādē **to pašu** video, atzīmē «I agree…».
-4. Reviewer instructions — teksts augstāk, ar īsto paroli.
-5. Submit. Atbilde parasti 3–5 darba dienās.
+1. Deploy, lai serverī ir angļu paskaidrojumu panelis.
+2. Uzliec pārbaudītāja paroli (Konti → Pārbaudītāja pieeja).
+3. Ieraksti video pēc scenārija augstāk (ar administratora paroli).
+4. Katrai no piecām atļaujām formā:
+   - pieliec aprakstam rindkopu par pieteikšanās plūsmu;
+   - `threads_basic` arī nomaini lietotnes nosaukumu;
+   - augšupielādē **to pašu** video;
+   - **atzīmē rūtiņu «If approved, I agree…»**;
+   - Save.
+5. Reviewer instructions — teksts augstāk, ar īsto pārbaudītāja paroli.
+6. Submit. Atbilde parasti 3–5 darba dienās.
