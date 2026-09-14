@@ -164,7 +164,31 @@ play:
   # P2: izlašu karuselis (pk/se/sv vakarā, redaktors apstiprina) un tilti no
   # rakstiem par raidījumu/personu (tikai izklaide/sports, tikai bez traģēdijas)
   selection_channel: fb_tv3lv
-  selection_days: [4, 5, 6]
+  # Nedēļas režģis. Bez tēmas izlase ir «pieci nosaukumi, kas gadījās pa rokai»;
+  # ar tēmu tai ir iemesls būt kopā un iemesls atgriezties nākamajā otrdienā.
+  # `day`: 0=Pr, 1=Ot, 2=Tr, 3=Ce, 4=Pk, 5=Se, 6=Sv. Pirmdiena paliek brīva
+  # (tur jau ir divas franšīzes), trešdiena arī — 19:00 iet «Trešdienas
+  # jautājums», un Play slots ir 19:30.
+  # `genres` ir CELMI, ne precīzi nosaukumi: «romant» noķer arī «Romantiska
+  # komēdija». Ja tēmas žanros nesanāk vismaz 3 nosaukumi, diena tiek izlaista
+  # — svešs žanrs zem tēmas virsraksta ir sliktāk nekā izlaista diena.
+  selection_themes:
+    - day: 1
+      title: "Otrdienas romantika"
+      genres: ["romant", "melodram"]
+    - day: 3
+      title: "Ceturtdienas trilleri"
+      genres: ["trille", "detekt", "krimin"]
+    - day: 4
+      title: "Piektdienas vakaram"
+      genres: []
+    - day: 5
+      title: "Sestdienas ģimenes vakars"
+      genres: ["ģimen", "gimen", "animāc", "animac", "piedzīvoj", "piedzivoj"]
+    - day: 6
+      title: "Svētdienas izlase"
+      genres: []
+  selection_days: [1, 3, 4, 5, 6]
   selection_hour: 19
   selection_requires_approval: true
   bridges: true

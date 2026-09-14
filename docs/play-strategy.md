@@ -302,3 +302,33 @@ P2 un P3 arī ir kodā (tie paši slēdži):
 3. GA4: atsevišķs Play īpašums vai kopīgs; skatīšanās sākuma notikuma nosaukums?
 4. Vai viss saturs ir bez maksas (AVOD), vai daļa ir abonementā? Tas maina CTA.
 5. Kurš apstiprina izlases pirmajā mēnesī — redakcija vai Play mārketings?
+
+
+## Nedēļas tēmas (14.09.2026)
+
+Izlase iznāca tikai piektdienā un brīvdienās, un katra bija «pieci nosaukumi,
+kas gadījās pa rokai». Tagad nedēļai ir režģis, un katrai dienai ir iemesls:
+
+| Diena | Tēma | Žanru celmi |
+|---|---|---|
+| Otrdiena | Otrdienas romantika | `romant`, `melodram` |
+| Ceturtdiena | Ceturtdienas trilleri | `trille`, `detekt`, `krimin` |
+| Piektdiena | Piektdienas vakaram | — (plašākais vakars, filtra nav) |
+| Sestdiena | Sestdienas ģimenes vakars | `ģimen`, `animāc`, `piedzīvoj` |
+| Svētdiena | Svētdienas izlase | — |
+
+Pirmdiena paliek brīva (tur jau ir divas franšīzes), trešdiena arī — 19:00 iet
+«Trešdienas jautājums», un Play slots ir 19:30.
+
+Divi apzināti lēmumi:
+
+- **Žanri ir celmi, ne precīzi nosaukumi.** Play žanru virknes mēdz būt
+  saliktas («Romantiska komēdija»), tāpēc `romant` noķer abus. Bez tā tēmas
+  dienas būtu tukšas, un no ārpuses tas izskatītos pēc salūzuša kataloga.
+- **Tēmas dienā žanru dažādības griesti nestrādā.** Parastā dienā viens žanrs
+  nedrīkst aizņemt vairāk par diviem nosaukumiem; tēmas dienā visa izlase
+  apzināti ir viens žanrs.
+- **Ja tēmas žanros nesanāk trīs nosaukumi, diena krīt.** «Otrdienas romantika»
+  ar trilleriem iekšā ir sliktāk nekā izlaista otrdiena. Iemesls nonāk žurnālā,
+  un `/logs/play-audit` rāda `themes` rindu ar `titles_available` katrai dienai
+  — tā «šodien izlases nav» atšķiras no «šodien nav tēmas dienas».

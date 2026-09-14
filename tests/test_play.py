@@ -1020,3 +1020,56 @@ def test_preview_shows_the_whole_first_comment_not_one_link(session, monkeypatch
         assert f"Nosaukums {i}" in page
         assert f"utm_term=" in page
     assert page.count("play.tv3.lv/filmas/f-") >= 5
+
+
+def test_theme_day_keeps_only_its_genres_and_skips_when_there_are_too_few(
+        session, monkeypatch):
+    """«Tv3play saturs nāk tikai piektdienās un brīvdienās» — tagad ir arī
+    darba dienu tēmas. Bet «Otrdienas romantika» ar trilleriem iekšā ir
+    sliktāk nekā izlaista otrdiena, tāpēc pietrūkstot nosaukumu diena krīt."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch, selection_days=[1], selection_themes=[
+        {"day": 1, "title": "Otrdienas romantika", "genres": ["romant"]}])
+    play.crawl(session, fetch=_fetch, now=NOW)
+    _third_show(session)
+    from app import cards
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    rendered = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kw):
+        rendered.update(title=title, points=points)
+        return [f"data/cards/p{i}.png" for i in range(len(points))]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    tuesday = datetime(2026, 9, 8).date()
+
+    # katalogā ir viena romantiska komēdija -> par maz, otrdiena izlaista
+    assert play.build_selection(session, tuesday, NOW) is None
+
+    # pieliekam vēl divas romantiskas -> tēma savācas
+    for i, name in enumerate(("Mīlas vēstule", "Divi pavasarī")):
+        session.add(Article(
+            guid=f"rom-{i}", url=f"https://play.tv3.lv/filmas/rom-{i}-90{i}/",
+            canonical_url=f"https://play.tv3.lv/filmas/rom-{i}-90{i}/",
+            title=name, section="entertainment", feed_name=play.FEED_NAME,
+            images=["https://tv3cdn.lv/t/r.jpg"], published_at=NOW - timedelta(days=1),
+            raw_json={"_play": {"kind": "movie", "show": f"rom-{i}",
+                                "show_id": f"90{i}", "genres": ["Romantiska komēdija"],
+                                "seconds": 5400}}))
+    session.commit()
+    post = play.build_selection(session, tuesday, NOW)
+    assert post is not None
+    assert rendered["title"] == "Otrdienas romantika: TV3 Play"
+    assert "Mīlas vēstule" in rendered["points"]
+    # trilleris tēmas dienā neiekļūst
+    assert "Nemīlētie" not in rendered["points"]
+
+
+def test_genre_filter_matches_by_stem_not_exact_name():
+    class A:
+        raw_json = {"_play": {"genres": ["Romantiska komēdija"]}}
+
+    assert play.genre_matches(A(), ["romant"]) is True
+    assert play.genre_matches(A(), ["trille"]) is False
+    assert play.genre_matches(A(), []) is True

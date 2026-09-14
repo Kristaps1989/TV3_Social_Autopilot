@@ -772,8 +772,18 @@ def same_story(a, b) -> bool:
     art_b = str((b.raw_json or {}).get("_video_article") or "")
     if art_a and art_a == art_b:
         return True
-    wa = _story_words(f"{a.title} {a.lead or ''}")
-    wb = _story_words(f"{b.title} {b.lead or ''}")
+    return same_topic(f"{a.title} {a.lead or ''}", f"{b.title} {b.lead or ''}")
+
+
+def same_topic(text_a: str, text_b: str) -> bool:
+    """Vai divi teksti ir par vienu un to pašu notikumu.
+
+    Latviešu valodā virsrakstu salīdzināšana pa veseliem vārdiem neko nedod —
+    galotnes atšķiras («ietves» / «ietvi»), tāpēc salīdzinām celmus. Slieksni
+    noregulēja pret īstiem pāriem: divi ieraksti par vienu ietves remontu pret
+    diviem dažādiem notikumiem vienā sadaļā.
+    """
+    wa, wb = _story_words(text_a), _story_words(text_b)
     if not wa or not wb:
         return False
     shared = wa & wb

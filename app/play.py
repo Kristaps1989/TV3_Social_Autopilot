@@ -90,7 +90,8 @@ DEFAULTS = {
     "campaign": "play",
     # P2: izlašu karuselis (3–5 nosaukumi, katra kartīte ar savu saiti)
     "selection_channel": "fb_tv3lv",
-    "selection_days": [4, 5, 6],      # piektdiena, sestdiena, svētdiena
+    "selection_days": [1, 3, 4, 5, 6],   # Ot, Ce, Pk, Se, Sv (sk. selection_themes)
+    "selection_themes": [],           # dienas tēma: {day, title, genres}
     "selection_build_hour": 17,       # būvē no 17:00, publicē vakara logā
     "selection_hour": 19,
     "selection_size": 5,
@@ -906,6 +907,17 @@ def summary(session, rules: dict | None = None, now: datetime | None = None) -> 
         "published_7d": len(posts),
         "audit": last_audit(session),
         "windows": cfg.get("windows"), "daily_cap": cfg.get("daily_cap"),
+        # Kura diena kādu tēmu dabū un cik nosaukumu katrai tēmai vispār ir —
+        # bez tā «šodien izlases nav» neatšķiras no «šodien izlase nav diena»
+        "themes": [
+            {"day": d, "title": theme_for(d, cfg)[0],
+             "genres": theme_for(d, cfg)[1],
+             "on": d in (cfg.get("selection_days") or []),
+             "titles_available": sum(
+                 1 for a in items
+                 if play_data(a).get("kind") in ("movie", "show", "episode")
+                 and not expired(a) and genre_matches(a, theme_for(d, cfg)[1]))}
+            for d in range(7)],
         "feed_share": cfg.get("feed_share"), "last_crawl": last,
     }
 
@@ -943,7 +955,35 @@ def title_scores(session, days: int = 60) -> dict[str, float]:
 # --- P2: izlašu karuselis ------------------------------------------------------
 
 SELECTION_MARKER = "playselection"
+# Rezerves nosaukumi, ja `selection_themes` noteikumos nav nekā par šo dienu.
 THEMES = {4: "Piektdienas vakaram", 5: "Sestdienas izlase", 6: "Svētdienas izlase"}
+
+
+def theme_for(weekday: int, cfg: dict) -> tuple[str, list[str]]:
+    """(virsraksts, žanru filtrs) šai nedēļas dienai.
+
+    Bez tēmām izlase katru reizi ir «pieci nosaukumi, kas gadījās pa rokai», un
+    tieši tā tā izskatījās plūsmā. Tēma dod iemeslu, kāpēc šie pieci ir kopā —
+    un iemeslu atgriezties otrdienā. Žanru saraksts ir tikai celmi: «romant»
+    noķer gan «Romantika», gan «Romantiska komēdija».
+    """
+    for block in (cfg.get("selection_themes") or []):
+        if isinstance(block, dict) and int(block.get("day", -1)) == weekday:
+            return (str(block.get("title") or THEMES.get(weekday, "Vakara izlase")),
+                    [str(g).lower() for g in (block.get("genres") or [])])
+    return THEMES.get(weekday, "Vakara izlase"), []
+
+
+def genre_matches(article, wanted: list[str]) -> bool:
+    """Vai nosaukuma žanros ir kāds no tēmas žanriem (tukšs filtrs = viss der).
+
+    Salīdzinām pēc celma un bez diakritikas: Play žanru virknes mēdz būt
+    saliktas («Romantiska komēdija»), un precīza sakritība tur nenostrādātu.
+    """
+    if not wanted:
+        return True
+    have = _norm(" ".join(play_data(article).get("genres") or []))
+    return any(_norm(w) and _norm(w) in have for w in wanted)
 
 
 def _norm(text: str) -> str:
@@ -959,10 +999,15 @@ def _first_genre(article) -> str:
     return _norm(g[0]) if g else ""
 
 
-def selection_candidates(session, cfg: dict, now: datetime, channel: str) -> list[Article]:
+def selection_candidates(session, cfg: dict, now: datetime, channel: str,
+                         genres: list[str] | None = None) -> list[Article]:
     """Nosaukumi izlasei: pa vienam uz raidījumu, bez nesen rādītiem, bez
     16+/18+ (vakars sākas 19:00), drūmā dienā bez aizliegtajiem žanriem, žanru
-    dažādība, priekšroka ar plakātu un labāku mērīto rezultātu."""
+    dažādība, priekšroka ar plakātu un labāku mērīto rezultātu.
+
+    `genres` ir dienas tēmas filtrs (piem., otrdienas romantika). Tēmas dienā
+    žanru dažādības griesti nestrādā — visa izlase tur APZINĀTI ir viens žanrs.
+    """
     rows = session.execute(
         select(Article).where(Article.feed_name == FEED_NAME)
         .order_by(Article.published_at.desc())).scalars().all()
@@ -996,8 +1041,10 @@ def selection_candidates(session, cfg: dict, now: datetime, channel: str) -> lis
             continue
         if is_somber and not genre_ok_on_somber_day(a):
             continue
+        if not genre_matches(a, genres or []):
+            continue
         g = _first_genre(a)
-        if g and per_genre.get(g, 0) >= 2:
+        if not genres and g and per_genre.get(g, 0) >= 2:
             continue
         seen_shows.add(sid)
         per_genre[g] = per_genre.get(g, 0) + 1
@@ -1031,13 +1078,19 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
     if not cfg.get("enabled") or paused(session):
         return None
     channel = str(cfg.get("selection_channel") or "fb_tv3lv")
-    picked = selection_candidates(session, cfg, now, channel)
+    theme, genres = theme_for(day.weekday(), cfg)
+    picked = selection_candidates(session, cfg, now, channel, genres)
+    if len(picked) < 3 and genres:
+        # Tēmas dienu ar svešiem žanriem neaizpildām: «Otrdienas romantika» ar
+        # trilleriem ir sliktāk nekā izlaista otrdiena.
+        log.info("Play izlase %s (%s): par maz nosaukumu žanros %s (%d)",
+                 day, theme, ", ".join(genres), len(picked))
+        return None
     if len(picked) < 3:
         log.info("Play izlase %s: par maz nosaukumu (%d)", day, len(picked))
         return None
     if not cards.renderer_available():
         return None
-    theme = THEMES.get(day.weekday(), "Vakara izlase")
     title = f"{theme}: TV3 Play"
     points = [_display_title(a) for a in picked]
     images = [(a.images or [""])[0] for a in picked]

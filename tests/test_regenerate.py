@@ -488,3 +488,42 @@ def test_empty_render_names_the_renderer_not_just_the_symptom(session, monkeypat
     ok, message = regen.regenerate(session, post)
     assert ok is False
     assert "zīmētājs strādā" in message
+
+
+def test_quiz_asks_about_three_different_stories(session, monkeypatch):
+    """Divi jautājumi par ziemeļblāzmu pēc kārtas izskatījās pēc kļūdas, ne
+    pēc nedēļas apskata: AI redz virsrakstus atsevišķi un nezina, ka divi no
+    tiem ir par vienu notikumu."""
+    titles = ["Ziemeļblāzma atkal bija vērojama visā Latvijā",
+              "Fotogrāfe dalās padomos par ziemeļblāzmas fotografēšanu",
+              "Rīgā atklāj pārbūvēto Salu tiltu",
+              "Basketbolisti izcīna uzvaru pret Lietuvu",
+              "Budžetā trūkst 47 miljoni eiro"]
+    for i, title in enumerate(titles):
+        _art(session, f"qs-{i}", title, sessions=900 - i)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_cards(title, section, tag, points, image, question, **kwargs):
+        seen.update(points=points)
+        return ["c0.png", "c1.png", "c2.png", "c3.png", "c4.png"]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "1 | Kāda dabas parādība 8. septembrī atkal bija vērojama Latvijā?",
+        "2 | Kuras profesijas pārstāve dalījās padomos par ziemeļblāzmas fotografēšanu?",
+        "3 | Kuru tiltu Rīgā atklāja septembrī?",
+        "4 | Pret kuru valsti basketbolisti izcīnīja uzvaru?",
+        "5 | Cik miljonu trūkst budžetā?",
+    ])
+    post = weekend.build_quiz(session, weekend.utcnow().date())
+    assert post is not None
+    assert len(seen["points"]) == 3
+    assert not any("ziemeļblāzmas" in q for q in seen["points"])
+
+
+def test_same_quiz_topic_does_not_trip_on_dates_or_week_days():
+    assert weekend.same_quiz_topic("Kas notika 8. septembrī?",
+                                   "Kas notika 19. septembrī?") is False
+    assert weekend.same_quiz_topic("Ziemeļblāzma bija vērojama",
+                                   "ziemeļblāzmas fotografēšana") is True

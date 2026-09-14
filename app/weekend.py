@@ -584,6 +584,62 @@ def _parse_quiz_lines(lines: list[str], articles: list[Article]
     return out
 
 
+# Kvīza tēmu sargs. Klipu `same_story` te nepalīdz: tas prasa trīs kopīgus
+# celmus, bet divi jautājumi par vienu notikumu ir APZINĀTI formulēti dažādi —
+# «Kāda dabas parādība bija vērojama» un «Kura fotogrāfe dalījās padomos par
+# ziemeļblāzmas fotografēšanu» kopīgu vārdu gandrīz nemaz nav. Vienīgais, kas
+# tos saista, ir viens rets garš vārds. Tāpēc te skatāmies TIKAI uz gariem
+# vārdiem un pietiek ar vienu kopīgu.
+_QUIZ_TOPIC_MIN_LEN = 8
+_QUIZ_STEM = 5
+# Gari vārdi, kas ziņu virsrakstos atkārtojas tik bieži, ka kopīgs celms neko
+# nenozīmē — mēnešu nosaukumi un ziņu valodas pieturvārdi.
+_QUIZ_WEAK_STEMS = {m[:_QUIZ_STEM] for m in MONTHS_LOC if m} | {
+    "latvi", "jautā", "saska", "notik", "rakst", "cilvē", "situā", "iedzī",
+    "gadij", "ziņoj", "pirmda", "otrdi", "trešd", "ceturt", "piekt", "sestd",
+    "svētd", "nedēļ",
+}
+
+
+def _quiz_topic_words(text: str) -> set[str]:
+    import re
+
+    return {w[:_QUIZ_STEM]
+            for w in re.findall(rf"\w{{{_QUIZ_TOPIC_MIN_LEN},}}",
+                                (text or "").lower(), flags=re.UNICODE)
+            if w[:_QUIZ_STEM] not in _QUIZ_WEAK_STEMS}
+
+
+def same_quiz_topic(a: str, b: str) -> bool:
+    """Vai divi kvīza teksti ir par vienu notikumu — viens kopīgs rets vārds."""
+    return bool(_quiz_topic_words(a) & _quiz_topic_words(b))
+
+
+def _one_question_per_story(pairs: list[tuple[str, "Article | None"]]
+                            ) -> list[tuple[str, "Article | None"]]:
+    """Viens stāsts — viens jautājums.
+
+    AI redz virsrakstus atsevišķi un nezina, ka divi no tiem ir par to pašu
+    notikumu; tad kvīzā divi jautājumi pēc kārtas ir par ziemeļblāzmu, un tas
+    izskatās pēc kļūdas, ne pēc nedēļas apskata. Salīdzinām gan rakstu, no kura
+    jautājums nāk, gan pašu jautājumu tekstus — numurs var arī trūkt.
+    """
+    kept: list[tuple[str, "Article | None"]] = []
+    for question, art in pairs:
+        clash = False
+        for other_q, other_art in kept:
+            same_article = (art is not None and other_art is not None
+                            and art.id == other_art.id)
+            titles = (same_quiz_topic(art.title or "", other_art.title or "")
+                      if art is not None and other_art is not None else False)
+            if same_article or titles or same_quiz_topic(question, other_q):
+                clash = True
+                break
+        if not clash:
+            kept.append((question, art))
+    return kept
+
+
 def build_quiz(session, day) -> Post | None:
     """Kvīza karuselis no nedēļas TOP — jautājumus raksta AI; bez AI atslēgas
     formāts izlaižas (kvīzs bez īstiem jautājumiem nav publicējams).
@@ -601,8 +657,10 @@ def build_quiz(session, day) -> Post | None:
         f"{i}. {a.title} ({lv_date(a.published_at or a.first_seen_at)})"
         for i, a in enumerate(articles, 1))
     lines = _ai_lines(session, max_tokens=500, prompt=(
-        f"No šiem numurētajiem tv3.lv nedēļas virsrakstiem uzraksti 5 īsus "
-        f"kvīza jautājumus latviski. Katru jaunā rindā formātā "
+        f"No šiem numurētajiem tv3.lv nedēļas virsrakstiem uzraksti 6 īsus "
+        f"kvīza jautājumus latviski, KATRU PAR CITU notikumu — divi "
+        f"jautājumi par vienu un to pašu stāstu neder, arī tad, ja tie nāk no "
+        f"dažādiem virsrakstiem. Katru jaunā rindā formātā "
         f"«numurs | jautājums», kur numurs ir tā virsraksta numurs, no kura "
         f"jautājums nāk (atbilde ir tajā rakstā). Bez atbildēm. "
         f"KATRS jautājums līdz 90 rakstzīmēm — garāks kartītē neietilpst. "
@@ -615,12 +673,13 @@ def build_quiz(session, day) -> Post | None:
         f"«kurš uzvarēja», «cik»), nekad par to, kas vēl varētu notikt, "
         f"par izredzēm, kvalifikāciju vai situāciju, kas dažās dienās "
         f"var mainīties — ieraksts plūsmā dzīvo ilgāk nekā ziņa.\n{facts}"))
-    # prasām piecus, lai pēc filtriem paliktu trīs: kvīzs ar diviem
-    # jautājumiem izskatās pēc pusfabrikāta
-    pairs = [(q, art) for q, art in _parse_quiz_lines(lines, articles)
-             if q.endswith("?") and len(q) <= 130
-             and not has_relative_words(q) and not grim_words(q)
-             and not open_ended(q)][:3]
+    # prasām sešus, lai pēc filtriem UN stāstu atsijāšanas paliktu trīs:
+    # kvīzs ar diviem jautājumiem izskatās pēc pusfabrikāta
+    pairs = _one_question_per_story(
+        [(q, art) for q, art in _parse_quiz_lines(lines, articles)
+         if q.endswith("?") and len(q) <= 130
+         and not has_relative_words(q) and not grim_words(q)
+         and not open_ended(q)])[:3]
     if len(pairs) < 3:
         return None
     questions = [q for q, _ in pairs]
