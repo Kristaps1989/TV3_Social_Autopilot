@@ -194,6 +194,34 @@ kā foto ierakstus.
 </div>
 {% endif %}
 
+{% if threads_live %}
+<div class="card" style="max-width:520px;margin:0 0 1rem">
+  <h3 style="margin-top:0">Threads: skatījumi un atbildes</h3>
+  {% if threads_live.insights %}
+    <div>👁 {{ threads_live.insights.impressions or threads_live.insights.views or 0 }} skatījumi
+      · ❤ {{ threads_live.insights.reactions or threads_live.insights.likes or 0 }}</div>
+  {% endif %}
+  {% for e in threads_live.errors %}<div class="muted">{{ e }}</div>{% endfor %}
+  {% if threads_live.replies %}
+    <ul style="margin:.5rem 0 0;padding-left:1.1rem">
+    {% for r in threads_live.replies %}
+      <li><strong>@{{ r.username }}</strong>: {{ r.text }}</li>
+    {% endfor %}
+    </ul>
+  {% elif not threads_live.errors %}
+    <div class="muted">Atbilžu vēl nav.</div>
+  {% endif %}
+  {% if threads_live.reply_id %}
+    <div class="muted" style="margin-top:.5rem">Saite uz rakstu ir atbildē zem ieraksta ✓</div>
+  {% elif post.link_url %}
+    <form method="post" action="/post/{{ post.id }}/threads-reply" style="margin-top:.5rem"
+          onsubmit="return confirm('Uzrakstīt atbildi ar tv3.lv saiti zem šī ieraksta?')">
+      <button>Pielikt saiti atbildē</button>
+    </form>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if can_regenerate %}
 <form method="post" action="/post/{{ post.id }}/regenerate"
       style="max-width:520px;margin:0 0 1rem">

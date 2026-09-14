@@ -329,3 +329,52 @@ def test_republish_clones_dry_run_post(client, session):
         select(Post).where(Post.channel == "x_tv3zinas", Post.state == "scheduled")
     ).scalars().all()
     assert clones2 == []
+
+
+def _admin(client, session):
+    credentials.put(session, "admin_password_hash", auth.hash_password("slepens123"))
+    client.post("/login", data={"password": "slepens123"}, follow_redirects=False)
+
+
+def test_reviewer_password_gives_a_read_only_session(client, session):
+    """Meta pārbaudītājam jāredz viss un jāvar izdarīt nekas: administratora
+    parole dotu «Publicēt tagad» un «Atvienot» — un pārbaudītājs spiež visu."""
+    _admin(client, session)
+    r = client.post("/connect/reviewer-password", data={"password": "reviewer-2026"},
+                    follow_redirects=False)
+    assert "saved=" in r.headers["location"]
+    client.post("/logout", follow_redirects=False)
+
+    r = client.post("/login", data={"password": "reviewer-2026"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+    assert client.get("/connect").status_code == 200        # lasa
+    assert client.get("/logs").status_code == 200
+    r = client.get("/connect/threads", follow_redirects=False)   # OAuth nesāk
+    assert r.headers["location"] == "/?reviewer=1"
+    r = client.post("/connect/threads/disconnect", follow_redirects=False)
+    assert r.headers["location"] == "/?reviewer=1"
+    r = client.post("/connect/reviewer-password", data={"clear": "1"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/?reviewer=1"             # paroli nemaina
+    assert auth.reviewer_configured(session)
+    assert "Reviewer session" in client.get("/").text
+
+
+def test_deleting_the_reviewer_password_ends_open_sessions(client, session):
+    _admin(client, session)
+    client.post("/connect/reviewer-password", data={"password": "reviewer-2026"},
+                follow_redirects=False)
+    client.post("/logout", follow_redirects=False)
+    client.post("/login", data={"password": "reviewer-2026"}, follow_redirects=False)
+    assert client.get("/connect").status_code == 200
+    auth.clear_reviewer_password(session)
+    r = client.get("/connect", follow_redirects=False)
+    assert r.headers["location"] == "/login"
+
+
+def test_reviewer_password_too_short_is_refused(client, session):
+    _admin(client, session)
+    r = client.post("/connect/reviewer-password", data={"password": "abc"},
+                    follow_redirects=False)
+    assert "error=" in r.headers["location"]
+    assert not auth.reviewer_configured(session)

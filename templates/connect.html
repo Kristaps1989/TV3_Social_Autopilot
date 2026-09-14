@@ -6,6 +6,7 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
 
 {% if connected %}<div class="notice ok">Savienots: {{ connected }} ✓</div>{% endif %}
 {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
+{% if saved %}<div class="notice ok">{{ saved }}</div>{% endif %}
 
 <div class="cards">
   <div class="card">
@@ -343,11 +344,11 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
     </h2>
     <div class="meta">
       {% if status.threads.connected %}
-        avots: {{ 'admin UI' if status.threads.source == 'admin' else 'vides mainīgie' }}
+        {% if status.threads.label %}<strong>{{ status.threads.label }}</strong> · {% endif %}avots: {{ 'admin UI' if status.threads.source == 'admin' else 'vides mainīgie' }}
         {% if status.threads.expires_at %} · atslēga derīga līdz {{ status.threads.expires_at | local }}
         (atjaunojas automātiski){% endif %}
       {% else %}
-        Jāpiesakās ar TV3 sporta Threads kontu.
+        Jāpiesakās ar tv3.lv Threads kontu.
       {% endif %}
     </div>
     <form method="post" action="/connect/threads-app" style="margin-bottom:.6rem">
@@ -632,6 +633,20 @@ caur platformas oficiālo pieteikšanos, un šeit tiek saglabāta tikai piekļuv
     <label class="muted" style="display:block;margin-top:.5rem">Jaunā parole vēlreiz</label>
     <input type="password" name="password2" minlength="8" required>
     <div style="margin-top:.7rem"><button class="primary">Nomainīt paroli</button></div>
+  </form>
+  <h3>Pārbaudītāja pieeja (Meta App Review)
+    {% if reviewer_ready %}<span class="badge live">ieslēgta</span>{% else %}<span class="badge paused">nav</span>{% endif %}
+  </h3>
+  <p class="muted">Otra parole, ar ko Meta pārbaudītājs var pieteikties un redzēt visu —
+    Konti ar pieslēgto profilu, ierakstus ar skatījumiem un atbildēm, diagnostiku — bet
+    neko nedarīt: publicēšana, atvienošana, noteikumi un paroles pārbaudītājam ir slēgtas.
+    Šo paroli ieraksti App Review formā laukā «test credentials». Pēc apstiprinājuma dzēs.</p>
+  <form method="post" action="/connect/reviewer-password" style="max-width:360px">
+    <label class="muted" style="display:block;margin-top:.5rem">Pārbaudītāja parole (vismaz 8 rakstzīmes)</label>
+    <input type="text" name="password" minlength="8" autocomplete="off">
+    <div style="margin-top:.7rem"><button class="primary">Saglabāt</button>
+      {% if reviewer_ready %}<button name="clear" value="1" class="danger"
+        onsubmit="return confirm('Dzēst pārbaudītāja pieeju?')">Dzēst pieeju</button>{% endif %}</div>
   </form>
 </div>
 {% endblock %}

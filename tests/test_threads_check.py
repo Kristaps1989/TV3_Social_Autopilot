@@ -29,6 +29,10 @@ class FakeThreads:
         self.calls.append(("replies", post_id))
         return [{"id": "r1", "text": "Kur ir pilnais raksts?", "username": "lasitajs"}]
 
+    def comment(self, post_id, message):
+        self.calls.append(("reply", post_id, message))
+        return "reply-1"
+
 
 @pytest.fixture()
 def fake(monkeypatch):
@@ -100,3 +104,63 @@ def test_reply_button_writes_the_link_once(session, fake, monkeypatch):
     r = client.post("/logs/threads-reply", follow_redirects=False)
     assert "error=" in r.headers["location"]
     assert len(sent) == 1
+
+
+def _client(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    c = TestClient(app)
+    c.__enter__()
+    c.post("/setup", data={"password": "slepens123", "password2": "slepens123"})
+    return c
+
+
+def test_preview_shows_threads_views_and_replies_with_a_reply_button(session, fake, monkeypatch):
+    """threads_read_replies un threads_manage_insights lietojums saskarnē:
+    tur pat, kur ierakstu apstiprināja, ne tikai diagnostikas JSON."""
+    from app.models import Article
+
+    a = Article(guid="th-prev", url="https://tv3.lv/a", canonical_url="https://tv3.lv/a",
+                title="Raksts", section="news", editor_status="can",
+                published_at=utcnow(), raw_json={}, feed_name="tv3")
+    session.add(a)
+    session.flush()
+    post = _published(session)
+    post.article_id, post.link_url = a.id, "https://tv3.lv/a"
+    session.commit()
+    c = _client(monkeypatch)
+    try:
+        html = c.get(f"/post/{post.id}/preview").text
+        assert "120 skatījumi" in html
+        assert "@lasitajs" in html and "Kur ir pilnais raksts?" in html
+        assert f"/post/{post.id}/threads-reply" in html
+
+        r = c.post(f"/post/{post.id}/threads-reply", follow_redirects=False)
+        assert "ok=1" in r.headers["location"]
+        session.expire_all()
+        assert post.extra["threads_reply_id"]
+        assert any(call[0] == "reply" for call in fake.calls)
+        html = c.get(f"/post/{post.id}/preview").text
+        assert "Saite uz rakstu ir atbildē" in html
+        assert f"/post/{post.id}/threads-reply" not in html   # otrreiz ne
+    finally:
+        c.__exit__(None, None, None)
+
+
+def test_accounts_page_shows_the_connected_threads_username(session, fake, monkeypatch):
+    """threads_basic: GET /me lietotājvārds pie «savienots», lai redz, ka
+    pieslēgts tv3.lv, ne personīgais konts."""
+    from app import credentials
+
+    credentials.put(session, "threads_user_id", "9")
+    credentials.put(session, "threads_token", "tok")
+    c = _client(monkeypatch)
+    try:
+        assert "@tv3.lv" in c.get("/connect").text
+        session.expire_all()
+        assert credentials.info(session, "threads_token").label == "@tv3.lv"
+    finally:
+        c.__exit__(None, None, None)

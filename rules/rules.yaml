@@ -89,7 +89,10 @@ ig_link_pointer: "Saite komentāros 👇"
 # sliktāk; utm to izmēra). Attiecas tikai uz mediju ierakstiem (photo,
 # galerija, lente) — saites ierakstam saite ir pati kartīte.
 x_link_in_reply: false
-threads_link_in_reply: false
+# Threads: ieslēgts — Meta App Review iesniegumā threads_manage_replies
+# aprakstīts tieši tā (viena atbilde ar raksta saiti zem katra ieraksta),
+# un pārbaudītājs to meklē video. Pēc apstiprinājuma drīkst izslēgt.
+threads_link_in_reply: true
 # Norāde apraksta beigās, kad saite ir atbildē (tikai ja kāds no augšējiem
 # ir true).
 reply_link_pointer: "Saite atbildē 👇"

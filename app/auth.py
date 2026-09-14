@@ -66,22 +66,70 @@ def set_password(session, password: str) -> str | None:
     return None
 
 
-def issue_token(session) -> str:
-    expires = int(time.time()) + SESSION_DAYS * 86400
-    payload = f"admin.{expires}"
+# --- pārbaudītāja pieeja -------------------------------------------------------
+#
+# Meta App Review pārbaudītājam jāredz, kā lietotne atļaujas lieto: Konti lapa
+# ar pieslēgto profilu, ieraksts ar skatījumiem un atbildēm, diagnostika. Bet
+# administratora parole dod arī «Publicēt tagad», «Atvienot» un noteikumu
+# labošanu — un pārbaudītājs spiež visu, ko redz. Tāpēc otra parole ar lomu
+# `reviewer`: visas lapas lasāmas, neviena darbība neizpildās.
+
+ROLE_ADMIN, ROLE_REVIEWER = "admin", "reviewer"
+SESSION_DAYS_REVIEWER = 90   # pārbaude notiek nedēļas pēc iesnieguma
+
+
+def reviewer_configured(session) -> bool:
+    return bool(credentials.get("reviewer_password_hash", session))
+
+
+def set_reviewer_password(session, password: str) -> str | None:
+    if len(password) < MIN_PASSWORD_LEN:
+        return f"Parolei jābūt vismaz {MIN_PASSWORD_LEN} rakstzīmes garai"
+    credentials.put(session, "reviewer_password_hash", hash_password(password))
+    return None
+
+
+def clear_reviewer_password(session) -> None:
+    credentials.put(session, "reviewer_password_hash", "")
+
+
+def login_role(session, password: str) -> str:
+    """Kura loma šai parolei ('' — neviena). Administrators vienmēr pirmais."""
+    if check_password(session, password):
+        return ROLE_ADMIN
+    stored = credentials.get("reviewer_password_hash", session)
+    if stored and verify_password(password, stored):
+        return ROLE_REVIEWER
+    return ""
+
+
+def issue_token(session, role: str = ROLE_ADMIN) -> str:
+    days = SESSION_DAYS_REVIEWER if role == ROLE_REVIEWER else SESSION_DAYS
+    expires = int(time.time()) + days * 86400
+    payload = f"{role}.{expires}"
     sig = hmac.new(_secret(session).encode(), payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}.{sig}"
 
 
-def valid_token(session, token: str) -> bool:
+def token_role(session, token: str) -> str:
+    """Sesijas loma no sīkdatnes ('' — nederīga vai beigusies)."""
     parts = (token or "").split(".")
-    if len(parts) != 3 or parts[0] != "admin":
-        return False
+    if len(parts) != 3 or parts[0] not in (ROLE_ADMIN, ROLE_REVIEWER):
+        return ""
     payload = f"{parts[0]}.{parts[1]}"
     sig = hmac.new(_secret(session).encode(), payload.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, parts[2]):
-        return False
+        return ""
     try:
-        return int(parts[1]) > time.time()
+        if int(parts[1]) <= time.time():
+            return ""
     except ValueError:
-        return False
+        return ""
+    # pārbaudītāja sesija zaudē spēku, tiklīdz parole ir dzēsta
+    if parts[0] == ROLE_REVIEWER and not reviewer_configured(session):
+        return ""
+    return parts[0]
+
+
+def valid_token(session, token: str) -> bool:
+    return bool(token_role(session, token))

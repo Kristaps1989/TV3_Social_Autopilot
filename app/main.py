@@ -86,18 +86,42 @@ async def require_login(request: Request, call_next):
     try:
         if not auth.password_configured(session):
             return RedirectResponse("/setup", status_code=303)
-        if auth.valid_token(session, request.cookies.get(auth.SESSION_COOKIE, "")):
-            return await call_next(request)
+        role = auth.token_role(session, request.cookies.get(auth.SESSION_COOKIE, ""))
     finally:
         session.close()
-    return RedirectResponse("/login", status_code=303)
+    if not role:
+        return RedirectResponse("/login", status_code=303)
+    request.state.role = role
+    if role == auth.ROLE_REVIEWER and not reviewer_may(request):
+        return RedirectResponse("/?reviewer=1", status_code=303)
+    return await call_next(request)
 
 
-def _login_response(request: Request, session) -> RedirectResponse:
+# Pārbaudītāja sesijai (Meta App Review) ir tikai skatīšanās: neviens POST
+# (publicēšana, atvienošana, noteikumi, paroles) un neviens GET, kas sāk
+# OAuth vai maina stāvokli. Lasīšanas izsaukumi uz Threads (profils,
+# skatījumi, atbildes) ir tieši tas, kas pārbaudītājam jāredz, tie paliek.
+REVIEWER_GET_BLOCKED = ("/connect/threads", "/connect/facebook", "/connect/x/start",
+                        "/connect/x/callback", "/connect/threads/callback",
+                        "/connect/facebook/callback")
+
+
+def reviewer_may(request: Request) -> bool:
+    path = request.url.path
+    if request.method != "GET":
+        return path == "/logout"
+    return not any(path == b or path.startswith(b + "/")
+                   for b in REVIEWER_GET_BLOCKED)
+
+
+def _login_response(request: Request, session,
+                    role: str = auth.ROLE_ADMIN) -> RedirectResponse:
     resp = RedirectResponse("/", status_code=303)
     secure = (request.headers.get("x-forwarded-proto", request.url.scheme) == "https")
-    resp.set_cookie(auth.SESSION_COOKIE, auth.issue_token(session),
-                    max_age=auth.SESSION_DAYS * 86400,
+    days = (auth.SESSION_DAYS_REVIEWER if role == auth.ROLE_REVIEWER
+            else auth.SESSION_DAYS)
+    resp.set_cookie(auth.SESSION_COOKIE, auth.issue_token(session, role),
+                    max_age=days * 86400,
                     httponly=True, samesite="lax", secure=secure)
     return resp
 
@@ -149,8 +173,9 @@ def login_page(request: Request, error: str = ""):
 def login_submit(request: Request, password: str = Form(...)):
     session = get_session()
     try:
-        if auth.check_password(session, password):
-            return _login_response(request, session)
+        role = auth.login_role(session, password)
+        if role:
+            return _login_response(request, session, role)
     finally:
         session.close()
     time.sleep(1)  # slow down password guessing
@@ -404,28 +429,79 @@ def threads_reply():
         if post is None:
             return RedirectResponse("/logs?error=Nav+neviena+publicēta+Threads+ieraksta",
                                     status_code=303)
-        if (post.extra or {}).get("threads_reply_id"):
-            return RedirectResponse("/logs?error=Šim+ierakstam+atbilde+jau+ir",
-                                    status_code=303)
-        rules = config.load_rules()
-        link = (add_utm(post.link_url, "threads", post.id, hook=post.hook_type or "",
-                        campaign=utm_campaign(post)) if post.link_url else "")
-        shown = shortlinks.display_link(post.id, link, rules, post.article)
-        if not shown:
-            return RedirectResponse("/logs?error=Ierakstam+nav+saites,+ko+likt+atbildē",
-                                    status_code=303)
-        try:
-            reply_id = get_adapter("threads").comment(
-                post.platform_post_id, first_comment_text(post, "threads", shown, rules))
-        except Exception as e:  # noqa: BLE001
-            log.warning("threads reply failed for post %s: %s", post.id, e)
-            return RedirectResponse(f"/logs?error={quote(str(e)[:200])}", status_code=303)
-        post.extra = {**(post.extra or {}), "threads_reply_id": reply_id}
-        session.commit()
-        return RedirectResponse("/logs?saved=Atbilde+ar+saiti+uzrakstīta",
+        ok, msg = write_threads_link_reply(session, post)
+        return RedirectResponse(f"/logs?{'saved' if ok else 'error'}={quote(msg)}",
                                 status_code=303)
     finally:
         session.close()
+
+
+def write_threads_link_reply(session, post) -> tuple[bool, str]:
+    """Atbilde ar tv3.lv saiti zem publicēta Threads ieraksta (threads_manage_replies).
+    Vienam ierakstam vienu reizi. (ok, ziņa)."""
+    from adapters import get_adapter
+    from app import shortlinks
+    from app.pipeline import add_utm, first_comment_text, utm_campaign
+
+    if not post.platform_post_id:
+        return False, "Ieraksts nav publicēts"
+    if (post.extra or {}).get("threads_reply_id"):
+        return False, "Šim ierakstam atbilde jau ir"
+    rules = config.load_rules()
+    link = (add_utm(post.link_url, "threads", post.id, hook=post.hook_type or "",
+                    campaign=utm_campaign(post)) if post.link_url else "")
+    shown = shortlinks.display_link(post.id, link, rules, post.article)
+    if not shown:
+        return False, "Ierakstam nav saites, ko likt atbildē"
+    try:
+        reply_id = get_adapter("threads").comment(
+            post.platform_post_id, first_comment_text(post, "threads", shown, rules))
+    except Exception as e:  # noqa: BLE001
+        log.warning("threads reply failed for post %s: %s", post.id, e)
+        return False, str(e)[:200]
+    post.extra = {**(post.extra or {}), "threads_reply_id": reply_id}
+    session.commit()
+    return True, "Atbilde ar saiti uzrakstīta"
+
+
+@app.post("/post/{post_id}/threads-reply")
+def post_threads_reply(post_id: int):
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        post = session.get(Post, post_id)
+        if post is None:
+            return RedirectResponse("/", status_code=303)
+        ok, msg = write_threads_link_reply(session, post)
+        return RedirectResponse(
+            f"/post/{post_id}/preview?msg={quote(msg)}&ok={'1' if ok else '0'}",
+            status_code=303)
+    finally:
+        session.close()
+
+
+def threads_live(post, platform: str) -> dict | None:
+    """Publicēta Threads ieraksta skatījumi (threads_manage_insights) un
+    atbildes (threads_read_replies) — dzīvi, priekšskatījuma lapai. Redaktors
+    redz lasītāju jautājumus un labojumus tur pat, kur ierakstu apstiprināja.
+    None, ja tas nav publicēts Threads ieraksts."""
+    from adapters import get_adapter
+
+    if platform != "threads" or post.state != "published" or not post.platform_post_id:
+        return None
+    out: dict = {"insights": None, "replies": [], "errors": []}
+    try:
+        adapter = get_adapter("threads")
+        out["insights"] = adapter.fetch_insights(post.platform_post_id)
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"skatījumi: {str(e)[:160]}")
+    try:
+        out["replies"] = adapter.fetch_replies(post.platform_post_id) or []
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"atbildes: {str(e)[:160]}")
+    out["reply_id"] = (post.extra or {}).get("threads_reply_id", "")
+    return out
 
 
 @app.post("/rules/reset/{key}")
@@ -681,6 +757,7 @@ def post_preview(request: Request, post_id: int, msg: str = "", ok: str = ""):
                                 and prebranded(str(post.media[0])))
         return templates.TemplateResponse(request, "preview.html", {
             "post": post, "article": article, "platform": platform,
+            "threads_live": threads_live(post, platform),
             # Saites kartīti veido platforma, ne mēs — bet katrai savu. Vārds
             # «Facebook» zem Threads ieraksta lika domāt, ka rāda nepareizo kanālu.
             "platform_label": {"facebook_page": "Facebook", "threads": "Threads",
@@ -977,11 +1054,37 @@ def articles(request: Request):
 
 # --- Account connections --------------------------------------------------
 
+def threads_profile_label(session) -> str:
+    """Pieslēgtā Threads profila lietotājvārds pie atslēgas (GET /me). Viens
+    izsaukums; pēc tam paliek atslēgas rindas `label`. Kļūda nav iemesls
+    lapai nokrist — tad vienkārši bez vārda."""
+    from adapters import get_adapter
+
+    row = credentials.info(session, "threads_token")
+    if row is None or not row.value:
+        return ""
+    if row.label:
+        return row.label
+    try:
+        me = get_adapter("threads").profile() or {}
+        name = str(me.get("username") or "").strip()
+    except Exception as e:  # noqa: BLE001
+        log.info("Threads profils nav nolasāms: %s", e)
+        return ""
+    if name:
+        credentials.put(session, "threads_token", row.value, label=f"@{name}",
+                        expires_at=row.expires_at)
+    return f"@{name}" if name else ""
+
+
 @app.get("/connect", response_class=HTMLResponse)
-def connect(request: Request, error: str = "", connected: str = ""):
+def connect(request: Request, error: str = "", connected: str = "", saved: str = ""):
     session = get_session()
     try:
+        # atslēga, kas pieslēgta pirms lietotājvārda glabāšanas, vārdu dabū te
+        threads_profile_label(session)
         status = credentials.connection_status(session)
+        reviewer_ready = auth.reviewer_configured(session)
         fb_app_id, _ = credentials.fb_app()
         th_app_id, _ = credentials.threads_app()
         ai_key = credentials.get("anthropic_api_key", session)
@@ -1100,7 +1203,8 @@ def connect(request: Request, error: str = "", connected: str = ""):
             "x_oauth": bool(credentials.get("x_oauth_token", session)),
             "google_ads_status": status.get("google_ads") or {},
             "google_ads": _google_ads_context(session),
-            "error": error, "connected": connected,
+            "error": error, "connected": connected, "saved": saved,
+            "reviewer_ready": reviewer_ready,
         })
     finally:
         session.close()
@@ -1492,6 +1596,28 @@ def change_password(current: str = Form(...), password: str = Form(...),
         session.close()
 
 
+@app.post("/connect/reviewer-password")
+def set_reviewer_password(password: str = Form(""), clear: str = Form("")):
+    """Meta App Review pārbaudītāja parole: visas lapas lasāmas, neviena
+    darbība. Tukša parole vai «dzēst» — pieeja beidzas uzreiz, arī jau
+    atvērtām pārbaudītāja sesijām."""
+    from urllib.parse import quote
+
+    session = get_session()
+    try:
+        if clear or not password:
+            auth.clear_reviewer_password(session)
+            return RedirectResponse("/connect?saved=Pārbaudītāja+pieeja+dzēsta",
+                                    status_code=303)
+        err = auth.set_reviewer_password(session, password)
+        if err:
+            return RedirectResponse(f"/connect?error={quote(err)}", status_code=303)
+        return RedirectResponse("/connect?saved=Pārbaudītāja+parole+saglabāta",
+                                status_code=303)
+    finally:
+        session.close()
+
+
 @app.get("/connect/facebook")
 def connect_facebook(request: Request):
     from urllib.parse import quote
@@ -1695,6 +1821,10 @@ def connect_threads_callback(request: Request, code: str = "", state: str = "",
             return RedirectResponse(f"/connect?error={quote(str(e)[:200])}", status_code=303)
         credentials.put(session, "threads_user_id", user_id)
         credentials.put(session, "threads_token", token, expires_at=expires)
+        # threads_basic: GET /me?fields=id,username — lietotājvārdu rādām Konti
+        # lapā pie «savienots», lai redaktors redz, ka pieslēgts tv3.lv, ne
+        # kāda personīgais konts
+        threads_profile_label(session)
         return RedirectResponse("/connect?connected=threads", status_code=303)
     finally:
         session.close()
