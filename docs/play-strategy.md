@@ -346,3 +346,22 @@ Ar to pazūd arī pastāvīgā noviržu rinda: serverī un kodā tagad ir viena 
 pati vērtība. Turklāt «Pieņemt koda vērtības» šo slēdzi vairs neaiztiek (tāpat
 kā `enabled`) — atgriešanās pie koda nedrīkst klusi ieslēgt apstiprināšanu
 atpakaļ tam, kas to apzināti izslēdza.
+
+
+## Izlase iet arī Threads
+
+`selection_channels: [fb_tv3lv, threads_sport]`. Grafiku zīmējam **vienu reizi**
+un liekam abos kanālos — karuselis ir tas pats, tikai plūsma cita; Threads API
+karuseli prot (2–20 kartītes). Katram kanālam ir savs vakara slots un savs
+traģēdiju sargs, jo kanālu rindas ir dažādas: ja vienā kanālā ap vakaru ir
+traģēdija, izlase tur krīt, bet otrā iznāk.
+
+Divas lietas, kas ar to bija jāsalabo:
+
+- **Threads kartītēm nav savu saišu.** Adapteris `card_links` ignorē (Threads
+  karuselim to nav), tāpēc saraksts ar saitēm iet atbildē — un tur tam ir
+  jābūt, jo apraksts sola «saites komentārā».
+- **Nosaukumu saraksts tagad ir arī Threads aprakstā.** Agrāk to lika tikai
+  Facebook un Instagram, jo X 280 zīmēs tas neietilpst. Threads ir 500 zīmes,
+  tāpēc robeža vairs nav platformas vārds, bet `caption_fits_list` — vai
+  apraksta limits sarakstu iztur. X uzvedība nemainās.

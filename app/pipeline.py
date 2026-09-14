@@ -1259,7 +1259,8 @@ def repost_offset(article, cfg: dict, existing: list) -> datetime | None:
 MEDIA_FORMATS = ("photo", "photo_album", "card_carousel", "reel", "video")
 
 
-def link_placement(platform: str, fmt: str, rules: dict) -> tuple[bool, bool]:
+def link_placement(platform: str, fmt: str, rules: dict,
+                   digest: bool = False) -> tuple[bool, bool]:
     """(saite tekstā?, saite komentārā/atbildē?) — kur saite nonāk.
 
     Facebook / Instagram: mediju ierakstos saite iet pirmajā komentārā
@@ -1279,9 +1280,25 @@ def link_placement(platform: str, fmt: str, rules: dict) -> tuple[bool, bool]:
     if platform in ("facebook_page", "instagram"):
         in_comment = bool(rules.get("link_in_first_comment", True))
         return (bool(rules.get("link_in_caption", True)) or not in_comment), in_comment
-    if platform in ("x", "threads") and rules.get(f"{platform}_link_in_reply", False):
-        return False, True
+    if platform in ("x", "threads"):
+        # Digest ierakstam (Play izlase, TOP 5) saraksts IR pats ieraksts: ja
+        # nosaukumi ir aprakstā, saitēm jābūt atbildē, citādi ieraksts sola to,
+        # ko nepilda. Vai nosaukumi aprakstā vispār ietilpst, nosaka
+        # `caption_fits_list` — X 280 zīmēs neietilpst, Threads 500 ietilpst.
+        if (digest and caption_fits_list(platform)) or rules.get(
+                f"{platform}_link_in_reply", False):
+            return False, True
     return True, False
+
+
+# Cik zīmju aprakstā vajag, lai numurēts piecu nosaukumu saraksts tur ietilptu
+# līdzās pašam tekstam. X ar 280 zīmēm neietilpst; Threads ar 500 ietilpst.
+LIST_CAPTION_MIN_CHARS = 400
+
+
+def caption_fits_list(platform: str) -> bool:
+    spec = PLATFORM_SPECS.get(platform)
+    return bool(spec and spec.max_chars >= LIST_CAPTION_MIN_CHARS)
 
 
 def link_pointer(platform: str, post, rules: dict) -> str:
@@ -1352,7 +1369,8 @@ def compose_text(post, platform: str, shown_link: str,
     Instagram lasītājs nezina, ka rakstu vispār var atvērt.
     """
     rules = config.load_rules() if rules is None else rules
-    in_caption, in_comment = link_placement(platform, post.format, rules)
+    in_caption, in_comment = link_placement(platform, post.format, rules,
+                                            digest=bool(digest_items(post)))
     in_comment = bool(shown_link) and in_comment
     in_caption = in_caption or not in_comment
     # ES MI akta 50. panta atruna. Noklusēti tikai tur, kur tiešām ir
@@ -1368,9 +1386,10 @@ def compose_text(post, platform: str, shown_link: str,
             note = ""
     copy = post.copy or ""
     # digest ieraksts sola piecus stāstus — nosauc tos tekstā, lai lasītājs
-    # zina, ko atradīs; saites katram ir pirmajā komentārā (X/Threads 280–500
-    # zīmēs saraksts neietilpst, tur paliek galvenā saite — lasītākais raksts)
-    if platform in ("facebook_page", "instagram"):
+    # zina, ko atradīs; saites katram ir pirmajā komentārā vai atbildē. X ar
+    # 280 zīmēm saraksts neietilpst, tur paliek galvenā saite (lasītākais
+    # raksts); Facebook, Instagram un Threads tas ietilpst.
+    if caption_fits_list(platform):
         titles = reading_list(post, platform, rules, links=False)
         if titles:
             copy = f"{copy}\n\n{titles}" if copy else titles

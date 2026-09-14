@@ -89,7 +89,8 @@ DEFAULTS = {
     "genre_overrides": {},            # slug -> [žanri]
     "campaign": "play",
     # P2: izlašu karuselis (3–5 nosaukumi, katra kartīte ar savu saiti)
-    "selection_channel": "fb_tv3lv",
+    "selection_channel": "fb_tv3lv",   # vecais viena kanāla lauks (rezerve)
+    "selection_channels": [],          # kanāli, kuros izlase iet
     "selection_days": [1, 3, 4, 5, 6],   # Ot, Ce, Pk, Se, Sv (sk. selection_themes)
     "selection_themes": [],           # dienas tēma: {day, title, genres}
     "selection_build_hour": 17,       # būvē no 17:00, publicē vakara logā
@@ -1066,6 +1067,29 @@ def _display_title(article) -> str:
     return t.split(":")[0].strip() if play_data(article).get("kind") == "episode" and ":" in t else t
 
 
+def selection_channels(cfg: dict) -> list[str]:
+    """Kanāli, kuros izlase iet. `selection_channels` ir jaunais saraksts;
+    vecais `selection_channel` paliek kā rezerve, lai esošā konfigurācija
+    serverī neapstātos."""
+    names = [str(c) for c in (cfg.get("selection_channels") or []) if c]
+    return names or [str(cfg.get("selection_channel") or "fb_tv3lv")]
+
+
+def _selection_slot(session, day, cfg: dict, channel: str,
+                    rules: dict | None) -> datetime | None:
+    """Vakara slots šim kanālam, pabīdīts prom no traģēdijām (vai None)."""
+    from app import slots as _slots
+    from app import weekend
+
+    slot = weekend._local_slot(day, int(cfg.get("selection_hour") or 19)) + timedelta(minutes=30)
+    queue = _slots._channel_queue(session, channel, slot)
+    for _ in range(4):
+        if not too_close_to_grim(queue, slot, rules):
+            return slot
+        slot += timedelta(minutes=45)
+    return None
+
+
 def build_selection(session, day, now: datetime | None = None, rules: dict | None = None) -> Post | None:
     """Izlases karuselis: 3–5 Play nosaukumi, katra kartīte ar savu saiti un
     savu utm_term, saraksts pirmajā komentārā. Bloķējošie apstākļi: Play
@@ -1077,7 +1101,7 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
     now = now or utcnow()
     if not cfg.get("enabled") or paused(session):
         return None
-    channel = str(cfg.get("selection_channel") or "fb_tv3lv")
+    channel = selection_channels(cfg)[0]
     theme, genres = theme_for(day.weekday(), cfg)
     picked = selection_candidates(session, cfg, now, channel, genres)
     if len(picked) < 3 and genres:
@@ -1114,17 +1138,6 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
     if not media:
         return None
     used = picked[:len(media)]
-    slot = weekend._local_slot(day, int(cfg.get("selection_hour") or 19)) + timedelta(minutes=30)
-    from app import slots as _slots
-
-    queue = _slots._channel_queue(session, channel, slot)
-    for _ in range(4):
-        if not too_close_to_grim(queue, slot, rules):
-            break
-        slot += timedelta(minutes=45)
-    else:
-        log.info("Play izlase %s: plūsmā ap vakaru ir traģēdijas — šodien nē", day)
-        return None
     items = [{"title": _display_title(a), "url": _show_page(a),
               "show_id": play_data(a).get("show_id"), "article": a.id} for a in used]
     copy = (f"{theme} — {len(used)} filmas un seriāli, ko skatīties bez maksas TV3 Play. "
@@ -1133,18 +1146,33 @@ def build_selection(session, day, now: datetime | None = None, rules: dict | Non
     art = weekend._digest_article(session, guid, title, "entertainment", items[0]["url"])
     art.raw_json = {**(art.raw_json or {}), "_play": {"kind": "selection", "show_id": "",
                                                        "genres": ["izlase"]}}
-    post = weekend._schedule(session, art, "card_carousel", copy, media, items[0]["url"],
-                             SELECTION_MARKER, slot, channel=channel,
-                             card_links=[it["url"] for it in items],
-                             card_titles=[it["title"] for it in items], items=items,
-                             recipe={"kind": "play_selection", "theme": theme,
-                                     "articles": [a.id for a in used]})
-    if cfg.get("selection_requires_approval", False):
-        post.state = "proposed"
+    # Grafiku zīmējam VIENU reizi un liekam visos kanālos: karuselis ir tas
+    # pats, tikai plūsma cita. Katram kanālam savs slots un savs traģēdiju
+    # sargs — kanālu rindas ir dažādas.
+    posts: list[Post] = []
+    for name in selection_channels(cfg):
+        slot = _selection_slot(session, day, cfg, name, rules)
+        if slot is None:
+            log.info("Play izlase %s (%s): plūsmā ap vakaru ir traģēdijas — šodien nē",
+                     day, name)
+            continue
+        post = weekend._schedule(session, art, "card_carousel", copy, media,
+                                 items[0]["url"], SELECTION_MARKER, slot, channel=name,
+                                 card_links=[it["url"] for it in items],
+                                 card_titles=[it["title"] for it in items], items=items,
+                                 recipe={"kind": "play_selection", "theme": theme,
+                                         "articles": [a.id for a in used]})
+        if cfg.get("selection_requires_approval", False):
+            post.state = "proposed"
+        posts.append(post)
+    if not posts:
+        return None
     session.commit()
-    set_setting(session, f"play:selection:{day.isoformat()}", str(post.id))
-    log.info("Play izlase %s: %d nosaukumi, ieraksts %s (%s)", day, len(used), post.id, post.state)
-    return post
+    set_setting(session, f"play:selection:{day.isoformat()}",
+                ",".join(str(p.id) for p in posts))
+    log.info("Play izlase %s: %d nosaukumi, ieraksti %s", day, len(used),
+             ", ".join(f"{p.id}@{p.channel} ({p.state})" for p in posts))
+    return posts[0]
 
 
 def tick(session, now: datetime | None = None) -> dict:

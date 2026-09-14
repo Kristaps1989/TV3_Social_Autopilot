@@ -163,7 +163,11 @@ play:
   exclude_genres: [ziņas, news]
   # P2: izlašu karuselis (pk/se/sv vakarā, redaktors apstiprina) un tilti no
   # rakstiem par raidījumu/personu (tikai izklaide/sports, tikai bez traģēdijas)
-  selection_channel: fb_tv3lv
+  # Kanāli, kuros izlase iet. Grafiku zīmējam vienu reizi un liekam visos;
+  # katram kanālam ir savs vakara slots un savs traģēdiju sargs. Threads
+  # karuseli prot (2–20 kartītes), un saišu saraksts tur aiziet atbildē.
+  selection_channels: [fb_tv3lv, threads_sport]
+  selection_channel: fb_tv3lv   # vecais viens kanāls; atstāts kā rezerve
   # Nedēļas režģis. Bez tēmas izlase ir «pieci nosaukumi, kas gadījās pa rokai»;
   # ar tēmu tai ir iemesls būt kopā un iemesls atgriezties nākamajā otrdienā.
   # `day`: 0=Pr, 1=Ot, 2=Tr, 3=Ce, 4=Pk, 5=Se, 6=Sv. Pirmdiena paliek brīva

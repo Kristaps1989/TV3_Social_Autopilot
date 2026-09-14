@@ -1092,3 +1092,59 @@ def test_selection_still_waits_when_the_editor_asks_for_approval(session, monkey
     session.commit()
     post = play.build_selection(session, datetime(2026, 9, 4).date(), NOW)
     assert post is not None and post.state == "proposed"
+
+
+def test_selection_goes_to_every_configured_channel_with_one_render(session, monkeypatch):
+    """Karuselis der arī Threads (API prot 2–20 kartītes). Grafiku zīmējam
+    vienu reizi; katram kanālam ir savs slots un savs traģēdiju sargs."""
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
+    _enabled(monkeypatch, selection_channels=["fb_tv3lv", "threads_sport"])
+    play.crawl(session, fetch=_fetch, now=NOW)
+    _third_show(session)
+    from app import cards
+
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    renders = []
+
+    def fake_cards(title, section, tag, points, image, question, **kw):
+        renders.append(title)
+        return [f"data/cards/p{i}.png" for i in range(len(points))]
+
+    monkeypatch.setattr(cards, "render_cards", fake_cards)
+    session.commit()
+    assert play.build_selection(session, datetime(2026, 9, 4).date(), NOW) is not None
+
+    posts = session.execute(
+        select(Post).where(Post.hook_type == play.SELECTION_MARKER)).scalars().all()
+    assert {p.channel for p in posts} == {"fb_tv3lv", "threads_sport"}
+    assert len(renders) == 1                      # grafika zīmēta vienu reizi
+    assert all(p.media == posts[0].media for p in posts)
+    assert all(len(p.extra["items"]) >= 3 for p in posts)
+
+
+def test_threads_selection_puts_the_whole_list_in_a_reply(session, monkeypatch):
+    """Apraksts sola «saites komentārā»; ja threads_link_in_reply ir izslēgts,
+    saraksts nekur neaizietu un ieraksts melotu."""
+    from app import pipeline
+
+    rules = {**config.load_rules(), "threads_link_in_reply": False}
+    a = Article(guid="sel-art", url="https://play.tv3.lv/sel-art/",
+                canonical_url="https://play.tv3.lv/sel-art/", title="Izlase",
+                section="entertainment", published_at=NOW)
+    session.add(a)
+    session.flush()
+    post = Post(article_id=a.id, channel="threads_sport", format="card_carousel",
+                copy="Piektdienas vakaram", state="scheduled", scheduled_at=NOW,
+                hook_type=play.SELECTION_MARKER, link_url="https://play.tv3.lv/x/",
+                extra={"items": [{"title": "Filma", "url": "https://play.tv3.lv/filmas/a-1/"},
+                                 {"title": "Seriāls", "url": "https://play.tv3.lv/video/b-2/"}]})
+    session.add(post)
+    session.flush()
+
+    text, in_reply = pipeline.compose_text(post, "threads", "https://play.tv3.lv/x/", rules)
+    assert in_reply is True
+    # nosaukumi aprakstā (Threads 500 zīmēs ietilpst), saites — atbildē
+    assert "1. Filma" in text and "https://play.tv3.lv/filmas/a-1/" not in text
+    comment = pipeline.first_comment_text(post, "threads", "https://play.tv3.lv/x/", rules)
+    assert "1. Filma" in comment and "2. Seriāls" in comment
+    assert comment.count("utm_source=threads") == 2
