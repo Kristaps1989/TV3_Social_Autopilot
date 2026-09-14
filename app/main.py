@@ -253,6 +253,11 @@ def fmt_dur(seconds):
     return f"{s // 60}:{s % 60:02d}"
 
 
+from app import reviewer_guide as _reviewer_guide
+
+# Pārbaudītāja angļu paskaidrojumi (skat. app/reviewer_guide.py) —
+# base.html tos rāda tikai pārbaudītāja sesijā.
+templates.env.globals["reviewer_guide"] = _reviewer_guide.guide_for
 templates.env.filters["local"] = to_local
 templates.env.filters["basename"] = lambda p: Path(str(p)).name
 templates.env.filters["num"] = fmt_num

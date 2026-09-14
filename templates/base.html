@@ -79,11 +79,26 @@ h1 { font-size:1.25rem; }
 </header>
 <main>
 {% if request.state.role == 'reviewer' %}
+{% set guide = reviewer_guide(request.url.path) %}
 <div class="notice" style="background:#fff4d6;border:1px solid #e0b64a;padding:.6rem .9rem;margin-bottom:1rem">
   <strong>Reviewer session (read-only).</strong> Every page is visible; publishing,
   disconnecting, settings and passwords are disabled for this session.
-  Pārbaudītāja sesija: tikai skatīšanās.
+  The editorial interface is in Latvian because it is used by the TV3 newsroom;
+  the panel below explains every element of this page in English.
 </div>
+{% if guide %}
+<div style="border:1px solid #cbd5e1;border-radius:8px;padding:.8rem 1rem;margin-bottom:1rem;background:#f8fafc">
+  <div style="font-weight:700;margin-bottom:.3rem">{{ guide.title }}</div>
+  {% for p in guide.permissions %}<code style="margin-right:.4rem">{{ p }}</code>{% endfor %}
+  <p style="margin:.5rem 0">{{ guide.intro }}</p>
+  <dl style="margin:0">
+  {% for label, meaning in guide.points %}
+    <dt style="font-weight:600;margin-top:.45rem">{{ label }}</dt>
+    <dd style="margin:.1rem 0 0 1rem">{{ meaning }}</dd>
+  {% endfor %}
+  </dl>
+</div>
+{% endif %}
 {% endif %}
 {% block content %}{% endblock %}
 </main>

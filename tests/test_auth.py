@@ -378,3 +378,38 @@ def test_reviewer_password_too_short_is_refused(client, session):
                     follow_redirects=False)
     assert "error=" in r.headers["location"]
     assert not auth.reviewer_configured(session)
+
+
+def test_reviewer_sees_english_explanations_of_every_screen(client, session):
+    """Meta noraidīja pirmo iesniegumu ar prasību lietot angļu valodu un
+    paskaidrot pogu nozīmi. Saskarne ir latviešu, jo to lieto redakcija —
+    tāpēc pārbaudītāja sesijā virs lapas ir angļu bloks ar API izsaukumiem."""
+    _admin(client, session)
+    client.post("/connect/reviewer-password", data={"password": "reviewer-2026"},
+                follow_redirects=False)
+    client.post("/logout", follow_redirects=False)
+    client.post("/login", data={"password": "reviewer-2026"}, follow_redirects=False)
+
+    html = client.get("/connect").text
+    assert "Accounts — connecting the Threads profile" in html
+    assert "GET /me?fields=id,username" in html
+    assert "threads_basic" in html
+
+    html = client.get("/logs").text
+    assert "one live API call per permission" in html
+    assert "GET /{media-id}/replies" in html
+
+    # redakcijas ikdienas skatā šī bloka nav
+    client.post("/logout", follow_redirects=False)
+    client.post("/login", data={"password": "slepens123"}, follow_redirects=False)
+    assert "Accounts — connecting" not in client.get("/connect").text
+
+
+def test_pages_without_a_guide_still_render_for_the_reviewer(client, session):
+    _admin(client, session)
+    client.post("/connect/reviewer-password", data={"password": "reviewer-2026"},
+                follow_redirects=False)
+    client.post("/logout", follow_redirects=False)
+    client.post("/login", data={"password": "reviewer-2026"}, follow_redirects=False)
+    r = client.get("/articles")
+    assert r.status_code == 200 and "Reviewer session" in r.text

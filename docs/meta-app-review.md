@@ -1,29 +1,39 @@
 # Meta App Review (Threads) — kā iesniegt tā, lai apstiprina
 
-Pirmais iesniegums (2026-09-13) neizgāja. No paša iesnieguma redzams, kāpēc
-pārbaudītājs nevarēja pabeigt darbu, pat ja atteikuma teksts nav pie rokas:
+## Ko Meta tiešām atbildēja (2026-09-14)
 
-1. **Pārbaudītājs nevarēja ienākt lietotnē.** Datu panelis ir aiz paroles, bet
-   laukā «test credentials» bija `n/a`. Meta pārbauda, lietojot lietotni pats —
-   bez pieteikšanās viņš redz tikai login formu.
-2. **Instrukcijas bez soļiem.** «Web reviewer instructions» aprakstīja, kas
-   lietotne ir, bet ne *kur klikšķināt*, lai redzētu katru atļauju darbībā.
-3. **Video nesakrita ar aprakstu.** `threads_manage_replies` aprakstā teikts,
-   ka pēc katra ieraksta top atbilde ar saiti; noteikumos tas bija izslēgts
-   (`threads_link_in_reply: false`), tāpēc video to nevarēja parādīt.
-   `threads_read_replies` solīja atbildes «tajā pašā ekrānā, kur ierakstu
-   apstiprināja» — tāda ekrāna nebija (tikai diagnostikas JSON).
-4. **Data handling atbilde** («We have postion DPO who would prepreare…») —
-   ar kļūdām un bez juridiskā nosaukuma. Meta to lasa.
-5. **Domēns.** Lietotnes domēns ir tv3.lv, bet pārbaudāmā saskarne ir
-   `tv3socialautopilot-production.up.railway.app`. Ja Settings → Basic →
-   App Domains nesatur arī Railway domēnu, pārbaudītājam adrese izskatās pēc
-   svešas lietotnes.
+Noraidījums nav par aprakstiem. Katrai atļaujai atnāca viens un tas pats
+iemesls:
 
-Kods tagad dod visu, ko instrukcijas sola: pārbaudītāja paroli (Konti →
-«Pārbaudītāja pieeja»), lietotājvārdu pie Threads «savienots», skatījumus un
-atbildes ieraksta priekšskatījumā ar pogu «Pielikt saiti atbildē», un
-`threads_link_in_reply: true` pēc noklusējuma.
+> **Screencast Not Aligned with Use Case Details** — Developer Policy 1.6.
+> «We have determined that your apps' use case is allowed, however, the
+> submitted screencast fails to demonstrate the end-to-end experience of the
+> use case described in the submission notes, hence the requested
+> permission/feature is rejected.»
+
+«Use case is allowed» nozīmē, ka teksti ir kārtībā. Iesniegtais video rādīja
+tikai konta pieslēgšanu sadaļā Konti — tas ir viens solis no pieciem, ko Meta
+prasa redzēt vienā ierakstā:
+
+1. pilnu pieteikšanās plūsmu;
+2. lietotāju, kas piešķir atļauju;
+3. **atļaujas lietojumu no sākuma līdz beigām** (šī bija tā, kuras trūka);
+4. angļu saskarnes valodu, parakstus un pogu nozīmes skaidrojumu;
+5. ja lietotne strādā no servera vai ar system user token — to jāpasaka.
+
+Tātad jālabo ir video, ne apraksti.
+
+## Angļu valoda — kā atrisināts
+
+Saskarne ir latviešu, jo to lieto TV3 redakcija. Pārsaukt visu angliski nozīmē
+pasliktināt rīku īstajiem lietotājiem. Tā vietā pārbaudītāja sesijā virs katras
+lapas ir **angļu paskaidrojumu bloks**: lapas nosaukums, atļauju atzīmes un
+saraksts «šī poga latviski → ko tā nozīmē un kuru Graph API izsaukumu lieto».
+To redz tikai pārbaudītājs (Konti → Pārbaudītāja pieeja), un ekrāna ierakstā
+tas nozīmē, ka katrs elements ir nosaukts angliski bez atsevišķas montāžas.
+
+Video tāpat jāieraksta ar **angļu parakstiem vai balsi** — panelis ir papildus,
+ne vietā.
 
 ## Pirms iesniegšanas (Meta lietotnē)
 
@@ -68,6 +78,14 @@ HOW TO LOG IN
    so you cannot post to the live TV3 profile by accident. A yellow banner
    at the top confirms the reviewer session.
 
+NOTE ON LANGUAGE
+The interface is in Latvian because it is used by the TV3 newsroom in Riga.
+For this review, every page you open in the reviewer session shows an
+English panel directly under the yellow banner: it names the screen, lists
+the permissions it uses, and explains each Latvian button and element
+together with the exact Graph API call behind it. No translation tool is
+needed.
+
 WHERE EACH PERMISSION IS USED
 threads_basic
   Menu "Konti" (Accounts) → card "Threads". The badge "savienots"
@@ -111,22 +129,80 @@ threads.net with the reply under it → back to the preview with views and
 replies → Diagnostika.
 ```
 
-## Video (viens ieraksts, ~3 min, bez montāžas)
+## Screencast — viens ieraksts, ~4 min, bez montāžas
 
-1. Ienāc ar **administratora** paroli (video jārāda īstā darbība).
-2. **Konti → Threads → «Pārslēgt / atjaunot savienojumu»** — parādi visu
-   OAuth logu līdz atgriešanai ar «savienots · @tv3.lv». (threads_basic)
-3. **Rinda** → atver ieplānotu Threads ierakstu → priekšskatījums →
-   «▶ Publicēt tagad». (threads_content_publish)
-4. Atver **threads.net/@tv3.lv** — ieraksts redzams, zem tā tv3.lv atbilde
-   ar saiti. (threads_manage_replies)
-5. Atpakaļ ieraksta priekšskatījumā: sadaļa «Threads: skatījumi un
-   atbildes» ar skatījumiem un atbilžu sarakstu. (threads_manage_insights,
-   threads_read_replies) Ja atbilžu vēl nav, atver ierakstu, kam tās ir.
-6. **Diagnostika → «Pārbaudīt Threads izsaukumus»** — JSON ar trim `ok: true`.
+Viens fails visām piecām atļaujām; Meta to pieņem vairākās vietās. Ieraksti
+1920×1080, peles kustības lēnas, katrā solī 3–5 sekundes pauze, lai
+pārbaudītājs paspēj izlasīt. Angļu paraksti (vai balss) obligāti.
 
-Katrai atļaujai formā var pievienot to pašu video; Meta pieņem vienu failu
-vairākās vietās.
+**0. Sākums (10 s).** Rādi pārlūka adreses joslu ar
+`tv3socialautopilot-production.up.railway.app`. Paraksts: *«Internal editorial
+tool of TV3 Group Latvia. It publishes tv3.lv news to TV3's own Threads
+profile.»*
+
+**1. Pieteikšanās (20 s) — prasība nr. 1.** Atver `/login`, ieraksti paroli,
+ienāc. Paraksts: *«The tool has its own login. This is not a Meta login —
+Meta authentication happens in step 2.»* Neizlaid šo soli: Meta prasa redzēt
+«the complete login flow» arī tad, ja tā ir lietotnes pašas parole.
+
+**2. OAuth un atļauju piešķiršana (40 s) — prasība nr. 2.** Konti → kartīte
+Threads → «Pārslēgt / atjaunot savienojumu». Rādi **visu** Threads logu:
+kontu izvēli, **atļauju sarakstu ar visiem pieciem nosaukumiem** un pogu
+«Allow». Šis ekrāns ir tas, ko Meta sauc par «a user granting app access»;
+apstājies uz tā vismaz 5 sekundes, lai atļaujas ir salasāmas. Atgriezies
+lietotnē — rādi «savienots · @tv3.lv». Paraksts: *«GET /me returns the
+username, shown here so the editor can confirm the official TV3 profile.»*
+→ **threads_basic**
+
+**3. Ieraksta sagatavošana un publicēšana (60 s) — prasība nr. 3.** Rinda →
+atver ieplānotu Threads ierakstu → priekšskatījums. Rādi tekstu un attēlu,
+paraksts: *«Exactly what will be sent to POST /{user-id}/threads.»* Nospied
+«▶ Publicēt tagad». Atgriezies rindā — statuss «publicēts».
+→ **threads_content_publish**
+
+**4. Ieraksts dzīvajā profilā (30 s).** Atver `threads.net/@tv3.lv` jaunā cilnē.
+Rādi tikko publicēto ierakstu **un zem tā tv3.lv atbildi ar raksta saiti**.
+Paraksts: *«After publishing, the app posts exactly one reply from the same
+profile containing the link to the full article.»*
+→ **threads_manage_replies**
+
+**5. Skatījumi un atbildes redakcijā (50 s).** Atpakaļ ieraksta
+priekšskatījumā, ritini līdz sadaļai «Threads: skatījumi un atbildes». Rādi
+skaitļus un atbilžu sarakstu. Paraksts: *«GET /{media-id}/insights gives views
+and likes; GET /{media-id}/replies gives the replies, shown to the editor next
+to the post.»* Ja atbilžu vēl nav, atver vecāku ierakstu, kam tās ir — tukšs
+saraksts šo soli neapliecina.
+→ **threads_manage_insights**, **threads_read_replies**
+
+**6. Kam skaitļi der (20 s).** Statistika → rādi formātu un stundu rindas.
+Paraksts: *«The same numbers are aggregated per format and hour; formats that
+perform poorly are scheduled less often.»* Tas ir «adds value for a person
+using your app», ko prasa apraksta lauks.
+
+**7. Pārbaude (20 s).** Diagnostika → «Pārbaudīt Threads izsaukumus» → rādi
+JSON ar `ok: true` katrai atļaujai.
+
+Ierakstu taisi ar **administratora** paroli (pārbaudītāja sesijā pogas ir
+slēgtas). Pārbaudītāja paroli lieto tikai formā — lai viņš pats var staigāt
+pa lapām.
+
+## Kas jāpasaka par pieteikšanās plūsmu (prasība nr. 5)
+
+Iesnieguma lauka beigās katrai atļaujai pievieno šo rindkopu:
+
+```
+Note on the authentication flow: this app uses the Threads API with its own
+Threads app credentials, so the authorization screen in the screencast is the
+Threads OAuth flow at threads.net/oauth/authorize, not the Facebook Login
+dialog. Facebook Login is not integrated. The app is not server-to-server and
+does not use a system user token: the access token is obtained through the
+user-granted OAuth flow shown in the recording and refreshed automatically
+every 60 days. The tool's own password login shown at the start of the
+recording is our application's login, unrelated to Meta.
+```
+
+Tas tieši atbild uz punktu, kurā Meta prasa pateikt, ja «frontend Meta login
+authentication flow is not visible».
 
 ## Data handling (atbildes)
 
@@ -140,10 +216,21 @@ vairākās vietās.
 
 ## Atļauju apraksti — kas jāmaina pret pirmo iesniegumu
 
-Apraksti kā tādi bija labi. Divas rindas jāpielabo, lai tie atbilst tam,
-ko video rāda:
+Meta tos pieņēma («use case is allowed»), tāpēc pārrakstīt nevajag. Divas
+rindas jāpielabo, lai tie atbilst tam, ko jaunais video rāda, un katram
+beigās jāpieliek rindkopa par pieteikšanās plūsmu (augstāk):
 
 - `threads_read_replies`: «…shows them to the editor on the post's preview
-  page in the section "Threads: skatījumi un atbildes"…»
-- `threads_manage_insights`: «…views and likes are shown on the post's
-  preview page and aggregated on the "Statistika" page…»
+  page in the section "Threads: skatījumi un atbildes" (Threads: views and
+  replies)…»
+- `threads_manage_insights`: «…views and likes are shown on the post's preview
+  page and aggregated on the "Statistika" (Statistics) page…»
+
+## Iesniegšanas secība
+
+1. Uzliec pārbaudītāja paroli (Konti → Pārbaudītāja pieeja).
+2. Ieraksti video pēc scenārija augstāk.
+3. Katrai piecām atļaujām: pielabo aprakstu, pieliec rindkopu par
+   pieteikšanās plūsmu, augšupielādē **to pašu** video, atzīmē «I agree…».
+4. Reviewer instructions — teksts augstāk, ar īsto paroli.
+5. Submit. Atbilde parasti 3–5 darba dienās.
