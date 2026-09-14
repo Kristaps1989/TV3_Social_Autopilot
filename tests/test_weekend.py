@@ -851,7 +851,7 @@ def test_franchises_go_to_every_configured_channel_with_one_render(session, monk
     weekend.run(session, SUN)
     posts = session.execute(select(Post).where(
         Post.hook_type == "digest")).scalars().all()
-    assert {p.channel for p in posts} == {"fb_tv3lv", "threads_sport"}
+    assert {p.channel for p in posts} == {"fb_tv3lv", "threads_tv3lv"}
     assert len(renders) == 1
     assert all(p.media == posts[0].media for p in posts)
     assert len({p.scheduled_at for p in posts}) == 1
@@ -863,12 +863,12 @@ def test_a_channel_that_cannot_do_the_format_is_left_out(monkeypatch):
     monkeypatch.setattr(config, "load_channels", lambda: {
         "fb_tv3lv": {"formats": ["link", "card_carousel"]},
         "ig_tv3lv": {"formats": ["photo", "card_carousel"]},
-        "threads_sport": {"formats": ["link", "card_carousel"]}})
-    rules = {"franchise_channels": {"icymi": ["ig_tv3lv", "threads_sport"],
-                                    "quiz": ["ig_tv3lv", "threads_sport"]}}
+        "threads_tv3lv": {"formats": ["link", "card_carousel"]}})
+    rules = {"franchise_channels": {"icymi": ["ig_tv3lv", "threads_tv3lv"],
+                                    "quiz": ["ig_tv3lv", "threads_tv3lv"]}}
     assert weekend.channels_for("icymi", "link", "fb_tv3lv", rules) == [
-        "fb_tv3lv", "threads_sport"]
+        "fb_tv3lv", "threads_tv3lv"]
     assert weekend.channels_for("quiz", "card_carousel", "fb_tv3lv", rules) == [
-        "fb_tv3lv", "ig_tv3lv", "threads_sport"]
+        "fb_tv3lv", "ig_tv3lv", "threads_tv3lv"]
     # nezināms marķieris -> tikai primārais kanāls
     assert weekend.channels_for("cits", "link", "fb_tv3lv", rules) == ["fb_tv3lv"]

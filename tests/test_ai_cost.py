@@ -125,13 +125,13 @@ def test_channel_drift_catches_a_channel_frozen_at_first_boot(tmp_path, monkeypa
     monkeypatch.setattr(config, "RULES_DIR", tmp_path)
     blocks = config._yaml_blocks(
         (config.DEFAULT_RULES_DIR / "channels.yaml").read_text(encoding="utf-8"))
-    stale = blocks["threads_sport"].replace("  sections: []", "  sections: [sport]")
+    stale = blocks["threads_tv3lv"].replace("  sections: []", "  sections: [sport]")
     (tmp_path / "channels.yaml").write_text(stale + "\n", encoding="utf-8")
 
     drift = config.rule_drift("channels.yaml")
-    assert "sections" in drift["threads_sport"]
+    assert "sections" in drift["threads_tv3lv"]
 
-    assert config.reset_rule_block("threads_sport", keep=("active",),
+    assert config.reset_rule_block("threads_tv3lv", keep=("active",),
                                    name="channels.yaml") is True
     assert config.rule_drift("channels.yaml") == {}
 
@@ -204,3 +204,63 @@ def test_cost_report_estimates_dollars_per_model(session):
     # 1M ievade x $5 + 0.1M izvade x $25 = $7.50
     assert out["by_model"]["claude-opus-5"]["usd"] == 7.5
     assert out["usd"] == 7.5
+
+
+def test_old_threads_key_is_renamed_on_the_server_copy(tmp_path, monkeypatch):
+    """`threads_sport` mulsināja: Threads publicē tv3.lv konts ar visām
+    sadaļām. Pārsaukt drīkst tikai ar migrāciju — citādi jaunā atslēga
+    ienāktu blakus vecajai kā otrs Threads kanāls ar dubultiem ierakstiem."""
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    blocks = config._yaml_blocks(
+        (config.DEFAULT_RULES_DIR / "channels.yaml").read_text(encoding="utf-8"))
+    stale = blocks["threads_tv3lv"].replace("threads_tv3lv:", "threads_sport:", 1)
+    stale = stale.replace("  sections: []", "  sections: [sport]\n  paused: true")
+    (tmp_path / "channels.yaml").write_text(stale + "\n", encoding="utf-8")
+    (tmp_path / "rules.yaml").write_text(
+        "play:\n  selection_channels: [fb_tv3lv, threads_sport]\n"
+        "franchise_channels:\n  quiz: [threads_sport]\n", encoding="utf-8")
+
+    done = config.migrate_channel_keys()
+    assert len(done) == 2
+
+    live = config._load_yaml(tmp_path / "channels.yaml")
+    assert set(live) == {"threads_tv3lv"}           # nevis divi Threads kanāli
+    assert live["threads_tv3lv"]["paused"] is True  # redaktora labojumi paliek
+    assert live["threads_tv3lv"]["sections"] == ["sport"]
+    rules = config._load_yaml(tmp_path / "rules.yaml")
+    assert rules["play"]["selection_channels"] == ["fb_tv3lv", "threads_tv3lv"]
+    assert rules["franchise_channels"]["quiz"] == ["threads_tv3lv"]
+
+    assert config.migrate_channel_keys() == []      # otrreiz nav ko darīt
+    assert "sections" in config.rule_drift("channels.yaml")["threads_tv3lv"]
+
+
+def test_both_keys_present_means_someone_meant_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "RULES_DIR", tmp_path)
+    (tmp_path / "channels.yaml").write_text(
+        "threads_sport:\n  platform: threads\nthreads_tv3lv:\n  platform: threads\n",
+        encoding="utf-8")
+    assert config.migrate_channel_keys() == []
+    assert set(config._load_yaml(tmp_path / "channels.yaml")) == {
+        "threads_sport", "threads_tv3lv"}
+
+
+def test_db_rows_follow_the_renamed_channel(session):
+    from app import db
+    from app.models import Evaluation, Post
+
+    a = _article(session)
+    session.add(Post(article_id=a.id, channel="threads_sport", format="link",
+                     state="scheduled", copy="x"))
+    session.add(Evaluation(article_id=a.id, channel="threads_sport",
+                           outcome="eligible"))
+    session.add(Post(article_id=a.id, channel="fb_tv3lv", format="link",
+                     state="scheduled", copy="y"))
+    session.commit()
+
+    assert db.migrate_channel_keys() == {"threads_sport": 2}
+    session.expire_all()
+    assert sorted(p.channel for p in session.query(Post)) == [
+        "fb_tv3lv", "threads_tv3lv"]
+    assert session.query(Evaluation).one().channel == "threads_tv3lv"
+    assert db.migrate_channel_keys() == {}

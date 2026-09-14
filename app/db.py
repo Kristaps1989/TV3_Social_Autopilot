@@ -71,3 +71,26 @@ def _migrate() -> None:
                 conn.execute(text(ddl))
         except Exception:  # noqa: BLE001 — column already exists
             pass
+    migrate_channel_keys()
+
+
+def migrate_channel_keys() -> dict[str, int]:
+    """Pārnes pārsauktās kanālu atslēgas (config.CHANNEL_RENAMES) DB rindās.
+
+    `posts.channel` un `evaluations.channel` glabā atslēgu kā tekstu, tāpēc
+    pārsaukšana YAML failos bez šī atstātu vēsturi un rindu zem vecā vārda —
+    ieplānotie ieraksti vairs neatrastu savu kanālu un nekad neiznāktu.
+    """
+    from sqlalchemy import text
+
+    moved: dict[str, int] = {}
+    for old, new in config.CHANNEL_RENAMES.items():
+        n = 0
+        for table in ("posts", "evaluations"):
+            with engine.begin() as conn:
+                n += conn.execute(
+                    text(f"UPDATE {table} SET channel = :new WHERE channel = :old"),
+                    {"new": new, "old": old}).rowcount
+        if n:
+            moved[old] = n
+    return moved

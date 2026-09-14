@@ -166,7 +166,7 @@ play:
   # Kanāli, kuros izlase iet. Grafiku zīmējam vienu reizi un liekam visos;
   # katram kanālam ir savs vakara slots un savs traģēdiju sargs. Threads
   # karuseli prot (2–20 kartītes), un saišu saraksts tur aiziet atbildē.
-  selection_channels: [fb_tv3lv, threads_sport]
+  selection_channels: [fb_tv3lv, threads_tv3lv]
   selection_channel: fb_tv3lv   # vecais viens kanāls; atstāts kā rezerve
   # Nedēļas režģis. Bez tēmas izlase ir «pieci nosaukumi, kas gadījās pa rokai»;
   # ar tēmu tai ir iemesls būt kopā un iemesls atgriezties nākamajā otrdienā.
@@ -446,15 +446,15 @@ stale_publish_guard: true
 # X (x_tv3zinas) sarakstos NAV apzināti: tur katrs ieraksts ar saiti maksā
 # $0.20. Pieliec to, ja gribi, un vispirms uzliec kanālam `daily_cap`.
 franchise_channels:
-  digest: [threads_sport, ig_tv3lv]        # nedēļas / sporta TOP 5 (karuselis)
-  mondaytop5: [threads_sport, ig_tv3lv]    # nogales TOP 5 (karuselis)
-  quiz: [threads_sport, ig_tv3lv]          # nedēļas QUIZ (karuselis)
-  digestreel: [ig_tv3lv, threads_sport]    # «Nedēļa 30 sekundēs» (lente)
-  number: [threads_sport, ig_tv3lv]        # nedēļas skaitlis (foto)
-  question: [threads_sport, ig_tv3lv]      # trešdienas jautājums (foto)
+  digest: [threads_tv3lv, ig_tv3lv]        # nedēļas / sporta TOP 5 (karuselis)
+  mondaytop5: [threads_tv3lv, ig_tv3lv]    # nogales TOP 5 (karuselis)
+  quiz: [threads_tv3lv, ig_tv3lv]          # nedēļas QUIZ (karuselis)
+  digestreel: [ig_tv3lv, threads_tv3lv]    # «Nedēļa 30 sekundēs» (lente)
+  number: [threads_tv3lv, ig_tv3lv]        # nedēļas skaitlis (foto)
+  question: [threads_tv3lv, ig_tv3lv]      # trešdienas jautājums (foto)
   mondaystory: [ig_tv3lv]                  # stāsts (story)
   dailystory: [ig_tv3lv]                   # dienas stāsts (story)
-  icymi: [threads_sport]                   # nepamanītais raksts (saite)
-  evergreen: [threads_sport]               # arhīva raksts (saite)
-  yearago: [threads_sport]                 # pirms gada (saite)
-  guide: [threads_sport]                   # nogales gids (saite)
+  icymi: [threads_tv3lv]                   # nepamanītais raksts (saite)
+  evergreen: [threads_tv3lv]               # arhīva raksts (saite)
+  yearago: [threads_tv3lv]                 # pirms gada (saite)
+  guide: [threads_tv3lv]                   # nogales gids (saite)

@@ -1,7 +1,7 @@
 """Threads atļauju pārbaude: viens īsts lasīšanas izsaukums katrai."""
 import pytest
 
-from app import diagnostics
+from app import config, diagnostics
 from app.models import Post, utcnow
 
 
@@ -32,13 +32,15 @@ class FakeThreads:
 
 @pytest.fixture()
 def fake(monkeypatch):
+    # kanālu saraksts no repo, ne no lokālās rediģējamās kopijas
+    monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
     adapter = FakeThreads()
     monkeypatch.setattr("adapters.get_adapter", lambda p: adapter)
     return adapter
 
 
 def _published(session):
-    post = Post(article_id=1, channel="threads_sport", format="photo",
+    post = Post(article_id=1, channel="threads_tv3lv", format="photo",
                 state="published", platform_post_id="p-1",
                 scheduled_at=utcnow(), published_at=utcnow())
     session.add(post)
@@ -81,7 +83,7 @@ def test_reply_button_writes_the_link_once(session, fake, monkeypatch):
 
     monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
     monkeypatch.setattr(config, "load_channels",
-                        lambda: {"threads_sport": {"platform": "threads"}})
+                        lambda: {"threads_tv3lv": {"platform": "threads"}})
     sent = []
     fake.comment = lambda pid, text: sent.append((pid, text)) or "reply-1"
 

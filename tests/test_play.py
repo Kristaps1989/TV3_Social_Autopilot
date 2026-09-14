@@ -1098,7 +1098,7 @@ def test_selection_goes_to_every_configured_channel_with_one_render(session, mon
     """Karuselis der arī Threads (API prot 2–20 kartītes). Grafiku zīmējam
     vienu reizi; katram kanālam ir savs slots un savs traģēdiju sargs."""
     monkeypatch.setattr(config, "RULES_DIR", config.DEFAULT_RULES_DIR)
-    _enabled(monkeypatch, selection_channels=["fb_tv3lv", "threads_sport"])
+    _enabled(monkeypatch, selection_channels=["fb_tv3lv", "threads_tv3lv"])
     play.crawl(session, fetch=_fetch, now=NOW)
     _third_show(session)
     from app import cards
@@ -1116,7 +1116,7 @@ def test_selection_goes_to_every_configured_channel_with_one_render(session, mon
 
     posts = session.execute(
         select(Post).where(Post.hook_type == play.SELECTION_MARKER)).scalars().all()
-    assert {p.channel for p in posts} == {"fb_tv3lv", "threads_sport"}
+    assert {p.channel for p in posts} == {"fb_tv3lv", "threads_tv3lv"}
     assert len(renders) == 1                      # grafika zīmēta vienu reizi
     assert all(p.media == posts[0].media for p in posts)
     assert all(len(p.extra["items"]) >= 3 for p in posts)
@@ -1133,7 +1133,7 @@ def test_threads_selection_puts_the_whole_list_in_a_reply(session, monkeypatch):
                 section="entertainment", published_at=NOW)
     session.add(a)
     session.flush()
-    post = Post(article_id=a.id, channel="threads_sport", format="card_carousel",
+    post = Post(article_id=a.id, channel="threads_tv3lv", format="card_carousel",
                 copy="Piektdienas vakaram", state="scheduled", scheduled_at=NOW,
                 hook_type=play.SELECTION_MARKER, link_url="https://play.tv3.lv/x/",
                 extra={"items": [{"title": "Filma", "url": "https://play.tv3.lv/filmas/a-1/"},

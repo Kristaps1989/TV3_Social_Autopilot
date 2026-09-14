@@ -105,11 +105,10 @@ ig_tv3lv:
   format_weights: {photo: 1.0, photo_album: 1.0, story: 0.6}
   click_weight: 0.5
 
-# Atslēga vēsturiska (kanāls sākumā bija domāts tikai sportam); publicējam
-# no tv3.lv konta, tāpēc saturs ir visas sadaļas. Atslēgu nepārsaucam, jo
-# channels.yaml rediģējamā kopija netiek sinhronizēta — jauna atslēga uz
-# servera dotu DIVUS Threads kanālus un dubultus ierakstus.
-threads_sport:
+# Publicē tv3.lv Threads konts, saturs — visas sadaļas. Agrāk atslēga bija
+# `threads_sport` (kanāls sākumā bija domāts tikai sportam); serverī un DB to
+# pārsauc automātiski pie starta (config.CHANNEL_RENAMES).
+threads_tv3lv:
   platform: threads
   display_name: "Threads — tv3.lv"
   feeds: [news_all, sport_all, entertainment_all, photo_posts]

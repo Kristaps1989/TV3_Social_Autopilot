@@ -350,7 +350,7 @@ atpakaļ tam, kas to apzināti izslēdza.
 
 ## Izlase iet arī Threads
 
-`selection_channels: [fb_tv3lv, threads_sport]`. Grafiku zīmējam **vienu reizi**
+`selection_channels: [fb_tv3lv, threads_tv3lv]`. Grafiku zīmējam **vienu reizi**
 un liekam abos kanālos — karuselis ir tas pats, tikai plūsma cita; Threads API
 karuseli prot (2–20 kartītes). Katram kanālam ir savs vakara slots un savs
 traģēdiju sargs, jo kanālu rindas ir dažādas: ja vienā kanālā ap vakaru ir

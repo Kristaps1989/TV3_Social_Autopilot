@@ -63,6 +63,12 @@ def ensure_editable_dirs() -> None:
         for f in source.glob("*"):
             if f.is_file() and not (target / f.name).exists():
                 shutil.copy2(f, target / f.name)
+    # Pārsauktas kanālu atslēgas jāpārnes PIRMS papildināšanas: citādi jaunā
+    # atslēga ienāktu kā «jauns kanāls» blakus vecajai, un Threads būtu divi.
+    try:
+        migrate_channel_keys()
+    except Exception as e:  # noqa: BLE001
+        log.warning("kanālu atslēgu pārsaukšana neizdevās: %s", e)
     # Uzsēšana notiek vienu reizi, bet noteikumi kodā turpina rasties. Bez šī
     # katrs jauns noteikums uz strādājošas instances paliek neredzams, līdz
     # kāds to pārkopē ar roku — un tā pēc katra izlaiduma.
@@ -70,6 +76,51 @@ def ensure_editable_dirs() -> None:
         sync_missing_rules()
     except Exception as e:  # noqa: BLE001 — konfigurācija nedrīkst neļaut startēt
         log.warning("rules.yaml papildināšana neizdevās: %s", e)
+
+
+# Vecā atslēga → jaunā. Kanāla atslēga ir vienlaikus channels.yaml bloka
+# nosaukums, rules.yaml kanālu sarakstu vērtība un DB `posts.channel`, tāpēc
+# pārsaukt to var tikai ar migrāciju visās trīs vietās — skat.
+# `migrate_channel_keys` (faili) un db.migrate_channel_keys (tabulas).
+CHANNEL_RENAMES = {
+    # Threads sākumā bija domāts tikai sportam; publicē tv3.lv konts ar visām
+    # sadaļām, un «sport» nosaukumā tikai mulsināja.
+    "threads_sport": "threads_tv3lv",
+}
+
+
+def migrate_channel_keys() -> list[str]:
+    """Pārsauc vecās kanālu atslēgas rediģējamajās YAML kopijās.
+
+    channels.yaml: bloka rinda `threads_sport:` kļūst par `threads_tv3lv:`,
+    viss bloka saturs (sadaļas, pauze, ieslēgums) paliek. rules.yaml: atslēga
+    kanālu sarakstos (`selection_channels`, `franchise_channels`). Ja jaunā
+    atslēga kopijā jau ir, veco neaiztiekam — tas nozīmētu, ka kāds abus
+    izveidojis ar nolūku.
+    """
+    if RULES_DIR.resolve() == DEFAULT_RULES_DIR.resolve():
+        return []
+    done: list[str] = []
+    for name in ("channels.yaml", "rules.yaml"):
+        path = RULES_DIR / name
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for old, new in CHANNEL_RENAMES.items():
+            if not re.search(rf"\b{re.escape(old)}\b", text):
+                continue
+            if name == "channels.yaml":
+                if re.search(rf"^{re.escape(new)}:", text, re.M):
+                    continue
+                text = re.sub(rf"^{re.escape(old)}:", f"{new}:", text, count=1,
+                              flags=re.M)
+            else:
+                text = re.sub(rf"\b{re.escape(old)}\b", new, text)
+            done.append(f"{name}: {old} → {new}")
+        path.write_text(text, encoding="utf-8")
+    if done:
+        log.info("kanālu atslēgas pārsauktas: %s", "; ".join(done))
+    return done
 
 
 def _editable(name: str, editable_dir: Path, default_dir: Path) -> Path:
