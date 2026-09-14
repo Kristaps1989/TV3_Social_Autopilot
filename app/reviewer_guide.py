@@ -34,7 +34,12 @@ GUIDES: list[tuple[str, dict]] = [
             ("Button «Savienot ar Threads» / «Pārslēgt / atjaunot savienojumu»",
              "«Connect to Threads» / «Switch or refresh the connection». Starts "
              "the Threads OAuth flow at threads.net/oauth/authorize, where the "
-             "user grants the permissions. Disabled in this read-only session."),
+             "user grants the permissions. It is greyed out here: starting the "
+             "flow would replace the live TV3 connection, so it is switched off "
+             "for the read-only reviewer login. The profile is already "
+             "connected, and the complete authorisation flow — the Threads "
+             "consent screen with all five permissions — is recorded in the "
+             "screencast attached to this submission."),
             ("«atslēga derīga līdz …»",
              "«Token valid until …» — the 60-day token is refreshed "
              "automatically."),

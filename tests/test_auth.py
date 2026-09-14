@@ -350,12 +350,12 @@ def test_reviewer_password_gives_a_read_only_session(client, session):
     assert client.get("/connect").status_code == 200        # lasa
     assert client.get("/logs").status_code == 200
     r = client.get("/connect/threads", follow_redirects=False)   # OAuth nesāk
-    assert r.headers["location"] == "/?reviewer=1"
+    assert r.headers["location"].endswith("ro=1")
     r = client.post("/connect/threads/disconnect", follow_redirects=False)
-    assert r.headers["location"] == "/?reviewer=1"
+    assert r.headers["location"].endswith("ro=1")
     r = client.post("/connect/reviewer-password", data={"clear": "1"},
                     follow_redirects=False)
-    assert r.headers["location"] == "/?reviewer=1"             # paroli nemaina
+    assert r.headers["location"].endswith("ro=1")             # paroli nemaina
     assert auth.reviewer_configured(session)
     assert "Reviewer session" in client.get("/").text
 
@@ -413,3 +413,37 @@ def test_pages_without_a_guide_still_render_for_the_reviewer(client, session):
     client.post("/login", data={"password": "reviewer-2026"}, follow_redirects=False)
     r = client.get("/articles")
     assert r.status_code == 200 and "Reviewer session" in r.text
+
+
+def test_blocked_action_returns_the_reviewer_to_the_same_page(client, session):
+    """Agrāk slēgta poga klusi aizmeta uz sākumlapu, un pārbaudītājam tas
+    izskatījās pēc kļūdas, ne pēc apzinātas robežas."""
+    _admin(client, session)
+    client.post("/connect/reviewer-password", data={"password": "reviewer-2026"},
+                follow_redirects=False)
+    client.post("/logout", follow_redirects=False)
+    client.post("/login", data={"password": "reviewer-2026"}, follow_redirects=False)
+
+    r = client.get("/connect/threads", follow_redirects=False,
+                   headers={"referer": "http://testserver/connect"})
+    assert r.headers["location"] == "/connect?ro=1"
+    assert "That control is disabled" in client.get("/connect?ro=1").text
+
+    # svešu izcelsmi novirzīšanā neliekam
+    r = client.get("/connect/threads", follow_redirects=False,
+                   headers={"referer": "https://evil.example/x"})
+    assert r.headers["location"] == "/?ro=1"
+
+
+def test_reviewer_pages_disable_the_controls_themselves(client, session):
+    _admin(client, session)
+    client.post("/connect/reviewer-password", data={"password": "reviewer-2026"},
+                follow_redirects=False)
+    client.post("/logout", follow_redirects=False)
+    client.post("/login", data={"password": "reviewer-2026"}, follow_redirects=False)
+    html = client.get("/connect").text
+    assert "ro-off" in html and "read-only reviewer session" in html
+
+    client.post("/logout", follow_redirects=False)
+    client.post("/login", data={"password": "slepens123"}, follow_redirects=False)
+    assert "ro-off" not in client.get("/connect").text

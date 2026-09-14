@@ -106,6 +106,16 @@ HOW TO LOG IN
    so you cannot post to the live TV3 profile by accident. A yellow banner
    at the top confirms the reviewer session.
 
+NOTE ON WRITING ACTIONS
+The reviewer account is read-only on purpose: it cannot publish to the live
+TV3 profile, disconnect the account, or change settings. Those controls are
+visible but greyed out, and clicking one shows a short explanation instead of
+doing anything. In particular, the "Connect to Threads" button on the
+Accounts screen is disabled, because starting the OAuth flow would replace
+TV3's live connection. The profile is already connected, and the complete
+authorisation flow — the Threads consent screen listing all five permissions
+— is recorded in the screencast attached to this submission.
+
 NOTE ON LANGUAGE
 The interface is in Latvian because it is used by the TV3 newsroom in Riga.
 For this review, every page you open in the reviewer session shows an

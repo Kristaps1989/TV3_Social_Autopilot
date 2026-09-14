@@ -93,7 +93,10 @@ async def require_login(request: Request, call_next):
         return RedirectResponse("/login", status_code=303)
     request.state.role = role
     if role == auth.ROLE_REVIEWER and not reviewer_may(request):
-        return RedirectResponse("/?reviewer=1", status_code=303)
+        # Atpakaļ uz to pašu lapu, nevis uz sākumu: pārbaudītājs, kas nospiedis
+        # slēgtu pogu, citādi pēkšņi atrodas citā lapā un tas izskatās pēc
+        # kļūdas, ne pēc apzinātas robežas. `ro=1` liek parādīt paskaidrojumu.
+        return RedirectResponse(_reviewer_bounce(request), status_code=303)
     return await call_next(request)
 
 
@@ -112,6 +115,21 @@ def reviewer_may(request: Request) -> bool:
         return path == "/logout"
     return not any(path == b or path.startswith(b + "/")
                    for b in REVIEWER_GET_BLOCKED)
+
+
+def _reviewer_bounce(request: Request) -> str:
+    """Kur atgriezt pārbaudītāju pēc slēgtas darbības — turpat, no kurienes nāca.
+
+    Referer pieņemam tikai no savas izcelsmes; svešu adresi ielikt
+    novirzīšanā nozīmētu atvērtu novirzītāju.
+    """
+    ref = request.headers.get("referer") or ""
+    base = str(request.base_url).rstrip("/")
+    path = "/"
+    if ref.startswith(base + "/"):
+        path = ref[len(base):].split("#")[0] or "/"
+        path = path.split("?")[0]
+    return f"{path}{'&' if '?' in path else '?'}ro=1"
 
 
 def _login_response(request: Request, session,

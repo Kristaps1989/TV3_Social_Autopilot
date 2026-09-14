@@ -85,7 +85,18 @@ h1 { font-size:1.25rem; }
   disconnecting, settings and passwords are disabled for this session.
   The editorial interface is in Latvian because it is used by the TV3 newsroom;
   the panel below explains every element of this page in English.
+  Controls that would change something are shown greyed out and do nothing.
 </div>
+{% if request.query_params.get('ro') %}
+<div class="notice err">
+  <strong>That control is disabled for the reviewer session.</strong>
+  Connecting or disconnecting an account, publishing, and changing settings are
+  writing actions, so they are switched off for this read-only login and you were
+  returned to the page you came from. The Threads profile is already connected:
+  the full authorisation flow is shown in the screencast attached to this
+  submission.
+</div>
+{% endif %}
 {% if guide %}
 <div style="border:1px solid #cbd5e1;border-radius:8px;padding:.8rem 1rem;margin-bottom:1rem;background:#f8fafc">
   <div style="font-weight:700;margin-bottom:.3rem">{{ guide.title }}</div>
@@ -102,5 +113,75 @@ h1 { font-size:1.25rem; }
 {% endif %}
 {% block content %}{% endblock %}
 </main>
+{% if request.state.role == 'reviewer' %}
+<style>
+  .ro-off { opacity: .45; cursor: not-allowed; }
+  #ro-note { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%);
+             max-width: min(38rem, 92vw); background: #1f2937; color: #fff;
+             padding: .7rem 1rem; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.3);
+             font-size: .9rem; z-index: 50; }
+</style>
+<script>
+/* Pārbaudītāja sesija raksta darbības neizpilda, bet līdz šim pogas izskatījās
+   parastas: nospiestas tās klusi aizmeta uz citu lapu, un tas izskatījās pēc
+   kļūdas. Te tās ir redzami neaktīvas un pašas pasaka, kāpēc. */
+(function () {
+  var ALLOW = ["/logout"];
+  var BLOCKED_LINKS = ["/connect/threads", "/connect/facebook", "/connect/x/start"];
+
+  function explain() {
+    var n = document.getElementById("ro-note");
+    if (!n) {
+      n = document.createElement("div");
+      n.id = "ro-note";
+      document.body.appendChild(n);
+    }
+    n.textContent = "Read-only reviewer session: this action would change data, "
+      + "so it is disabled. The Threads profile is already connected and the "
+      + "full authorisation flow is shown in the submitted screencast.";
+    clearTimeout(explain.t);
+    explain.t = setTimeout(function () { n.remove(); }, 6000);
+  }
+
+  document.querySelectorAll("form").forEach(function (f) {
+    if (ALLOW.indexOf(f.getAttribute("action") || "") !== -1) return;
+    f.addEventListener("submit", function (e) { e.preventDefault(); explain(); });
+    f.querySelectorAll("button, input[type=submit]").forEach(function (b) {
+      b.disabled = true;
+      b.classList.add("ro-off");
+      b.title = "Disabled in the read-only reviewer session";
+    });
+  });
+
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a) return;
+    var href = a.getAttribute("href") || "";
+    for (var i = 0; i < BLOCKED_LINKS.length; i++) {
+      if (href === BLOCKED_LINKS[i] || href.indexOf(BLOCKED_LINKS[i] + "/") === 0
+          || href.indexOf(BLOCKED_LINKS[i] + "?") === 0) {
+        e.preventDefault();
+        explain();
+        return;
+      }
+    }
+  }, true);
+
+  document.querySelectorAll("a[href]").forEach(function (a) {
+    var href = a.getAttribute("href") || "";
+    BLOCKED_LINKS.forEach(function (b) {
+      if (href === b || href.indexOf(b + "/") === 0) {
+        a.classList.add("ro-off");
+        a.title = "Disabled in the read-only reviewer session";
+        a.querySelectorAll("button").forEach(function (btn) {
+          btn.disabled = true;
+          btn.classList.add("ro-off");
+        });
+      }
+    });
+  });
+})();
+</script>
+{% endif %}
 </body>
 </html>
