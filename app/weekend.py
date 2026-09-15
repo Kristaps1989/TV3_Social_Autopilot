@@ -35,6 +35,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 
 from app import claude, config
+from app.best_practices import truncate_to
 from app.models import Article, Post, PostMetrics, get_setting, set_setting, utcnow
 
 log = logging.getLogger(__name__)
@@ -894,6 +895,12 @@ def build_year_ago(session, day, now: datetime | None = None) -> Post | None:
                      _local_slot(day, 15))
 
 
+# Cik gara «nedēļas skaitļa» rindiņa vēl ietilpst kartē vienā rindā, un cik
+# gars drīkst būt konteksta teikums zem tās.
+NUMBER_MAX_CHARS = 20
+NUMBER_CONTEXT_CHARS = 90
+
+
 def build_number(session, day, now: datetime | None = None) -> Post | None:
     """«Nedēļas skaitlis» (Ot 12:00): viens pārsteidzošs skaitlis no nedēļas
     TOP raksta uz brendētas kartes, konteksts — rakstā. Ja AI pārliecinošu
@@ -918,7 +925,18 @@ def build_number(session, day, now: datetime | None = None) -> Post | None:
             f"Ja pārliecinoša skaitļa nav, atbildi ar vienu vārdu: NAV."))
         if len(lines) < 2 or lines[0].upper().startswith("NAV"):
             continue
-        number, context = lines[0][:12].strip(), lines[1][:90].strip()
+        number, context = lines[0].strip(), lines[1].strip()
+        # Skaitli griezt nedrīkst. «50 miljoni dolāru», nogriezts pa vidu,
+        # kļuva par «50 miljoni d» — salauzts vārds, pazudusi mērvienība un
+        # uz kartes palicis apgalvojums, kas nav patiess. Karte garāku rindu
+        # uzzīmē mazākā izmērā; ja arī tam par garu, ņemam nākamo rakstu.
+        if len(number) > NUMBER_MAX_CHARS:
+            log.info("skaitlis «%s» par garu (%d rakstzīmes) — nākamais raksts",
+                     number, len(number))
+            continue
+        # Konteksts ir teikums, to saīsināt drīkst — bet pa vārdu robežu.
+        if len(context) > NUMBER_CONTEXT_CHARS:
+            context = truncate_to(context, NUMBER_CONTEXT_CHARS)
         if (not any(c.isdigit() for c in number) or has_relative_words(context)
                 or grim_words(context)):
             continue

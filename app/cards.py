@@ -1045,9 +1045,14 @@ def build_number_html(number: str, context: str, section: str,
         if blur_image:
             blur_layer = (f'<div class="blurbg" style="background-image:'
                           f'url({html.escape(blur_image, quote=True)})"></div>')
-    # garš skaitlis («1 240 000») nedrīkst izplūst ārpus kartes
-    n = len(number)
-    size = 300 if n <= 3 else (230 if n <= 5 else (170 if n <= 8 else 120))
+    # Garš skaitlis («50 miljoni dolāru») nedrīkst ne izplūst ārpus kartes,
+    # ne aplauzties otrā rindā: sarkanā svītra stāv tieši zem VIENAS rindas
+    # (260 + size + 40), tāpēc aplauzums to uzliktu virsū tekstam. Tāpēc
+    # nowrap, un izmēru izvēlamies tā, lai rinda ietilptu kartes platumā.
+    n = max(len(number), 1)
+    ladder = 300 if n <= 3 else (230 if n <= 5 else (170 if n <= 8 else 120))
+    # 64 px atkāpe abās pusēs; treknajā DejaVu Sans rakstzīme aizņem ap 0,66 em
+    size = max(64, min(ladder, int((width - 128) / (0.66 * n))))
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ margin:0; box-sizing:border-box; font-family:"DejaVu Sans",sans-serif; }}
 .numcard {{ width:{width}px; height:{height}px; position:relative;
@@ -1060,6 +1065,7 @@ def build_number_html(number: str, context: str, section: str,
   font-weight:bold; font-size:30px; letter-spacing:.12em; padding:12px 24px; }}
 .num {{ position:absolute; left:64px; right:64px; top:260px; color:#fff;
   font-size:{size}px; line-height:1; font-weight:bold; letter-spacing:-.02em;
+  white-space:nowrap;
   text-shadow:0 8px 40px rgba(0,0,0,.45); }}
 .rule {{ position:absolute; left:64px; top:{260 + size + 40}px; width:180px;
   height:10px; background:#e3000f; }}

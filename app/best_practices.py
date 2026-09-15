@@ -124,7 +124,7 @@ def effective_length(text: str, spec: PlatformSpec) -> int:
     return len(stripped) + n_urls * spec.link_char_cost
 
 
-def _truncate_to(text: str, limit: int) -> str:
+def truncate_to(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     cut = text[: limit - 1]
@@ -195,7 +195,7 @@ def sanitize_copy(copy: str, hashtags: list[str], platform: str,
     budget -= max(0, reserve_chars)
     limit = max(60, min(budget - tags_len, spec.ideal_max_chars))
     if effective_length(copy, spec) > limit:
-        copy = _truncate_to(copy, limit)
+        copy = truncate_to(copy, limit)
         fixes.append(f"truncated to {limit} chars")
 
     return copy.strip(), hashtags, fixes

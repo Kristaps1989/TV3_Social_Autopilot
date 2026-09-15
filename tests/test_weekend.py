@@ -763,6 +763,11 @@ def test_number_card_layout_scales_and_carries_the_date():
     # garš skaitlis nedrīkst izplūst ārpus kartes -> mazāks fonts
     assert "font-size:300px" in cards.build_number_html("47%", "K", "news")
     assert "font-size:120px" in doc      # 10 rakstzīmes -> mazākais fonts
+    # gara rinda paliek VIENĀ rindā: sarkanā svītra stāv zem vienas rindas,
+    # aplauzums to uzliktu virsū tekstam
+    long_doc = cards.build_number_html("50 miljoni dolāru", "K", "news")
+    assert "white-space:nowrap" in long_doc
+    assert "font-size:84px" in long_doc
 
 
 def test_quiz_cards_link_to_the_article_that_holds_the_answer(session,
@@ -872,3 +877,80 @@ def test_a_channel_that_cannot_do_the_format_is_left_out(monkeypatch):
         "fb_tv3lv", "ig_tv3lv", "threads_tv3lv"]
     # nezināms marķieris -> tikai primārais kanāls
     assert weekend.channels_for("cits", "link", "fb_tv3lv", rules) == ["fb_tv3lv"]
+
+
+def test_a_long_number_keeps_its_unit_instead_of_being_cut(session, monkeypatch):
+    """«50 miljoni dolāru», nogriezts pa 12. rakstzīmei, iznāca Threads kā
+    «50 miljoni d»: salauzts vārds, pazudusi mērvienība, un uz kartes palika
+    apgalvojums, kas nav patiess. Karte garāku rindu zīmē mazākā izmērā."""
+    from app import cards
+
+    art = _dated_article(session, "nb-usd",
+                         "Gallināri: Lenardam jāziedo 50 miljoni dolāru",
+                         datetime(2026, 9, 1, 6, 0), sessions=900)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+
+    def fake_card(number, context, section, image="", **kwargs):
+        seen.update(number=number, context=context)
+        return "data/cards/n.png"
+
+    monkeypatch.setattr(cards, "render_number_card", fake_card)
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "50 miljoni dolāru", "Tik daudz Gallināri liktu ziedot labdarībai"])
+
+    post = weekend.build_number(session, TUE.date(), TUE)
+    assert post is not None and post.article_id == art.id
+    assert seen["number"] == "50 miljoni dolāru"
+    assert post.copy.startswith("50 miljoni dolāru — ")
+
+
+def test_a_number_too_long_for_the_card_moves_to_the_next_story(session, monkeypatch):
+    """Ja skaitlis kartē neietilpst arī mazākajā izmērā, to negriež — ņem
+    nākamo rakstu. Nogriezts skaitlis ir nepatiess, tukša diena nav."""
+    from app import cards
+
+    _dated_article(session, "nb-verylong", "Pārskatā minēti daudzi skaitļi",
+                   datetime(2026, 9, 1, 6, 0), sessions=900)
+    good = _dated_article(session, "nb-good", "Budžetā trūkst 47 miljoni eiro",
+                          datetime(2026, 9, 1, 6, 0), sessions=700)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+    monkeypatch.setattr(cards, "render_number_card",
+                        lambda number, context, section, image="", **kw:
+                        (seen.update(number=number), "data/cards/n.png")[1])
+
+    def fake(session_, prompt="", **kwargs):
+        if "daudzi skaitļi" in prompt:
+            return ["128 miljardi eiro gadā un vēl mazliet", "Konteksts te"]
+        return ["47 milj. €", "Tik daudz trūkst pašvaldību budžetos"]
+
+    monkeypatch.setattr(weekend, "_ai_lines", fake)
+    post = weekend.build_number(session, TUE.date(), TUE)
+    assert post is not None and post.article_id == good.id
+    assert seen["number"] == "47 milj. €"
+
+
+def test_a_long_context_line_is_cut_on_a_word_boundary(session, monkeypatch):
+    from app import cards
+
+    _dated_article(session, "nb-ctx", "Budžetā trūkst 47 miljoni eiro",
+                   datetime(2026, 9, 1, 6, 0), sessions=700)
+    monkeypatch.setattr(cards, "renderer_available", lambda: True)
+    seen = {}
+    monkeypatch.setattr(cards, "render_number_card",
+                        lambda number, context, section, image="", **kw:
+                        (seen.update(context=context), "data/cards/n.png")[1])
+    monkeypatch.setattr(weekend, "_ai_lines", lambda *a, **k: [
+        "47 milj. €",
+        "Tik daudz nākamgad trūkst pašvaldību budžetos visā Latvijā "
+        "un tāpēc deputātiem nāksies meklēt jaunus ieņēmumu avotus"])
+
+    assert weekend.build_number(session, TUE.date(), TUE) is not None
+    ctx = seen["context"]
+    assert len(ctx) <= weekend.NUMBER_CONTEXT_CHARS
+    assert ctx.endswith("…") and not ctx.rstrip("…").endswith(" ")
+    # pēdējais vārds ir vesels, ne nogriezts pa vidu
+    assert ctx.rstrip("…").split()[-1] in (
+        "Tik daudz nākamgad trūkst pašvaldību budžetos visā Latvijā "
+        "un tāpēc deputātiem nāksies meklēt jaunus ieņēmumu avotus").split()
